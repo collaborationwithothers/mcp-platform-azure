@@ -94,3 +94,16 @@ ready-for-agent, ready-for-human, wontfix. See docs/agents/triage-labels.md.
 Multi-context: root CONTEXT-MAP.md points at infra/CONTEXT.md and src/CONTEXT.md.
 ADRs live under docs/decisions/ (per governance), not docs/adr/. See
 docs/agents/domain.md.
+
+### Continuous integration
+
+.github/workflows/ci.yml runs on every pull_request and on push to main. It has
+two jobs whose names are required status checks and must stay stable:
+terraform-checks (fmt, per-directory init -backend=false + validate, tflint with
+the root .tflint.hcl, checkov) and dotnet-build (build + test). There are no
+trigger-level path filters, so both jobs always run; instead each step guards
+itself with find and prints SKIPPED until real .tf / .csproj files land. Pinned
+toolchain, verified 2026-07-11: Terraform 1.15.8 (checkpoint-api.hashicorp.com),
+.NET 10 LTS (Functions 4.x isolated worker per Microsoft Learn), tflint-ruleset-
+azurerm 0.32.0. When infra adds a required_version, keep it in step with the
+setup-terraform pin here.

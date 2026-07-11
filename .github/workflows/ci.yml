@@ -1,0 +1,170 @@
+# Continuous integration for the MCP-on-Azure platform.
+#
+# The two jobs below (terraform-checks, dotnet-build) are wired up as required
+# status checks in branch protection, so their names must stay stable and both
+# jobs must ALWAYS run. That is why there are no path filters at the trigger
+# level: a required check that is skipped by a path filter reports as "pending"
+# forever and blocks every PR. Instead, each individual step guards itself with
+# a find/test and prints SKIPPED when there is nothing to check yet (the repo is
+# a Phase 0 skeleton: infra/ and src/ exist but hold no .tf or .csproj files).
+#
+# Tool versions are verified against primary sources on 2026-07-11:
+# - Terraform 1.15.8: https://checkpoint-api.hashicorp.com/v1/check/terraform
+# - .NET 10 (LTS) for Azure Functions 4.x isolated worker:
+#   https://learn.microsoft.com/azure/azure-functions/dotnet-isolated-process-guide#supported-versions
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: CI only reads the repository. No token is needed for the
+# checks below, and no write scopes are granted.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref so only the newest commit is checked.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terraform-checks:
+    name: terraform-checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect Terraform files under infra/
+        id: detect
+        shell: bash
+        run: |
+          if [ -d infra ] && [ -n "$(find infra -type f -name '*.tf' -print -quit)" ]; then
+            echo "has_tf=true" >> "$GITHUB_OUTPUT"
+            echo "Found .tf files under infra/."
+          else
+            echo "has_tf=false" >> "$GITHUB_OUTPUT"
+            echo "No .tf files under infra/ yet."
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+          # Disable the output wrapper so plain terraform runs cleanly in loops.
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        shell: bash
+        run: |
+          if [ "${{ steps.detect.outputs.has_tf }}" != "true" ]; then
+            echo "SKIPPED: no .tf files under infra/."
+            exit 0
+          fi
+          terraform fmt -check -recursive infra/
+
+      - name: terraform init and validate
+        shell: bash
+        run: |
+          if [ "${{ steps.detect.outputs.has_tf }}" != "true" ]; then
+            echo "SKIPPED: no .tf files under infra/."
+            exit 0
+          fi
+          # Validate every directory that directly contains .tf files.
+          dirs="$(find infra -type f -name '*.tf' -exec dirname {} \; | sort -u)"
+          for d in $dirs; do
+            echo "== ${d} =="
+            terraform -chdir="${d}" init -backend=false -input=false
+            terraform -chdir="${d}" validate
+          done
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: tflint
+        shell: bash
+        env:
+          # Resolve the committed config regardless of --chdir.
+          TFLINT_CONFIG_FILE: ${{ github.workspace }}/.tflint.hcl
+        run: |
+          if [ "${{ steps.detect.outputs.has_tf }}" != "true" ]; then
+            echo "SKIPPED: no .tf files under infra/."
+            exit 0
+          fi
+          # tflint --init downloads the azurerm plugin anonymously from GitHub.
+          # If shared-runner rate limits ever cause this to fail, set a
+          # GITHUB_TOKEN env on this step from the built-in github.token (read
+          # only, no new secret needed). Left off for now to keep CI secret-free.
+          tflint --init
+          tflint --chdir=infra --recursive
+
+      - name: checkov
+        shell: bash
+        run: |
+          if [ "${{ steps.detect.outputs.has_tf }}" != "true" ]; then
+            echo "SKIPPED: no .tf files under infra/."
+            exit 0
+          fi
+          # pipx is preinstalled on ubuntu-latest runners.
+          pipx install checkov
+          checkov --directory infra --quiet --compact
+
+  dotnet-build:
+    name: dotnet-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect .NET projects under src/
+        id: detect
+        shell: bash
+        run: |
+          if [ -d src ] && [ -n "$(find src -type f \( -name '*.sln' -o -name '*.csproj' \) -print -quit)" ]; then
+            echo "has_dotnet=true" >> "$GITHUB_OUTPUT"
+            echo "Found .sln/.csproj under src/."
+          else
+            echo "has_dotnet=false" >> "$GITHUB_OUTPUT"
+            echo "No .sln/.csproj under src/ yet."
+          fi
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: dotnet build and test
+        shell: bash
+        run: |
+          if [ "${{ steps.detect.outputs.has_dotnet }}" != "true" ]; then
+            echo "SKIPPED: no .sln or .csproj under src/."
+            exit 0
+          fi
+          # Prefer a solution when one exists; it defines the build/test set.
+          sln="$(find src -type f -name '*.sln' -print -quit)"
+          if [ -n "$sln" ]; then
+            echo "Building and testing solution: ${sln}"
+            dotnet build "$sln" --configuration Release
+            dotnet test "$sln" --configuration Release --no-build
+            exit 0
+          fi
+          # No solution: build every project, then test projects under */tests/*.
+          echo "No .sln found; building each project under src/."
+          while IFS= read -r -d '' proj; do
+            echo "== build ${proj} =="
+            dotnet build "$proj" --configuration Release
+          done < <(find src -type f -name '*.csproj' -print0)
+          test_found=false
+          while IFS= read -r -d '' proj; do
+            test_found=true
+            echo "== test ${proj} =="
+            dotnet test "$proj" --configuration Release --no-build
+          done < <(find src -path '*/tests/*' -type f -name '*.csproj' -print0)
+          if [ "$test_found" = "false" ]; then
+            echo "No test projects found under src/**/tests; nothing to test."
+          fi
