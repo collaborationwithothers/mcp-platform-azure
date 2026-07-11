@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "azure": {
+      "command": "azmcp",
+      "args": [
+        "server", "start",
+        "--read-only",
+        "--namespace", "group",
+        "--namespace", "functionapp",
+        "--namespace", "monitor"
+      ]
+    },
+    "microsoft-learn": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp"
+    },
+    "terraform": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "hashicorp/terraform-mcp-server:1.0.0"
+      ]
+    }
+  }
+}

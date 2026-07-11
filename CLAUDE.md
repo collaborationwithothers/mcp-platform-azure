@@ -63,6 +63,9 @@ planning any work. Everything here is public and carries Hari's name.
   date. Demo data is synthetic and must be labelled synthetic.
 - If you do not know, say so in the PR rather than guessing. A stalled issue
   is recoverable; a confident wrong public doc is not.
+- Verification of Azure claims is performed with the azure-docs-verifier
+  subagent, not by recalling training data. If the verifier returns
+  UNVERIFIABLE, the claim does not go into code or docs.
 
 ### Style
 
@@ -71,6 +74,13 @@ planning any work. Everything here is public and carries Hari's name.
 - Docs land in the same PR as the code they describe. No code-only PRs.
 - ADRs record real reasoning and rejected alternatives, not generic
   explanations.
+
+### Models
+
+- Implementation sessions run on Sonnet 5 (effort high).
+- Review passes (/code-review and review-assist sessions) run on Opus 4.8 (effort high).
+  If a session about to run /code-review is not on Opus 4.8 (effort high), stop and say
+  so instead of proceeding.
 
 ## PROJECT MECHANICS (Claude Code: append below as you learn the codebase)
 
