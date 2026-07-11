@@ -90,7 +90,12 @@ the Function App's system-assigned managed identity
 Blob Data Owner` role assignment granting that identity access, rather than
 an account key. This avoids a storage secret in app settings or state,
 consistent with the platform's no-access-keys posture for the Terraform
-backend.
+backend. Since nothing in this module issues or needs an account key, the
+storage account this module creates also sets
+`shared_access_key_enabled = false` and `allow_nested_items_to_be_public =
+false`, and configures blob soft-delete and a SAS expiration policy as
+dormant safety nets (checkov CKV2_AZURE_40, CKV2_AZURE_47, CKV2_AZURE_38,
+CKV2_AZURE_41).
 
 **Caveat, not yet live-tested:** Microsoft's Flex Consumption migration guide
 notes that using `azurerm` with managed-identity storage auth on Flex
@@ -103,6 +108,19 @@ unverified, and adding an unverified workaround would be guessing. The live
 apply-call-destroy gate (the tracer's integration issue) is where this
 gets proven or, if it fails, where the workaround is added with the PR link
 to the fix.
+
+## checkov skips (repo-wide, .checkov.yaml)
+
+checkov 3.3.8's CKV2_* graph checks are not suppressible with an inline
+resource annotation (verified locally: an inline skip had no effect on
+these checks). Everything skipped is documented, with its reason, in
+`.checkov.yaml` at the repo root: CMK encryption and blob logging need
+Key Vault/observability wiring that are v1.1/v1.2, not v1; a storage
+private endpoint is the v1.1 private-network module's job; zone redundancy
+and a minimum-instance floor are HA/DR posture the public-demo tracer does
+not need; and the Terraform-module-source commit-hash check does not fit a
+Terraform Registry source, where this repo's own convention is exact
+version pinning instead (see COMPATIBILITY.md).
 
 ## Inputs
 

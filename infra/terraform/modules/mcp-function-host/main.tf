@@ -28,8 +28,9 @@ resource "azurerm_service_plan" "this" {
 # Customer-managed-key encryption needs a Key Vault, out of v1 module scope
 # (docs/specs/v1-tracer-bullet.md, Out of Scope: the private-network and
 # observability modules are v1.1/v1.2). checkov's CKV2_AZURE_1/18 graph
-# checks for this are skipped repo-wide in .checkov.yaml, not inline: inline
-# "# checkov:skip=" comments do not suppress CKV2_* graph checks.
+# checks for this are skipped repo-wide in .checkov.yaml, not inline (an
+# inline skip annotation on this resource does not suppress CKV2_* graph
+# checks).
 resource "azurerm_storage_account" "this" {
   count = var.create_storage_account ? 1 : 0
 
@@ -41,7 +42,22 @@ resource "azurerm_storage_account" "this" {
   min_tls_version                  = "TLS1_2"
   https_traffic_only_enabled       = true
   cross_tenant_replication_enabled = false
-  tags                             = var.tags
+  # Only managed identity is used for storage auth in this module
+  # (storage_uses_managed_identity below); shared keys are never issued.
+  shared_access_key_enabled       = false
+  allow_nested_items_to_be_public = false
+
+  blob_properties {
+    delete_retention_policy {
+      days = 7
+    }
+  }
+
+  sas_policy {
+    expiration_period = "01.00:00:00"
+  }
+
+  tags = var.tags
 }
 
 data "azurerm_storage_account" "existing" {
