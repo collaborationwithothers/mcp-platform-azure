@@ -77,10 +77,15 @@ planning any work. Everything here is public and carries Hari's name.
 
 ### Models
 
-- Implementation sessions run on Sonnet 5 (effort high).
-- Review passes (/code-review and review-assist sessions) run on Opus 4.8 (effort high).
-  If a session about to run /code-review is not on Opus 4.8 (effort high), stop and say
-  so instead of proceeding.
+- Implementation sessions run on Sonnet 5 (effort high). The /code-review
+  self-check that /implement performs before opening a PR is part of
+  implementation and runs on the implementation model.
+- Governance review is separate: the review that decides whether a PR is
+  approved runs in a session on Opus 4.8 (effort high), with Hari. An implementation
+  session never approves or merges its own PR regardless of model; it
+  requests review from Hari and stops.
+- If Hari starts a governance review session that is not on Opus 4.8, the
+  session should say so before reviewing.
 
 ## PROJECT MECHANICS (Claude Code: append below as you learn the codebase)
 
