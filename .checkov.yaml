@@ -1,0 +1,18 @@
+# checkov configuration for the MCP-on-Azure platform. Auto-discovered by
+# checkov from the repo root; no --config-file flag needed, matching how
+# .github/workflows/ci.yml invokes it ("checkov --directory infra").
+#
+# Skips below are graph checks (CKV2_*) that inline "# checkov:skip=" resource
+# comments do not suppress (verified locally: skip comments on the resource
+# had no effect on these three checks, a .checkov.yaml skip-check list did).
+# Each skip is scoped to a v1.1/v1.2 capability this module set intentionally
+# does not build yet, per docs/specs/v1-tracer-bullet.md, Out of Scope.
+
+skip-check:
+  # CMK encryption for storage needs a Key Vault; the private-network module
+  # (which would carry Key Vault wiring) is v1.1, not v1.
+  - CKV2_AZURE_1 # Ensure storage for critical data are encrypted with Customer Managed Key
+  - CKV2_AZURE_18 # Ensure that Storage Accounts use customer-managed key for encryption
+  # Blob service read-request logging is observability wiring; the
+  # observability module is v1.2, not v1.
+  - CKV2_AZURE_21 # Ensure Storage logging is enabled for Blob service for read requests
