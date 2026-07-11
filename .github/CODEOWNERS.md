@@ -3,3 +3,7 @@
 /docs/decisions/   @haripraghash
 README.md          @haripraghash
 COMPATIBILITY.md   @haripraghash
+CLAUDE.md      @haripraghash
+.mcp.json      @haripraghash
+/.claude/      @haripraghash
+/.github/      @haripraghash
