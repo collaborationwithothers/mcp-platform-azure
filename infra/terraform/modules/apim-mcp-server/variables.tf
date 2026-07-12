@@ -70,15 +70,6 @@ variable "entra_validation" {
   }
 }
 
-variable "prm" {
-  type = object({
-    issuer   = string
-    resource = string
-    scopes   = list(string)
-  })
-  description = "Content of the RFC 9728 protected resource metadata document served at the gateway root well-known path. issuer becomes authorization_servers[0]; resource is the protected resource identifier; scopes becomes scopes_supported."
-}
-
 variable "product_ids" {
   type        = list(string)
   description = "Existing product resource names to bind this MCP server to. Empty in the tracer (spec: subscriptionRequired is false, no products); binding a product is additive config appended to this list, not a restructure of the server resource."

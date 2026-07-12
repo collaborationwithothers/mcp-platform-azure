@@ -20,10 +20,11 @@ locals {
   # Microsoft.ApiManagement/service/apis family (confirmed locally:
   # terraform validate rejects the api-version with schema validation on,
   # listing 2025-03-01-preview as its newest known version for these types).
-  # ARM itself accepts 2025-09-01-preview (Microsoft Learn,
-  # manage-mcp-servers-rest-api). Every 2025-09-01-preview resource below
-  # references this local so the workaround flips in one place if a newer
-  # azapi release adds the schema. See COMPATIBILITY.md.
+  # 2025-09-01-preview is the documented API version (Microsoft Learn,
+  # manage-mcp-servers-rest-api); ARM acceptance is proven at the live gate,
+  # not asserted here. Every 2025-09-01-preview resource below references
+  # this local so the workaround flips in one place if a newer azapi release
+  # adds the schema. See COMPATIBILITY.md.
   azapi_schema_validation_enabled = false
 
   apim_gateway_url = data.azapi_resource.apim.output.properties.gatewayUrl
@@ -32,18 +33,11 @@ locals {
     for e in var.transport.endpoints : e.uri_template if e.name == "message"
   ])
 
+  # The root protected resource metadata (PRM) document itself is owned by
+  # the apim-gateway module (one root well-known path per gateway); this
+  # module only needs the URL so its 401 challenge can point callers at it.
   prm_url        = "${local.apim_gateway_url}/.well-known/oauth-protected-resource"
   mcp_server_url = "${local.apim_gateway_url}/${var.server_path}${local.mcp_message_endpoint}"
-
-  # RFC 9728 protected resource metadata document. Rendered here (not
-  # inline in the policy template) so the policy template only ever embeds
-  # one already-valid JSON value, never hand-built JSON/XML escaping.
-  prm_document_json = jsonencode({
-    resource                 = var.prm.resource
-    authorization_servers    = [var.prm.issuer]
-    bearer_methods_supported = ["header"]
-    scopes_supported         = var.prm.scopes
-  })
 }
 
 # Passthrough MCP server. For a passthrough server the external backend
@@ -121,67 +115,4 @@ resource "azapi_resource" "product_binding" {
   body = {}
 
   depends_on = [azapi_resource.mcp_server]
-}
-
-# Gateway-root protected resource metadata (PRM), RFC 9728. Microsoft Learn
-# documents no native APIM feature for serving a document at the gateway
-# root well-known path (verified 2026-07-12; see README.md "Root PRM is
-# hand-rolled"); this hand-rolls it as a second API mounted at path = ""
-# (the gateway root), following the community reference architecture named
-# in the ticket (https://github.com/blackchoey/remote-mcp-apim-oauth-prm).
-# A root path is unique per API Management service, so this resource is
-# naturally a gateway-level singleton; see README.md, "Future: a second MCP
-# server", for what a second server on the same gateway must do.
-resource "azapi_resource" "prm_well_known" {
-  type      = "Microsoft.ApiManagement/service/apis@2025-09-01-preview"
-  name      = "oauth-protected-resource-metadata"
-  parent_id = var.apim_id
-
-  schema_validation_enabled = local.azapi_schema_validation_enabled
-
-  body = {
-    properties = {
-      displayName          = "OAuth Protected Resource Metadata"
-      description          = "Serves the RFC 9728 protected resource metadata document at the gateway root well-known path. Every operation is policy-terminated (return-response) before any backend dispatch, so serviceUrl below is never called."
-      path                 = ""
-      protocols            = ["https"]
-      subscriptionRequired = false
-      serviceUrl           = "https://unused.invalid"
-    }
-  }
-}
-
-resource "azapi_resource" "prm_well_known_operation" {
-  type      = "Microsoft.ApiManagement/service/apis/operations@2025-09-01-preview"
-  name      = "get-oauth-protected-resource-metadata"
-  parent_id = azapi_resource.prm_well_known.id
-
-  schema_validation_enabled = local.azapi_schema_validation_enabled
-
-  body = {
-    properties = {
-      displayName = "Get OAuth protected resource metadata"
-      method      = "GET"
-      urlTemplate = "/.well-known/oauth-protected-resource"
-    }
-  }
-}
-
-resource "azapi_resource" "prm_well_known_policy" {
-  type      = "Microsoft.ApiManagement/service/apis/policies@2025-09-01-preview"
-  name      = "policy"
-  parent_id = azapi_resource.prm_well_known.id
-
-  schema_validation_enabled = local.azapi_schema_validation_enabled
-
-  body = {
-    properties = {
-      format = "rawxml"
-      value = templatefile("${path.module}/policies/prm-well-known.xml", {
-        prm_document_json = local.prm_document_json
-      })
-    }
-  }
-
-  depends_on = [azapi_resource.prm_well_known_operation]
 }

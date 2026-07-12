@@ -60,3 +60,12 @@ variable "tenant_id" {
   type        = string
   description = "Microsoft Entra tenant ID this gateway's callers authenticate against. Not consumed by this module today (Entra token validation is owned by apim-mcp-server's server-scope policy, not the gateway resource itself); present for thick-interface completeness and any future management-plane Entra wiring."
 }
+
+variable "prm" {
+  type = object({
+    resource             = string
+    authorization_server = string
+    scopes               = list(string)
+  })
+  description = "Contents of the single RFC 9728 protected resource metadata (PRM) document this gateway serves at its root well-known path. Singular values for exactly one document (not a map): resource is the protected resource identifier, authorization_server is the OAuth authorization server (issuer) URL rendered into authorization_servers[0], and scopes becomes scopes_supported. The composition supplies these from the MCP server's identity values. The multi-server, path-suffixed PRM form is a documented ADR growth path, not this interface."
+}

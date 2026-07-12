@@ -50,9 +50,10 @@ Populated as code lands. One row per pin.
 | ModelContextProtocol | 1.4.1 | src/McpTestClient/McpTestClient.csproj | Official MCP C# SDK for the hand-written test client; latest stable (2.0.0 line is preview). API confirmed against the sample at the v1.4.1 tag (McpClient.CreateAsync, HttpClientTransport) | 2026-07-12 | https://www.nuget.org/packages/ModelContextProtocol/1.4.1 |
 | avm-res-apimanagement-service | 0.9.0 (exact) | infra/terraform/modules/apim-gateway/main.tf | Issue-3 AVM capability check (below): expresses Basic v2 via the plain pass-through `sku_name` string, no fallback needed | 2026-07-12 | https://registry.terraform.io/modules/Azure/avm-res-apimanagement-service/azurerm/0.9.0 |
 | azurerm_api_management sku_name | BasicV2_1 (format "<tier>_<capacity>") | infra/terraform/modules/apim-gateway/variables.tf (sku_name default) | Public-demo tracer profile; tier name is "BasicV2" (no underscore before "V2"), confirmed against the azurerm 4.80.0 resource docs | 2026-07-12 | https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0/docs/resources/api_management |
-| Microsoft.ApiManagement/service/apis (MCP passthrough), .../apis/policies, .../apis/operations, .../products/apis | 2025-09-01-preview | infra/terraform/modules/apim-mcp-server/main.tf | Passthrough MCP server, its server-scope policy, the hand-rolled root PRM API's operation, and product bindings. No azurerm resource exists for any of these (confirmed 2026-07-12) | 2026-07-12 | https://learn.microsoft.com/azure/api-management/manage-mcp-servers-rest-api |
+| Microsoft.ApiManagement/service/apis (MCP passthrough), .../apis/policies, .../products/apis | 2025-09-01-preview | infra/terraform/modules/apim-mcp-server/main.tf | Passthrough MCP server, its server-scope policy, and product bindings. No azurerm resource exists for any of these (confirmed 2026-07-12) | 2026-07-12 | https://learn.microsoft.com/azure/api-management/manage-mcp-servers-rest-api |
+| Microsoft.ApiManagement/service/apis (root PRM API), .../apis/operations, .../apis/policies | 2025-09-01-preview | infra/terraform/modules/apim-gateway/main.tf | Hand-rolled gateway-root protected resource metadata API mounted at path = "", its GET operation, and its return-response policy. Lives in apim-gateway (one root per gateway) rather than apim-mcp-server. No azurerm resource exists (confirmed 2026-07-12) | 2026-07-12 | https://learn.microsoft.com/azure/api-management/manage-mcp-servers-rest-api |
 | Microsoft.ApiManagement/service (data source read) | 2024-05-01 | infra/terraform/modules/apim-mcp-server/main.tf (data "azapi_resource" "apim") | Read-only lookup of the parent service's gatewayUrl to derive mcp_server_url/prm_url. A stable (non-preview) version azapi 2.10.0 recognizes; gatewayUrl is stable across versions. Also the API Providers version azurerm 4.80.0's own azurerm_api_management resource uses | 2026-07-12 | https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0/docs/resources/api_management |
-| azapi_resource schema_validation_enabled | false, on every 2025-09-01-preview resource above | infra/terraform/modules/apim-mcp-server/main.tf | azapi 2.10.0 (the latest release; this repo's pin) does not yet recognize 2025-09-01-preview in its embedded resource schema for these types (confirmed locally via `terraform validate`: its newest recognized version for `Microsoft.ApiManagement/service/apis` and sibling types is 2025-03-01-preview). ARM itself accepts 2025-09-01-preview per Microsoft Learn; re-check whether a newer azapi release adds it at the next pin review | 2026-07-12 | https://registry.terraform.io/providers/azure/azapi/2.10.0 |
+| azapi_resource schema_validation_enabled | false, on every 2025-09-01-preview resource above | infra/terraform/modules/apim-mcp-server/main.tf and infra/terraform/modules/apim-gateway/main.tf | azapi 2.10.0 (the latest release; this repo's pin) does not yet recognize 2025-09-01-preview in its embedded resource schema for these types (confirmed locally via `terraform validate`: its newest recognized version for `Microsoft.ApiManagement/service/apis` and sibling types is 2025-03-01-preview). 2025-09-01-preview is the documented API version per Microsoft Learn; ARM acceptance is proven at the live gate, not asserted here. Re-check whether a newer azapi release adds it at the next pin review | 2026-07-12 | https://registry.terraform.io/providers/azure/azapi/2.10.0 |
 
 ### Issue-1 AVM capability check (avm-res-web-site 0.22.0)
 
@@ -123,9 +124,18 @@ Full detail and doc citations: infra/terraform/modules/apim-gateway/README.md.
   Discovered during local `terraform validate` (not from docs): azapi
   2.10.0's embedded resource schema does not yet recognize
   2025-09-01-preview for these types, so every such resource sets
-  `schema_validation_enabled = false`; ARM itself accepts the version.
+  `schema_validation_enabled = false`. 2025-09-01-preview is the documented
+  API version; ARM acceptance is proven at the live gate, not asserted here.
   The root protected-resource-metadata (PRM) document
-  (/.well-known/oauth-protected-resource) is hand-rolled via a second,
+  (/.well-known/oauth-protected-resource) is hand-rolled via a
   root-mounted API and policy, not a native APIM feature -- Microsoft Learn
-  documents no built-in mechanism for this as of 2026-07-12; see
-  infra/terraform/modules/apim-mcp-server/README.md.
+  documents no built-in mechanism for this as of 2026-07-12.
+- 2026-07-12: governance review of ticket 3 (PR #16). Structural change: the
+  root PRM API/operation/policy moved from apim-mcp-server into apim-gateway
+  (the root well-known path is one-per-gateway, so the singleton belongs in
+  the gateway layer whose cardinality it shares; apim-mcp-server can be
+  instantiated more than once against one gateway). apim-gateway gained a
+  singular `prm` input and a `prm_url` output; apim-mcp-server dropped its
+  `prm` input and the root API but keeps the 401 challenge and its `prm_url`
+  output. Finding-1 wording corrected (above): "ARM accepts 2025-09-01-preview"
+  reworded to "documented API version; ARM acceptance proven at the live gate."
