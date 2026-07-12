@@ -46,6 +46,14 @@ variable "publisher_email" {
   description = "Email address of the API Management publisher."
 }
 
+# tflint-ignore: terraform_unused_declarations
+# tenant_id is a required input of this module's thick interface per the
+# issue-3 apim-gateway interface spec, even though nothing in the tracer
+# consumes it yet (Entra token validation is owned by apim-mcp-server's
+# server-scope policy, not the gateway resource). Removing it to satisfy the
+# linter would break the interface contract later modules and compositions
+# depend on; suppressing the unused-declaration warning is the intended
+# trade-off. See docs/specs/v1-tracer-bullet.md, Delivery shape.
 variable "tenant_id" {
   type        = string
   description = "Microsoft Entra tenant ID this gateway's callers authenticate against. Not consumed by this module today (Entra token validation is owned by apim-mcp-server's server-scope policy, not the gateway resource itself); present for thick-interface completeness and any future management-plane Entra wiring."
