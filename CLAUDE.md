@@ -23,6 +23,7 @@ planning any work. Everything here is public and carries Hari's name.
   require them, stop and comment on the issue instead.
 - One issue at a time. Finish or park the current issue before starting
   another. Branch per issue, PR references the issue.
+- Implementation sessions authenticate to GitHub as haripraghash-bot, never as haripraghash
 
 ### Hard safety rules
 
