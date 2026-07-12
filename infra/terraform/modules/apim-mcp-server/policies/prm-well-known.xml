@@ -1,0 +1,29 @@
+<!--
+  Policy for the gateway-root well-known API (azapi_resource.prm_well_known
+  in main.tf), operation GET /.well-known/oauth-protected-resource.
+  Rendered by templatefile(); the body below is a single pre-rendered JSON
+  value (jsonencode in main.tf), substituted before this ever reaches APIM.
+  No authentication is required to fetch this document: MCP clients must be
+  able to read it before they have a token (RFC 9728).
+-->
+<policies>
+  <inbound>
+    <base />
+    <return-response>
+      <set-status code="200" reason="OK" />
+      <set-header name="Content-Type" exists-action="override">
+        <value>application/json</value>
+      </set-header>
+      <set-body>${prm_document_json}</set-body>
+    </return-response>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

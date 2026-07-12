@@ -1,0 +1,75 @@
+<!--
+  Server-scope policy for the passthrough MCP server. Rendered by
+  templatefile() in main.tf (azapi_resource.mcp_server_policy); the
+  interpolation and %%{ for/endfor } directives below are Terraform
+  template syntax, substituted before this ever reaches APIM.
+
+  No caller ever reads context.Response.Body here (would break MCP
+  streaming; Microsoft Learn, expose-existing-mcp-server, verified
+  2026-07-12).
+-->
+<policies>
+  <inbound>
+    <base />
+    <!--
+      MCP clients without a token get the OAuth 2.1 / RFC 9728 challenge
+      directly: 401 plus a WWW-Authenticate header pointing at the root
+      protected resource metadata document. This is separate from the
+      validate-azure-ad-token 401 below (an invalid/wrong-audience token),
+      whose WWW-Authenticate header is added in on-error instead.
+    -->
+    <choose>
+      <when condition="@(!context.Request.Headers.ContainsKey("Authorization"))">
+        <return-response>
+          <set-status code="401" reason="Unauthorized" />
+          <set-header name="WWW-Authenticate" exists-action="override">
+            <value>@("Bearer resource_metadata=\"${prm_url}\"")</value>
+          </set-header>
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{"error":"unauthorized","error_description":"A bearer token is required. See the WWW-Authenticate resource_metadata URL for how to obtain one."}</set-body>
+        </return-response>
+      </when>
+    </choose>
+    <!--
+      Independent gateway-side check (defense in depth ahead of the
+      Functions backend's own audience check): issuer via tenant-id,
+      audience equal to the server app ID URI, and the allowed client
+      application ids. Microsoft Learn, secure-mcp-servers and
+      validate-azure-ad-token-policy, verified 2026-07-12.
+    -->
+    <validate-azure-ad-token tenant-id="${tenant_id}" header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. Access token is missing or invalid.">
+      <client-application-ids>
+%{ for client_id in allowed_client_application_ids ~}
+        <application-id>${client_id}</application-id>
+%{ endfor ~}
+      </client-application-ids>
+      <audiences>
+        <audience>${audience}</audience>
+      </audiences>
+    </validate-azure-ad-token>
+  </inbound>
+  <backend>
+    <forward-request />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+    <!--
+      validate-azure-ad-token's own 401 does not set WWW-Authenticate;
+      add it here so every 401 from this server (missing token above, or
+      an invalid/wrong-audience token here) carries the same RFC 9728
+      challenge.
+    -->
+    <choose>
+      <when condition="@(context.Response != null && context.Response.StatusCode == 401)">
+        <set-header name="WWW-Authenticate" exists-action="override">
+          <value>@("Bearer resource_metadata=\"${prm_url}\"")</value>
+        </set-header>
+      </when>
+    </choose>
+  </on-error>
+</policies>
