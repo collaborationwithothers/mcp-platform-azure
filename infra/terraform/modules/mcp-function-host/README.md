@@ -35,9 +35,9 @@ the Terraform MCP registry tools, module id
   with `registration.client_id`, `registration.open_id_issuer`, and
   `validation.allowed_audiences` / `jwt_claim_checks.allowed_client_applications`.
   The module's own `basic_auth` example demonstrates this identity provider
-  shape end to end, including the `open_id_issuer` format
-  `https://login.microsoftonline.com/<tenant>/v2.0/` this module builds from
-  `entra_auth.tenant_id`.
+  shape end to end. This module builds the `open_id_issuer` as
+  `https://login.microsoftonline.com/<tenant>/v2.0` (no trailing slash) from
+  `entra_auth.tenant_id`, matching the Entra v2.0 token issuer claim.
 - `service_plan_resource_id` is required: avm-res-web-site does not create
   the App Service Plan. There is no AVM module wrap for a standalone plan in
   this ticket's scope, so `main.tf` provisions it with the AzureRM-tier
@@ -130,7 +130,7 @@ version pinning instead (see COMPATIBILITY.md).
 | `location` | string | Azure region. |
 | `resource_group_name` | string | Name of the (out-of-band) resource group. |
 | `tags` | map(string) | Tags applied to every resource, expected to include the ephemeral expiry tag. |
-| `runtime` | object | `{ stack = "dotnet-isolated", version = "10" }` by default. `version` is the bare ARM major-version string, not the az CLI's `10.0` format. |
+| `runtime` | object | `{ stack = "dotnet-isolated", version = "10.0" }` by default. `version` is passed straight to `functionAppConfig.runtime.version`; dotnet-isolated uses the major.minor form (`8.0`, `9.0`, `10.0`). See COMPATIBILITY.md. |
 | `flex_consumption` | object | `{ instance_memory_mb = 2048, maximum_instance_count = 40 }` by default. |
 | `storage_account_name` | string | Name of the deployment storage account (existing, or to create). |
 | `create_storage_account` | bool | Whether this module creates `storage_account_name`. Default `false` (expects an existing, out-of-band account). |

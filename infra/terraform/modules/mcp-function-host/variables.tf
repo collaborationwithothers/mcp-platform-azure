@@ -27,9 +27,9 @@ variable "tags" {
 variable "runtime" {
   type = object({
     stack   = optional(string, "dotnet-isolated")
-    version = optional(string, "10")
+    version = optional(string, "10.0")
   })
-  description = "Functions worker runtime. Only dotnet-isolated is supported by this module; the field exists for interface completeness with other language runtimes avm-res-web-site can express. version is the bare major version (e.g. \"10\"), matching the ARM functionAppConfig.runtime.version format, not the az CLI's \"10.0\" convention."
+  description = "Functions worker runtime. Only dotnet-isolated is supported by this module; the field exists for interface completeness with other language runtimes avm-res-web-site can express. version is passed straight through to functionAppConfig.runtime.version; dotnet-isolated uses the major.minor form (\"8.0\", \"9.0\", \"10.0\"), matching the official Flex Consumption IaC samples and the Az.Functions runtimes list. See COMPATIBILITY.md."
   default     = {}
 
   validation {
