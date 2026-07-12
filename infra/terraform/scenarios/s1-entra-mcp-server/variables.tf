@@ -1,0 +1,67 @@
+# S1 composition: instantiates mcp-function-host with Entra inputs wired from
+# variables (app ids by reference, never committed). See
+# docs/specs/v1-tracer-bullet.md, Delivery shape and Identity provisioning.
+
+variable "resource_group_name" {
+  type        = string
+  description = "Name of the (out-of-band) resource group this composition deploys into. Expected to carry the ephemeral expiry tag's matching lifecycle in the live-test environment."
+}
+
+variable "location" {
+  type        = string
+  description = "Azure region for every resource this composition creates."
+}
+
+variable "tags" {
+  type        = map(string)
+  description = "Tags applied to every resource this composition creates, expected to include the ephemeral expiry tag used by the cleanup sweep."
+  default     = {}
+}
+
+variable "name_prefix" {
+  type        = string
+  description = "Prefix used to derive resource names (service plan, function app). Passed straight through to mcp-function-host."
+}
+
+variable "deployment_profile" {
+  type        = string
+  description = "Selects a named sizing profile for this composition. Only \"public-demo\" is in v1 scope; the variable exists so a later profile (e.g. a private-network variant in v1.1) is additive, not a restructure."
+  default     = "public-demo"
+
+  validation {
+    condition     = contains(["public-demo"], var.deployment_profile)
+    error_message = "deployment_profile must be \"public-demo\": the only profile in v1 scope (docs/specs/v1-tracer-bullet.md, Out of Scope)."
+  }
+}
+
+variable "storage_account_name" {
+  type        = string
+  description = "Name of the Flex Consumption deployment storage account. Passed straight through to mcp-function-host (existing account by default; see create_storage_account)."
+}
+
+variable "create_storage_account" {
+  type        = bool
+  description = "Whether this composition has mcp-function-host create storage_account_name (true) or expects it to already exist (false, the default)."
+  default     = false
+}
+
+variable "entra_auth" {
+  type = object({
+    tenant_id              = string
+    server_app_client_id   = string
+    allowed_audiences      = list(string)
+    unauthenticated_action = optional(string, "Return401")
+  })
+  description = "Entra built-in auth (Easy Auth) settings for the Function App, passed straight through to mcp-function-host. Values reference the out-of-band server resource app registration (docs/runbooks/entra-app-registrations.md); no app id is committed here or given a default."
+}
+
+variable "prm_scope" {
+  type        = string
+  description = "OAuth scope surfaced via WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES, e.g. api://<server-app-id>/user_impersonation. Passed straight through to mcp-function-host."
+}
+
+variable "app_settings" {
+  type        = map(string)
+  description = "Additional app settings merged in alongside mcp-function-host's own. Empty by default; the tracer needs none beyond what the module sets."
+  default     = {}
+}

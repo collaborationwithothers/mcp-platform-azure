@@ -1,0 +1,220 @@
+# Gated live-test workflow for the v1 tracer bullet (issue 9 / ticket 5,
+# docs/specs/v1-tracer-bullet.md). Manual only, cost-gated: never triggered by
+# pull_request or push. Runs apply -> [call] -> destroy for the s1 and s2
+# scenario compositions inside the `live-test` GitHub Environment only,
+# runs-on: ubuntu-latest, OIDC-only auth (no client secret, no stored Azure
+# credential). Per CLAUDE.md's hard safety rules, this is the ONLY workflow in
+# this repo that may run terraform apply/destroy.
+#
+# Split, documented honestly (docs/specs/v1-tracer-bullet.md, Testing
+# Decisions): this workflow currently proves apply -> destroy for both
+# compositions. The "call" stage -- McpTestClient session/tool assertions,
+# raw-HTTP discovery assertions (401/WWW-Authenticate/PRM/wrong-audience/
+# shadow-key), and the bounded registry poll -- lands in the harness-plus-docs
+# follow-up PR under the same issue (scripts/gate/invoke-and-assert.ps1,
+# tests/integration/discovery-assertions.ps1 do not exist yet). Until that PR
+# lands, the call stage is a labelled no-op, not a faked pass.
+#
+# Auth pattern verified 2026-07-12 via the azure-docs-verifier subagent:
+# - azure/login@v2 with client-id/tenant-id/subscription-id (no
+#   client-secret) is Microsoft's current documented OIDC login action:
+#   https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect
+# - The federated credential trusting this workflow must use an
+#   Environment-scoped subject `repo:<org>/<repo>:environment:live-test`,
+#   audience `api://AzureADTokenExchange`:
+#   https://learn.microsoft.com/entra/workload-id/workload-identity-federation-create-trust
+# - azure/login authenticates the Azure CLI only, not the azurerm/azapi
+#   Terraform providers. Their own native OIDC support (ARM_USE_OIDC plus
+#   ARM_CLIENT_ID/ARM_TENANT_ID/ARM_SUBSCRIPTION_ID) is documented on the
+#   Terraform Registry, not Microsoft Learn (Microsoft Learn's own
+#   "Authenticate Terraform to Azure" page does not mention OIDC as of
+#   2026-07-12, confirmed stale by the verifier agent):
+#   https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_oidc
+#   Both mechanisms are configured below from the same OIDC identity.
+
+name: Ephemeral live-test gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_cost:
+        description: "Type \"apply\" to confirm you understand this deploys billable Azure resources (APIM Basic v2, Flex Consumption, API Center) and accept them being destroyed at the end of this run."
+        required: true
+        type: string
+
+# Only one live-test run at a time: prevents two runs racing on the same
+# state keys or doubling billable resources.
+concurrency:
+  group: ephemeral-env-live-test
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require explicit cost confirmation
+        shell: bash
+        run: |
+          if [ "${{ inputs.confirm_cost }}" != "apply" ]; then
+            echo "::error::confirm_cost must be the literal string 'apply'. This run deploys billable Azure resources; the input exists so nobody triggers it by accident."
+            exit 1
+          fi
+
+  live-test:
+    name: apply-call-destroy
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      # Shared OIDC identity for both the Azure CLI (azure/login) and the
+      # Terraform azurerm/azapi providers/backends. No client secret; values
+      # are non-secret app/tenant/subscription ids configured as GitHub
+      # Environment variables on `live-test` (CLAUDE.md: never commit these
+      # to the repo).
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      # State backend, key-per-composition (docs/specs/v1-tracer-bullet.md,
+      # Terraform and state). The storage account is bootstrapped out of band
+      # in its own resource group so this run's cleanup can never reach it.
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      S1_STATE_KEY: s1-entra-mcp-server.tfstate
+      S2_STATE_KEY: s2-apim-mcp-gateway.tfstate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Compute ephemeral resource group name and expiry tag
+        id: rg
+        shell: bash
+        run: |
+          rg_name="rg-mcp-tracer-${{ github.run_id }}"
+          # 4-hour TTL: a policy choice for this gate's belt-and-braces expiry
+          # tag, not a measured figure. The gate's own destroy step (below,
+          # if: always()) is the primary cleanup mechanism; this tag is the
+          # backstop if that step itself never runs (e.g. the runner is
+          # killed outright).
+          expiry="$(date -u -d '+4 hours' +%Y-%m-%dT%H:%M:%SZ)"
+          echo "name=${rg_name}" >> "$GITHUB_OUTPUT"
+          echo "expiry=${expiry}" >> "$GITHUB_OUTPUT"
+
+      - name: Create ephemeral resource group
+        shell: bash
+        run: |
+          az group create \
+            --name "${{ steps.rg.outputs.name }}" \
+            --location "${{ vars.LIVE_TEST_LOCATION }}" \
+            --tags expiry="${{ steps.rg.outputs.expiry }}" scenario=v1-tracer-bullet
+
+      # Written from the live-test environment's S1_TFVARS_JSON/S2_TFVARS_JSON
+      # secrets (docs/runbooks/entra-app-registrations.md's out-of-band
+      # values: entra_auth/entra_validation, prm_scope/prm_scopes,
+      # name_prefix, storage_account_name, apim_name, registry_name, tags).
+      # Secrets rather than variables because tenant/client ids are
+      # org-identifying, even though they are not credentials.
+      - name: Write composition tfvars
+        shell: bash
+        env:
+          S1_TFVARS_JSON: ${{ secrets.S1_TFVARS_JSON }}
+          S2_TFVARS_JSON: ${{ secrets.S2_TFVARS_JSON }}
+        run: |
+          printf '%s' "$S1_TFVARS_JSON" > "${{ github.workspace }}/s1.tfvars.json"
+          printf '%s' "$S2_TFVARS_JSON" > "${{ github.workspace }}/s2.tfvars.json"
+
+      - name: terraform init and apply - s1-entra-mcp-server
+        working-directory: infra/terraform/scenarios/s1-entra-mcp-server
+        shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
+          TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+        run: |
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${S1_STATE_KEY}"
+          terraform apply -input=false -auto-approve \
+            -var-file="${{ github.workspace }}/s1.tfvars.json"
+
+      - name: Look up the OIDC principal's object id (for the registry poll's Data Reader grant)
+        id: principal
+        shell: bash
+        run: |
+          object_id="$(az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" --query id -o tsv)"
+          echo "object_id=${object_id}" >> "$GITHUB_OUTPUT"
+
+      - name: terraform init and apply - s2-apim-mcp-gateway
+        working-directory: infra/terraform/scenarios/s2-apim-mcp-gateway
+        shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
+          TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+          TF_VAR_data_reader_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
+        run: |
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${S2_STATE_KEY}"
+          terraform apply -input=false -auto-approve \
+            -var-file="${{ github.workspace }}/s2.tfvars.json" \
+            -var="s1_remote_state={\"storage_account_name\":\"${TF_STATE_STORAGE_ACCOUNT}\",\"container_name\":\"${TF_STATE_CONTAINER}\",\"key\":\"${S1_STATE_KEY}\"}"
+
+      - name: "TODO(issue 9 follow-up PR): call stage"
+        shell: bash
+        run: |
+          echo "::notice::Call stage not yet implemented. scripts/gate/invoke-and-assert.ps1 (McpTestClient session/tool assertions), tests/integration/discovery-assertions.ps1 (raw-HTTP 401/WWW-Authenticate/PRM/wrong-audience/shadow-key), and the bounded registry poll land in the harness-plus-docs follow-up PR under issue 9. This run only proves apply and destroy for the s1/s2 compositions."
+
+      - name: terraform destroy - s2-apim-mcp-gateway
+        if: always()
+        working-directory: infra/terraform/scenarios/s2-apim-mcp-gateway
+        shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
+          TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+          TF_VAR_data_reader_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
+        run: |
+          terraform destroy -input=false -auto-approve \
+            -var-file="${{ github.workspace }}/s2.tfvars.json" \
+            -var="s1_remote_state={\"storage_account_name\":\"${TF_STATE_STORAGE_ACCOUNT}\",\"container_name\":\"${TF_STATE_CONTAINER}\",\"key\":\"${S1_STATE_KEY}\"}"
+
+      - name: terraform destroy - s1-entra-mcp-server
+        if: always()
+        working-directory: infra/terraform/scenarios/s1-entra-mcp-server
+        shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
+          TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+        run: |
+          terraform destroy -input=false -auto-approve \
+            -var-file="${{ github.workspace }}/s1.tfvars.json"
+
+      - name: Delete ephemeral resource group and verify it is gone
+        if: always()
+        shell: bash
+        run: |
+          az group delete --name "${{ steps.rg.outputs.name }}" --yes
+          if az group show --name "${{ steps.rg.outputs.name }}" >/dev/null 2>&1; then
+            echo "::error::Resource group ${{ steps.rg.outputs.name }} still exists after delete. The expiry tag (${{ steps.rg.outputs.expiry }}) is the belt-and-braces backstop; verify the sweep process picks it up."
+            exit 1
+          fi
+          echo "Confirmed: ${{ steps.rg.outputs.name }} no longer exists."
