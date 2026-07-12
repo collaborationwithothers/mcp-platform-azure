@@ -25,7 +25,7 @@ Rules:
 | APIM MCP servers (expose REST as MCP, passthrough) | GA (feature) | REST-export servers: tools only; not on Consumption tier; not in workspaces | 2026-07-08 |
 | APIM MCP server ARM surface | Preview API version | Microsoft.ApiManagement/service/apis, apiType=mcp, API version 2025-09-01-preview. Re-confirmed 2026-07-12 against https://learn.microsoft.com/azure/api-management/manage-mcp-servers-rest-api, which also gives a working `azapi_resource` Terraform example (mirrored in infra/terraform/modules/apim-mcp-server/main.tf). | 2026-07-12 |
 | APIM llm-content-safety for MCP tool calls | GA (Build 2026) | | 2026-07-08 |
-| API Center data plane MCP registry | GA | no azurerm resource (provider issue #26200); azapi with 2024-06-01-preview API version at time of research | 2026-07-08 |
+| API Center data plane MCP registry | GA | no azurerm resource (provider issue #26200, re-confirmed still open 2026-07-12); azapi with 2024-06-01-preview API version (newest listed for services/workspaces/environments, and the only listed version for apiSources; a stable 2024-03-01 also exists for services/workspaces/environments but not for apiSources). Registry read-access mode is platform-determined (authenticated by default, anonymous requests 401) with NO azapi property in any published version; the module uses Data Reader RBAC for authenticated read, not an access-mode input. Anonymous is a portal-only opt-in, not used here. See the api-center-registry rows below and its README. | 2026-07-12 |
 | MCP Enterprise-Managed Authorization (EMA) extension | Spec stable 2026-06-18 | Okta first spec-level IdP; native Entra ID spec-level support UNVERIFIED; not built in this repo, see ADR-006 | 2026-07-08 |
 
 ## Pinned versions
@@ -54,6 +54,11 @@ Populated as code lands. One row per pin.
 | Microsoft.ApiManagement/service/apis (root PRM API), .../apis/operations, .../apis/policies | 2025-09-01-preview | infra/terraform/modules/apim-gateway/main.tf | Hand-rolled gateway-root protected resource metadata API mounted at path = "", its GET operation, and its return-response policy. Lives in apim-gateway (one root per gateway) rather than apim-mcp-server. No azurerm resource exists (confirmed 2026-07-12) | 2026-07-12 | https://learn.microsoft.com/azure/api-management/manage-mcp-servers-rest-api |
 | Microsoft.ApiManagement/service (data source read) | 2024-05-01 | infra/terraform/modules/apim-mcp-server/main.tf (data "azapi_resource" "apim") | Read-only lookup of the parent service's gatewayUrl to derive mcp_server_url/prm_url. A stable (non-preview) version azapi 2.10.0 recognizes; gatewayUrl is stable across versions. Also the API Providers version azurerm 4.80.0's own azurerm_api_management resource uses | 2026-07-12 | https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0/docs/resources/api_management |
 | azapi_resource schema_validation_enabled | false, on every 2025-09-01-preview resource above | infra/terraform/modules/apim-mcp-server/main.tf and infra/terraform/modules/apim-gateway/main.tf | azapi 2.10.0 (the latest release; this repo's pin) does not yet recognize 2025-09-01-preview in its embedded resource schema for these types (confirmed locally via `terraform validate`: its newest recognized version for `Microsoft.ApiManagement/service/apis` and sibling types is 2025-03-01-preview). 2025-09-01-preview is the documented API version per Microsoft Learn; ARM acceptance is proven at the live gate, not asserted here. Re-check whether a newer azapi release adds it at the next pin review | 2026-07-12 | https://registry.terraform.io/providers/azure/azapi/2.10.0 |
+| Microsoft.ApiCenter/services, .../workspaces, .../workspaces/environments, .../workspaces/apiSources | 2024-06-01-preview | infra/terraform/modules/api-center-registry/main.tf | API Center service, single "default" workspace, the APIM environment, and the APIM auto-sync source. Newest listed API version for services/workspaces/environments, and the only listed version for apiSources; a stable 2024-03-01 also exists for services/workspaces/environments but not for apiSources. 2024-06-01-preview is used uniformly across all four types (newest everywhere, and the sole option for apiSources). No azurerm resource (issue #26200 still open). Unlike the APIM 2025-09-01-preview types, azapi 2.10.0 DOES recognize these in its embedded schema, so `terraform validate` passes with schema validation ON (no schema_validation_enabled override needed). | 2026-07-12 | https://learn.microsoft.com/azure/templates/microsoft.apicenter/2024-06-01-preview/services |
+| API Management Service Reader Role (built-in role id) | 71522526-b88f-4d52-b57f-d31fc3546d0d | infra/terraform/modules/api-center-registry/main.tf (azapi_resource.apim_reader) | Assigned to the API Center system-assigned identity on the APIM scope so auto-sync can import APIs (per synchronize-api-management-apis). Built-in role id confirmed against the Azure built-in roles reference. | 2026-07-12 | https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/integration#api-management-service-reader-role |
+| API Center registry data-plane read-access mode | Platform-determined; NOT ARM/azapi-encodable in ANY published Microsoft.ApiCenter API version | infra/terraform/modules/api-center-registry (README.md, main.tf) | The read-access mode (authenticated vs anonymous) for the data-plane MCP registry endpoint has no ARM property in any published Microsoft.ApiCenter version: 2023-07-01-preview, 2024-03-01, 2024-03-15-preview, 2024-06-01-preview (newest as of 2026-07-12). `services` exposes only `restore` and `identity`; no child type models portal/data-API settings. Default posture is authenticated (anonymous requests 401); the module exposes Data Reader RBAC (data_reader_principal_ids), NOT an access-mode input, so the gate poll authenticates. Anonymous is a portal-only opt-in (Consumption > Portal settings > Access tab), not used by this deployment; see docs/runbooks/registry-anonymous-access.md and docs/security.md. Re-check trigger: any newer Microsoft.ApiCenter API version ships. | 2026-07-12 | https://learn.microsoft.com/azure/api-center/set-up-api-center-portal#configure-access-to-the-api-center-portal |
+| Azure API Center Data Reader Role (built-in role id) | c7244dfb-f447-457d-b2ba-3999044d1706 | infra/terraform/modules/api-center-registry/main.tf (azapi_resource.data_reader, for_each) | Granted on the API Center INSTANCE to each principal in data_reader_principal_ids (e.g. the ticket-5 poll's OIDC principal) so it can read the data-plane registry authenticated. Grants Microsoft.ApiCenter/services/*/read. Built-in role id independently verified twice (2026-07-12) against the Azure built-in roles reference. | 2026-07-12 | https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/integration#azure-api-center-data-reader |
+| Microsoft.Authorization/roleAssignments | 2022-04-01 | infra/terraform/modules/api-center-registry/main.tf (apim_reader, data_reader) | Stable roleAssignments ARM version azapi 2.10.0 recognizes. Used for both the APIM Service Reader grant (on the APIM scope) and the API Center Data Reader grants (on the API Center instance). Deterministic assignment names via uuidv5(scope|roleDef|principal). | 2026-07-12 | https://learn.microsoft.com/azure/templates/microsoft.authorization/2022-04-01/roleassignments |
 
 ### Issue-1 AVM capability check (avm-res-web-site 0.22.0)
 
@@ -139,3 +144,53 @@ Full detail and doc citations: infra/terraform/modules/apim-gateway/README.md.
   `prm` input and the root API but keeps the 401 challenge and its `prm_url`
   output. Finding-1 wording corrected (above): "ARM accepts 2025-09-01-preview"
   reworded to "documented API version; ARM acceptance proven at the live gate."
+- 2026-07-12: ticket 4 (api-center-registry module) lands. New pins:
+  Microsoft.ApiCenter/services + workspaces + environments + apiSources at
+  2024-06-01-preview (re-verified at issue start; the research-time note of
+  2024-06-01-preview held), and the built-in "API Management Service Reader
+  Role" id for the auto-sync identity's role assignment. Unlike the APIM
+  2025-09-01-preview types, azapi 2.10.0 recognizes these ApiCenter types in
+  its embedded schema, so `terraform validate` passes with schema validation
+  ON. Issue-start finding recorded (not from training data): the data-plane
+  registry read-access mode (anonymous vs Entra) is a portal toggle (Consumption
+  > Portal settings > Access tab) with NO azapi/ARM property -- the `services`
+  resource exposes only `restore` and `identity`, and no ApiCenter child type
+  models portal settings in the ARM template reference. The module records the
+  intended mode on an input/output for the ticket-5 poll to match; the toggle is
+  applied out of band. Auto-sync from APIM is wired as the production-correct
+  mechanism; no explicit server registration (the labelled fallback) is used.
+- 2026-07-12: governance review of ticket 4 (PR #21). Doc-accuracy corrections
+  after independent re-verification via azure-docs-verifier: (a) the "stable
+  2024-03-01 exists for services only, none for the child types" claim was
+  wrong -- 2024-03-01 also exists for workspaces and environments; only
+  apiSources has no non-preview/older version. Reworded above. (b) the
+  read-access toggle was mislocated as "Consumption > Data API settings"; the
+  anonymous-vs-Entra toggle is actually under Consumption > Portal settings >
+  Access tab (Data API settings only enables the MCP/marketplace endpoints and
+  API visibility). Corrected above and in the module README. (c) added a row
+  for the Azure API Center Data Reader built-in role id
+  (c7244dfb-f447-457d-b2ba-3999044d1706) cited in the README for the entra
+  posture. The registry_endpoint_url path form carries a known Microsoft-doc
+  inconsistency (the doc's format string includes /workspaces/, its own example
+  omits it); ticket 5's poll must confirm the live form empirically, noted in
+  the module. The "single default workspace must be declared explicitly" point
+  is a product-behaviour claim not confirmable from the ARM template reference;
+  softened to a re-verify-at-live-gate note in the module.
+- 2026-07-12: ticket 4 design change (PR #21). Registry read access is
+  platform-determined, not a module input. Confirmed via azure-docs-verifier and
+  the ARM change-log summary that NO Microsoft.ApiCenter API version
+  (2023-07-01-preview, 2024-03-01, 2024-03-15-preview, 2024-06-01-preview, the
+  newest) exposes a read-access-mode property; 2024-06-01-preview is the newest
+  version in existence for the whole provider. Default posture is authenticated
+  (anonymous requests 401). So the `registry_read_access` input and
+  `registry_read_access_mode` output were removed; the module instead grants the
+  Azure API Center Data Reader role on the instance to a generalized
+  `data_reader_principal_ids` list (the gate poll's OIDC principal), via azapi
+  for_each roleAssignments@2022-04-01. Anonymous read is documented as a
+  portal-only, Copilot-only opt-in this deployment does not use
+  (docs/runbooks/registry-anonymous-access.md, docs/security.md). Deploying
+  principal needs roleAssignments/write on the APIM and API Center instance
+  scopes at the gate (docs/runbooks/live-test-gate.md). Note on the "anonymous
+  requests 401" default: Microsoft Learn documents Entra ID as recommended and
+  anonymous as an explicit opt-in, but not the verbatim 401-on-no-config
+  mechanic; that specific is confirmed at the live gate, not asserted from a doc.
