@@ -1,5 +1,7 @@
 ---
 description: Work the frontier: pick up the next ready v1 issue, implement it, open a PR, stop.
+model: sonnet
+disable-model-invocation: true
 ---
 
 Work the frontier: the lowest-numbered open v1 issue labelled

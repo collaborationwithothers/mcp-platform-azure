@@ -18,7 +18,7 @@ Rules:
 
 | Component | Status | Notes | Last verified |
 |---|---|---|---|
-| Azure Functions MCP extension (tool triggers) | GA (announced Nov 2025) | .NET isolated worker; conflicting signals seen on .NET worker package versioning (a -preview package version observed post-GA); re-verify and record exact package version at first pin | 2026-07-08 |
+| Azure Functions MCP extension (tool triggers) | GA (announced Nov 2025) | .NET isolated worker. Exact package pinned at ticket 2: Microsoft.Azure.Functions.Worker.Extensions.Mcp 1.5.1 (stable, published 2026-06-23). The earlier post-GA "-preview" signal was interim preview builds (e.g. 1.5.0-preview.1) published ahead of each stable release; the current latest is stable. See Pinned versions below. | 2026-07-12 |
 | Functions MCP extension: resource triggers | GA | | 2026-07-08 |
 | Functions MCP extension: prompt triggers, MCP Apps, one-click auth | Preview | not used in v1 | 2026-07-08 |
 | Functions self-hosted MCP SDK servers (custom handlers) | Preview | stateless only; gated phase, not v1 | 2026-07-08 |
@@ -44,6 +44,10 @@ Populated as code lands. One row per pin.
 | Flex Consumption maximum_instance_count | 40 (valid range: 1-1000) | infra/terraform/modules/mcp-function-host/variables.tf | Default sizing for the tracer's small demo footprint; 40 is a sizing choice, not a platform minimum | 2026-07-12 | https://learn.microsoft.com/azure/azure-functions/event-driven-scaling#flex-consumption-plan |
 | azurerm_storage_container parent reference | storage_account_id (preferred over deprecated storage_account_name) | infra/terraform/modules/mcp-function-host/main.tf | Resource Manager API rather than Data Plane API; storage_account_name still works but is deprecated | 2026-07-11 | https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0/docs/resources/storage_container |
 | App setting WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES | Preview | infra/terraform/modules/mcp-function-host/main.tf (var.prm_scope) | Enables the backend protected resource metadata document; config format may change before GA | 2026-07-12 | https://learn.microsoft.com/azure/app-service/overview-authentication-authorization#how-it-works |
+| Microsoft.Azure.Functions.Worker.Extensions.Mcp | 1.5.1 (stable/GA) | src/McpTools/McpTools.csproj | MCP tool triggers for the .NET isolated worker (ADR-002). Verified stable, not preview; requires Worker >= 2.1.0 and Worker.Sdk >= 2.0.2 | 2026-07-12 | https://learn.microsoft.com/azure/azure-functions/functions-bindings-mcp |
+| Microsoft.Azure.Functions.Worker | 2.52.0 | src/McpTools/McpTools.csproj | Isolated worker runtime; latest stable, satisfies the extension floor >= 2.1.0 | 2026-07-12 | https://www.nuget.org/packages/Microsoft.Azure.Functions.Worker |
+| Microsoft.Azure.Functions.Worker.Sdk | 2.0.7 | src/McpTools/McpTools.csproj | Isolated worker build SDK; latest stable, satisfies the extension floor >= 2.0.2 | 2026-07-12 | https://www.nuget.org/packages/Microsoft.Azure.Functions.Worker.Sdk |
+| ModelContextProtocol | 1.4.1 | src/McpTestClient/McpTestClient.csproj | Official MCP C# SDK for the hand-written test client; latest stable (2.0.0 line is preview). API confirmed against the sample at the v1.4.1 tag (McpClient.CreateAsync, HttpClientTransport) | 2026-07-12 | https://www.nuget.org/packages/ModelContextProtocol/1.4.1 |
 
 ### Issue-1 AVM capability check (avm-res-web-site 0.22.0)
 
@@ -69,6 +73,12 @@ Full detail and doc citations: infra/terraform/modules/mcp-function-host/README.
   check passed, no fallback), azurerm_service_plan FC1, Flex Consumption
   sizing defaults, azurerm_storage_container's storage_account_id argument,
   and the preview WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES app setting.
+- 2026-07-12: ticket 2 (McpTools server + McpTestClient skeleton) lands. First
+  .NET package pins: Microsoft.Azure.Functions.Worker.Extensions.Mcp 1.5.1
+  (issue-start verification confirmed it is stable/GA, resolving the earlier
+  "-preview post-GA" signal in the feature-status table above), Worker 2.52.0,
+  Worker.Sdk 2.0.7, and ModelContextProtocol 1.4.1 for the test client. Repo
+  NuGet.config added pinning restore to nuget.org.
 - 2026-07-12: governance-review corrections. The dotnet-isolated
   functionAppConfig.runtime.version pin was corrected from "10" to "10.0"
   after independent verification: the official Azure-Samples Flex Consumption
