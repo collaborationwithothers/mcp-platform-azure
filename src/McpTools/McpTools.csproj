@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Azure Functions .NET isolated-worker MCP server (ADR-002).
+    Package pins verified 2026-07-12 (see COMPATIBILITY.md):
+      - Microsoft.Azure.Functions.Worker.Extensions.Mcp 1.5.1 (GA/stable)
+        requires Worker >= 2.1.0 and Worker.Sdk >= 2.0.2.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>McpTools</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp" Version="1.5.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="host.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Let the unit tests read the internal tool name/description constants. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="McpTools.Tests" />
+  </ItemGroup>
+
+</Project>
