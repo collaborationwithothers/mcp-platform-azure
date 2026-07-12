@@ -90,39 +90,31 @@ variable "deployment" {
   }
 }
 
-variable "registry_read_access" {
-  type = object({
-    mode = string
-  })
+variable "data_reader_principal_ids" {
+  type        = list(string)
   description = <<-EOT
-    Read-access mode for the data-plane MCP registry endpoint, echoed on the
-    registry_read_access_mode output so the ticket-5 bounded poll authenticates
-    (or not) to match.
+    Object ids of Entra principals to grant the Azure API Center Data Reader
+    role on this API Center instance, so they can read the data-plane MCP
+    registry endpoint with an authenticated call. The tracer passes the OIDC
+    principal that runs ticket 5's bounded poll.
 
-    IMPORTANT: as of 2026-07-12 this mode is NOT settable through the
-    Microsoft.ApiCenter azapi resource surface. The service resource exposes
-    only `restore` and `identity`; there is no ARM property for anonymous vs
-    Entra data-plane read access. The mode is a portal/Data API settings toggle
-    ("Allow anonymous access" vs Microsoft Entra ID authentication) applied
-    out of band. This input therefore records the intended mode and drives the
-    output and docs; it does not itself provision the toggle. See README.md
-    (Registry read access) and COMPATIBILITY.md.
+    Why RBAC and not an access-mode input: the registry endpoint's read-access
+    mode (authenticated vs anonymous) is NOT settable through the
+    Microsoft.ApiCenter azapi surface in any published API version as of
+    2026-07-12 (2023-07-01-preview, 2024-03-01, 2024-03-15-preview,
+    2024-06-01-preview; see README.md and COMPATIBILITY.md). The default posture
+    is authenticated (anonymous requests 401), so the module grants read access
+    via this role rather than exposing an access-mode toggle. Anonymous read, if
+    ever wanted, is a portal-only opt-in
+    (docs/runbooks/registry-anonymous-access.md) and is not used by this
+    deployment.
 
-    "anonymous": the registry endpoint is publicly readable with no token (the
-    working mode at research time, and what lets the tracer's bounded poll run
-    without acquiring a data-plane token). Security implication documented in
-    README.md: the inventory (server names, URLs, transport types) is exposed
-    unauthenticated on a public endpoint; acceptable only for the synthetic
-    public-demo tracer.
-
-    "entra": the endpoint requires a Microsoft Entra token whose principal holds
-    the Azure API Center Data Reader role; the poll must acquire one.
+    Default [] grants nothing. Each id is treated as a service principal
+    (principalType ServicePrincipal), matching an OIDC/CI identity. Assigning the
+    role needs the deploying principal to hold roleAssignments/write on this
+    instance at the live gate (docs/runbooks/live-test-gate.md).
   EOT
-
-  validation {
-    condition     = contains(["anonymous", "entra"], var.registry_read_access.mode)
-    error_message = "registry_read_access.mode must be \"anonymous\" or \"entra\"."
-  }
+  default     = []
 }
 
 variable "workspace_title" {

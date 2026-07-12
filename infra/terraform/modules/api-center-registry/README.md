@@ -22,19 +22,36 @@ fetches, not recalled from training data:
   path. Provider feature request
   [hashicorp/terraform-provider-azurerm#26200](https://github.com/hashicorp/terraform-provider-azurerm/issues/26200)
   is still open.
-- All resources are pinned to ARM API version **2024-06-01-preview** (the
-  newest listed for these types; a stable `2024-03-01` exists for `services`
-  only, and is older/less complete):
+- All resources are pinned to ARM API version **2024-06-01-preview**. This is
+  the newest version in existence for the entire `Microsoft.ApiCenter` provider
+  (the provider's full version set is `2023-07-01-preview`, `2024-03-01`,
+  `2024-03-15-preview`, `2024-06-01-preview` per the change-log summary,
+  re-confirmed 2026-07-12; there is no later preview). It is the newest for
+  `services`/`workspaces`/`environments` and the only version for `apiSources`
+  (which was introduced in this version). A stable `2024-03-01` exists for
+  `services`, `workspaces`, and `environments` but not for `apiSources`; the
+  module pins `2024-06-01-preview` uniformly.
+  [Microsoft.ApiCenter change log](https://learn.microsoft.com/azure/templates/microsoft.apicenter/change-log/summary),
   [Microsoft.ApiCenter/services](https://learn.microsoft.com/azure/templates/microsoft.apicenter/2024-06-01-preview/services),
   [services/workspaces](https://learn.microsoft.com/azure/templates/microsoft.apicenter/2024-06-01-preview/services/workspaces),
   [services/workspaces/environments](https://learn.microsoft.com/azure/templates/microsoft.apicenter/2024-06-01-preview/services/workspaces/environments),
   [services/workspaces/apiSources](https://learn.microsoft.com/azure/templates/microsoft.apicenter/2024-06-01-preview/services/workspaces/apisources).
-- The `default` workspace must be declared explicitly; API Center supports a
-  single workspace and does not auto-create it, and the data-plane registry
-  path (`/workspaces/default/...`) depends on it.
+- API Center supports a single workspace named `default`, which the data-plane
+  registry path (`/workspaces/default/...`) depends on. The module declares it
+  explicitly. Whether ARM auto-creates a `default` workspace with the service
+  (making an explicit declaration a redundant no-op) versus requiring it to be
+  created is a product-behaviour detail not stated in the ARM template
+  reference; re-verify at the live gate that declaring `default` explicitly does
+  not conflict with an auto-created one.
   [Set up API Center with an ARM template](https://learn.microsoft.com/azure/api-center/set-up-api-center-arm-template).
-- The data-plane MCP registry endpoint has the exact form
+- The data-plane MCP registry endpoint has the form
   `https://<name>.data.<region>.azure-apicenter.ms/workspaces/default/v0.1/servers`.
+  Known Microsoft-doc inconsistency (2026-07-12): the page's stated format
+  string includes the `workspaces/` segment (matching the spec and this module),
+  but the page's own worked example omits it
+  (`.../default/v0.1/servers`). The module and spec use the `workspaces/` form;
+  ticket 5's bounded poll must confirm the live form empirically before relying
+  on it. Also re-verify the `<region>` slug (see below).
   [Register and discover MCP servers](https://learn.microsoft.com/azure/api-center/register-discover-mcp-server#configure-mcp-registry-metadata).
 - APIM **auto-sync** keeps the inventory current (production-correct): the
   `apiSources` resource points at the APIM instance id and the servers sync in.
@@ -61,42 +78,36 @@ the target, and must be documented as such. It is out of scope here.
 
 ## Registry read access
 
-The data-plane registry endpoint returns 401/404 unless the caller is allowed
-to read it. API Center governs this through the **portal access method**
-("Allow anonymous access" vs Microsoft Entra ID authentication), configured in
-the Azure portal under **Consumption > Data API settings**. The access method
-you choose determines how callers authenticate to the MCP registry endpoint.
-[Discover APIs with the Azure API Center MCP server](https://learn.microsoft.com/azure/api-center/discover-catalog-mcp-server),
-[Set up the API Center portal](https://learn.microsoft.com/azure/api-center/set-up-api-center-portal).
+**Read access is platform-determined, not a module input.** The data-plane MCP
+registry endpoint's read-access mode (authenticated vs anonymous) is **not
+controllable through the `Microsoft.ApiCenter` azapi/ARM surface in any published
+API version** as of 2026-07-12. This was checked across the provider's entire
+version set (`2023-07-01-preview`, `2024-03-01`, `2024-03-15-preview`,
+`2024-06-01-preview`, the newest in existence): `Microsoft.ApiCenter/services`
+exposes only `restore` and `identity`, and no ApiCenter child type models
+portal/data-API settings. A newer preview does not front the toggle either.
 
-**This mode is not settable through the azapi resource surface as of
-2026-07-12.** The `Microsoft.ApiCenter/services` resource exposes only `restore`
-and `identity`; there is no ARM property (nothing analogous to Storage's
-`allowBlobPublicAccess`) for anonymous vs Entra data-plane read access, and no
-`Microsoft.ApiCenter` child resource type models portal/data-API settings in
-the ARM template reference. The toggle is therefore applied **out of band**
-(portal, or a settings API not surfaced in the ARM template reference).
+**The default behaviour is authenticated: anonymous requests 401.** Callers
+inside the Entra trust boundary read the registry with a token whose principal
+holds the **Azure API Center Data Reader** role
+(`c7244dfb-f447-457d-b2ba-3999044d1706`), scoped to the instance. This module
+grants that role to the principals in `data_reader_principal_ids` (the tracer
+passes the OIDC principal that runs ticket 5's bounded poll), so the poll
+authenticates rather than relying on any access-mode toggle. (Microsoft Learn
+documents Entra ID as the recommended access method and anonymous as an explicit
+opt-in; the precise unauthenticated-response code is confirmed at the live gate,
+not asserted from a Learn page.)
 
-The module's `registry_read_access = { mode }` input records the **intended**
-mode and drives the `registry_read_access_mode` output so the integration
-issue's bounded poll authenticates (or not) to match. It does not itself
-provision the toggle. This limitation is recorded in COMPATIBILITY.md.
-
-The tracer's chosen mode is **`anonymous`**: it lets the bounded poll assert the
-synced server inside a short-lived deployment without acquiring a data-plane
-token.
-
-**Security implication (public endpoint).** With anonymous read, the registry
-inventory (MCP server names, endpoint URLs, transport types) is readable by
-anyone on the public internet with no authentication. That is acceptable only
-because this is the synthetic, public-demo tracer whose data is labelled
-synthetic and whose backend is itself a demo. A real deployment should use
-`entra` read access (callers present a Microsoft Entra token whose principal
-holds the **Azure API Center Data Reader** role,
-`c7244dfb-f447-457d-b2ba-3999044d1706`) so the inventory is not publicly
-enumerable, and the poll would acquire such a token. This mirrors the honest
-public-demo posture the spec requires for the gateway (security.md): in the
-public-demo profile, discovery surfaces are reachable without a secret.
+**Anonymous read is a portal-only opt-in this deployment does not use.** The
+"Allow anonymous access" toggle exists only in the Azure portal (Consumption >
+Portal settings > Access tab); there is no IaC surface for it. Its cost is
+public enumerability of registered server and tool metadata. This deployment
+keeps the authenticated default. The one known consumer that needs anonymous is
+GitHub Copilot's registry integration; the optional, Copilot-only enablement
+steps live in `docs/runbooks/registry-anonymous-access.md` and are not executed
+here. Registry security posture is in `docs/security.md`.
+[Set up the API Center portal](https://learn.microsoft.com/azure/api-center/set-up-api-center-portal#configure-access-to-the-api-center-portal),
+[Discover APIs with the Azure API Center MCP server](https://learn.microsoft.com/azure/api-center/discover-catalog-mcp-server).
 
 ## Inputs
 
@@ -109,7 +120,7 @@ public-demo profile, discovery surfaces are reachable without a secret.
 | `apim_source_id` | string | Full ARM id of the APIM instance to auto-sync from. |
 | `environment` | object | `{ title, kind = "development", server_type = "Azure API Management", management_portal_uri = [] }`. The environment the remote MCP server is associated with. |
 | `deployment` | object | `{ import_specification = "always", target_lifecycle_stage = "production" }`. Auto-sync metadata for the synced servers. |
-| `registry_read_access` | object | `{ mode }`, `"anonymous"` or `"entra"`. Records the intended read-access mode (applied out of band; see above) and drives the output. |
+| `data_reader_principal_ids` | list(string) | Object ids granted **Azure API Center Data Reader** on the instance for authenticated data-plane read (e.g. the poll's OIDC principal). Default `[]` grants nothing. See Registry read access. |
 | `workspace_title` | string | Display title of the single `default` workspace. Default `"Default workspace"`. |
 | `assign_apim_reader_role` | bool | Whether to assign the service identity the API Management Service Reader role on `apim_source_id`. Default `true`. |
 
@@ -120,7 +131,6 @@ public-demo profile, discovery surfaces are reachable without a secret.
 | `api_center_name` | Resource name of the API Center service. |
 | `api_center_id` | ARM resource ID of the service. |
 | `registry_endpoint_url` | Data-plane registry endpoint, `.../workspaces/default/v0.1/servers`. |
-| `registry_read_access_mode` | The read-access mode the poll must match (echoed from the input). |
 | `workspace_name` | Always `"default"`. |
 | `environment_id` | ARM id of the environment the synced server is associated with. |
 | `api_source_id` | ARM id of the APIM auto-sync source. |
@@ -128,13 +138,18 @@ public-demo profile, discovery surfaces are reachable without a secret.
 
 ## Live-gate prerequisites (integration issue, not this ticket)
 
-- Assigning the API Management Service Reader role (`assign_apim_reader_role =
-  true`, the default) requires the deploying principal to hold
-  role-assignment-write (for example **User Access Administrator**) on the APIM
-  scope. Set the flag to `false` if the composition grants that role out of
-  band, and wire `identity_principal_id` to that assignment instead.
-- The `anonymous` registry read mode must be applied out of band (portal Data
-  API settings) before the poll runs, as described above.
+- Both role assignments this module creates need the deploying principal to hold
+  `Microsoft.Authorization/roleAssignments/write` (for example **User Access
+  Administrator** or **Owner**) at the target scope: the APIM instance (for
+  `assign_apim_reader_role`) and this API Center instance (for
+  `data_reader_principal_ids`). Provision that on the OIDC/bootstrap principal
+  before the gate rather than discovering it there; see
+  `docs/runbooks/live-test-gate.md`. Set `assign_apim_reader_role = false` (or
+  pass `data_reader_principal_ids = []`) if the composition grants those roles
+  out of band, and wire `identity_principal_id` to the APIM assignment instead.
+- Read access stays at the authenticated default; nothing to apply out of band
+  for the poll beyond the Data Reader grant above. Anonymous access is not used
+  (portal-only opt-in, `docs/runbooks/registry-anonymous-access.md`).
 - Re-verify the derived `registry_endpoint_url` region slug for any region
   whose data-plane hostname is not simply its lowercased name.
 

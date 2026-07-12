@@ -7,10 +7,12 @@
 #
 # The module provisions the inventory (service + single "default" workspace +
 # one environment), wires APIM auto-sync (apiSources) so the MCP server appears
-# automatically, grants the identity the access that sync needs, and derives
-# the data-plane registry endpoint URL for the ticket-5 bounded poll. It does
-# NOT create the MCP server entry explicitly: auto-sync from APIM is the
-# production-correct mechanism (docs/specs/v1-tracer-bullet.md, Registry (S3)).
+# automatically, grants the API Center identity the access that sync needs,
+# grants Data Reader on the instance to the poll principal(s) that read the
+# registry authenticated, and derives the data-plane registry endpoint URL for
+# the ticket-5 bounded poll. It does NOT create the MCP server entry explicitly:
+# auto-sync from APIM is the production-correct mechanism
+# (docs/specs/v1-tracer-bullet.md, Registry (S3)).
 
 locals {
   # API Center currently supports a single workspace, named "default"; the
@@ -23,9 +25,20 @@ locals {
   # composition deploys both together in one subscription; resource_group_name
   # is a group in this subscription. ARM id format:
   # /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.ApiManagement/service/{name}
-  subscription_id    = split("/", var.apim_source_id)[2]
-  resource_group_id  = "/subscriptions/${local.subscription_id}/resourceGroups/${var.resource_group_name}"
-  role_definition_id = "/subscriptions/${local.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/71522526-b88f-4d52-b57f-d31fc3546d0d"
+  subscription_id   = split("/", var.apim_source_id)[2]
+  resource_group_id = "/subscriptions/${local.subscription_id}/resourceGroups/${var.resource_group_name}"
+
+  # Built-in role definition ids (subscription-scoped references). Both role
+  # assignments in this module are authored via azapi to keep it single-provider.
+  # - API Management Service Reader Role (71522526-...): the API Center identity
+  #   needs it on the APIM instance so auto-sync can import APIs.
+  # - Azure API Center Data Reader (c7244dfb-...): granted on THIS API Center
+  #   instance to the principals in data_reader_principal_ids so they can read
+  #   the data-plane registry with an authenticated call.
+  # Both GUIDs verified 2026-07-12 against the Microsoft Learn built-in roles
+  # reference (role-based-access-control/built-in-roles/integration).
+  apim_reader_role_definition_id = "/subscriptions/${local.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/71522526-b88f-4d52-b57f-d31fc3546d0d"
+  data_reader_role_definition_id = "/subscriptions/${local.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/c7244dfb-f447-457d-b2ba-3999044d1706"
 
   # Data-plane registry hostname uses the region as a normalized slug (lowercase,
   # no spaces): "East US" and "eastus" both yield "eastus". Re-verify the derived
@@ -33,8 +46,12 @@ locals {
   # its lowercased name (COMPATIBILITY.md).
   location_slug = replace(lower(var.location), " ", "")
 
-  # Exact form required by the spec and by MCP clients (Microsoft Learn,
-  # register-discover-mcp-server, Configure MCP registry metadata).
+  # Form required by the spec and by MCP clients (Microsoft Learn,
+  # register-discover-mcp-server, Configure MCP registry metadata). Known doc
+  # inconsistency (2026-07-12): that page's stated format string includes the
+  # /workspaces/ segment (used here), but its own worked example omits it
+  # (.../default/v0.1/servers). Ticket 5's bounded poll must confirm the live
+  # form empirically before relying on it; see README.md and COMPATIBILITY.md.
   registry_endpoint_url = "https://${var.name}.data.${local.location_slug}.azure-apicenter.ms/workspaces/${local.workspace_name}/v0.1/servers"
 }
 
@@ -58,10 +75,13 @@ resource "azapi_resource" "api_center" {
   }
 }
 
-# Single "default" workspace. Must be declared explicitly: API Center does not
-# auto-create it, and the data-plane registry path depends on it existing
+# Single "default" workspace, which the data-plane registry path depends on
 # (Microsoft Learn, set-up-api-center-arm-template: "Currently, API Center
-# supports a single, default workspace for all child resources").
+# supports a single, default workspace for all child resources"). Declared
+# explicitly here. Whether ARM auto-creates a "default" workspace with the
+# service (making this a redundant no-op) or requires it is not stated in the
+# ARM template reference; re-verify at the live gate that declaring it does not
+# conflict with an auto-created one (README.md, COMPATIBILITY.md).
 resource "azapi_resource" "workspace" {
   type      = "Microsoft.ApiCenter/services/workspaces@2024-06-01-preview"
   name      = local.workspace_name
@@ -133,13 +153,40 @@ resource "azapi_resource" "apim_reader" {
   count = var.assign_apim_reader_role ? 1 : 0
 
   type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
-  name      = uuidv5("url", "${var.apim_source_id}|${local.role_definition_id}|${azapi_resource.api_center.identity[0].principal_id}")
+  name      = uuidv5("url", "${var.apim_source_id}|${local.apim_reader_role_definition_id}|${azapi_resource.api_center.identity[0].principal_id}")
   parent_id = var.apim_source_id
 
   body = {
     properties = {
-      roleDefinitionId = local.role_definition_id
+      roleDefinitionId = local.apim_reader_role_definition_id
       principalId      = azapi_resource.api_center.identity[0].principal_id
+      principalType    = "ServicePrincipal"
+    }
+  }
+}
+
+# Azure API Center Data Reader on THIS API Center instance, for each principal in
+# data_reader_principal_ids. The data-plane registry endpoint's read-access mode
+# (authenticated vs anonymous) is not an ARM/azapi property in ANY published
+# Microsoft.ApiCenter API version as of 2026-07-12 (see README.md and
+# COMPATIBILITY.md); the default posture is authenticated. So consumers inside
+# the Entra trust boundary -- here, the ticket-5 bounded poll's OIDC principal --
+# read the registry with this role rather than via an anonymous toggle. Anonymous
+# read, if ever wanted, is a portal-only opt-in
+# (docs/runbooks/registry-anonymous-access.md), not used by this deployment.
+# The uuidv5 name seed includes the instance (parent) id so the deterministic
+# name is unique per (scope, role, principal). Empty list (default) => no grants.
+resource "azapi_resource" "data_reader" {
+  for_each = toset(var.data_reader_principal_ids)
+
+  type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
+  name      = uuidv5("url", "${azapi_resource.api_center.id}|${local.data_reader_role_definition_id}|${each.value}")
+  parent_id = azapi_resource.api_center.id
+
+  body = {
+    properties = {
+      roleDefinitionId = local.data_reader_role_definition_id
+      principalId      = each.value
       principalType    = "ServicePrincipal"
     }
   }

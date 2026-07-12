@@ -13,11 +13,6 @@ output "registry_endpoint_url" {
   description = "Data-plane MCP registry endpoint, https://<name>.data.<region>.azure-apicenter.ms/workspaces/default/v0.1/servers. The ticket-5 bounded poll asserts the synced MCP server appears here."
 }
 
-output "registry_read_access_mode" {
-  value       = var.registry_read_access.mode
-  description = "The registry endpoint read-access mode (\"anonymous\" or \"entra\") the poll must match. Echoed from the registry_read_access input; the mode itself is applied out of band via the portal Data API settings (no azapi property exists as of 2026-07-12). See README.md and COMPATIBILITY.md."
-}
-
 output "workspace_name" {
   value       = azapi_resource.workspace.name
   description = "Name of the single API Center workspace (always \"default\"), the /workspaces/default segment of the registry endpoint."

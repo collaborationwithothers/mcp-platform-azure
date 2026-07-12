@@ -9,6 +9,14 @@ Revision 2, 2026-07-11: review changes applied (shadow key auth path closed and
 tested; AVM verification anchored to issue starts with pre-declared fallback;
 registry endpoint read-access mode decision added; Inspector drift tracking moved
 to COMPATIBILITY.md instead of new automation).
+Revision 3, 2026-07-12: registry read access is platform-determined -- a
+portal-only toggle with no ARM surface in any published Microsoft.ApiCenter API
+version (2023-07-01-preview, 2024-03-01, 2024-03-15-preview, 2024-06-01-preview,
+the newest as of 2026-07-12). The default posture is authenticated. The
+api-center-registry module therefore exposes Data Reader RBAC
+(data_reader_principal_ids), NOT an access-mode input; the gate poll
+authenticates via the Azure API Center Data Reader role. Supersedes the
+Revision-2 read-access-mode input decision. See Registry (S3).
 
 This spec describes the first vertical slice of the platform: a single tool call
 that travels the full governed path (MCP client -> APIM MCP gateway -> Functions
@@ -272,13 +280,15 @@ observability) extend without restructuring.
   https://<api-center-name>.data.<region>.azure-apicenter.ms/workspaces/default/v0.1/servers.
 - To make the asynchronous sync verifiable inside a short-lived deployment, the gate
   polls the registry endpoint with a bounded timeout and asserts the server appears.
-- Issue 4 determines and configures the registry endpoint's read access mode before
-  wiring the poll. Research indicates the data-plane endpoint returns 401/404 unless
-  the workspaces/default path segment is used and read access is configured to allow
-  the caller (anonymous read was the working mode at research time). The poll
-  authenticates, or not, to match the configured mode, and the chosen mode plus its
-  security implication for a public registry endpoint is documented in the module
-  doc.
+- Registry read access is platform-determined (Revision 3): the authenticated-vs-
+  anonymous mode is a portal-only toggle with no ARM surface in any published
+  Microsoft.ApiCenter API version as of 2026-07-12, and the default is
+  authenticated (anonymous requests 401). Issue 4 therefore does not configure a
+  mode; it grants the Azure API Center Data Reader role on the instance to the
+  poll's OIDC principal (data_reader_principal_ids) so the bounded poll reads the
+  registry authenticated over the workspaces/default path. The registry security
+  posture, and anonymous access as a portal-only, Copilot-only opt-in this
+  deployment does not use, are documented in docs/security.md and the module doc.
 - Explicit azapi registration is retained only as a labelled demo-determinism
   fallback if the bounded poll proves too flaky, never as the headline. If used, docs
   name auto-sync as the production target and explicit registration as the compromise.
