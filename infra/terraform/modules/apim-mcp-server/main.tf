@@ -62,12 +62,23 @@ resource "azapi_resource" "mcp_server" {
       subscriptionRequired = var.subscription_required
       mcpProperties = {
         transportType = var.transport.type
-        endpoints = [
-          for e in var.transport.endpoints : {
-            name        = e.name
+        # NOT the documented shape. Microsoft Learn (manage-mcp-servers-rest-api)
+        # and the ARM template reference both show endpoints as a JSON array of
+        # {name, uriTemplate} objects. A live PUT against this api-version
+        # returned 400: "Cannot deserialize the current JSON array ... into type
+        # 'Dictionary<string, McpEndpointContract>' ... requires a JSON object".
+        # That error is read directly off the live service, not a docs source,
+        # so it is stronger evidence than the (evidently stale, preview-API)
+        # docs, but the map-value shape below (endpoint name as key, uriTemplate
+        # as the only remaining value field) is inferred from that error
+        # message, not confirmed by any Microsoft Learn example. Re-verify at
+        # the next live-test run and correct this comment/COMPATIBILITY.md once
+        # confirmed either way.
+        endpoints = {
+          for e in var.transport.endpoints : e.name => {
             uriTemplate = e.uri_template
           }
-        ]
+        }
       }
     }
   }
