@@ -123,3 +123,10 @@ toolchain, verified 2026-07-11: Terraform 1.15.8 (checkpoint-api.hashicorp.com),
 .NET 10 LTS (Functions 4.x isolated worker per Microsoft Learn), tflint-ruleset-
 azurerm 0.32.0. When infra adds a required_version, keep it in step with the
 setup-terraform pin here.
+
+## Terraform version
+- Terraform version: the repo pins the toolchain in .terraform-version.
+  If local terraform does not satisfy the compositions' required_version,
+  run `tfswitch` (reads .terraform-version) before validate/plan, then
+  proceed; do not skip validation and do not report version drift as a
+  blocker. CI remains the merge authority.
