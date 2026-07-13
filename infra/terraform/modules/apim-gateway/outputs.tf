@@ -21,4 +21,5 @@ output "prm_url" {
 output "identity_principal_id" {
   value       = module.apim.resource.identity[0].principal_id
   description = "Principal ID of the API Management service's system-assigned managed identity. Unused in the tracer; present for the thick interface (e.g. future RBAC wiring)."
+  sensitive   = true
 }

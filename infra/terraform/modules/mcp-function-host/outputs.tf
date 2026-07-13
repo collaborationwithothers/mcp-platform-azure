@@ -1,6 +1,7 @@
 output "function_app_id" {
   value       = module.function_app.resource_id
   description = "ARM resource ID of the Function App."
+  sensitive   = true
 }
 
 output "function_app_name" {
@@ -21,4 +22,5 @@ output "mcp_backend_base_url" {
 output "identity_principal_id" {
   value       = module.function_app.identity_principal_id
   description = "Principal ID of the Function App's system-assigned managed identity. Unused in the tracer (no downstream call); present for later RBAC (OBO issue) per the thick interface."
+  sensitive   = true
 }
