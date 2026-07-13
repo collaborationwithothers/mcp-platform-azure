@@ -41,3 +41,37 @@ Regardless of read mode, **nothing sensitive is placed in registered metadata**:
 the inventory carries service/tool descriptions and endpoint URLs for the
 synthetic demo server only, no secrets, tokens, or tenant/subscription
 identifiers.
+
+## Gateway and backend auth (public-demo profile)
+
+The `s1-entra-mcp-server` and `s2-apim-mcp-gateway` scenario compositions
+wire two independent Entra token checks: the gateway's `validate-azure-ad-token`
+policy (issuer, audience, allowed client application ids) in
+`apim-mcp-server`, and the Functions built-in auth (Easy Auth) check in
+`mcp-function-host`. Both must pass; APIM forwards the `Authorization` header
+it already validated to the Functions backend, which independently
+re-validates it (defense in depth, not the token-passthrough anti-pattern --
+that anti-pattern is downstream reuse, out of the tracer's scope until the
+OBO issue).
+
+**Honest limitation of the public-demo profile:** the Functions endpoint is
+still public in v1 (the private-network module and profile are v1.1, out of
+this scenario's scope). A caller who has a valid Entra token for the server
+app can reach the Functions backend directly, bypassing the gateway
+entirely -- and with it, every governance control the gateway would
+otherwise enforce (rate limiting, quotas, content safety on tool-call
+arguments; all v1.1/S2-thickening features, not yet built). The Functions
+built-in auth check is real and independent, so a direct-to-backend caller
+is not unauthenticated -- but "authenticated" and "governed by the
+gateway's policies" are not the same guarantee, and public-demo only
+provides the former for a caller who bypasses APIM. This reframes to
+belt-and-braces (a second, redundant check behind a gateway that is the only
+reachable path) once the v1.1 private-network module closes the Functions
+endpoint's public network access. Until then, Easy Auth on the backend is a
+compensating control, not a substitute for the gateway's governance.
+
+The shadow `mcp_extension` system-key access path is closed on the backend
+(see `mcp-function-host`'s README, "mcp_extension key posture"); the live
+gate's negative test (system key present, no Entra token, expect 401) proves
+this against both the gateway and the backend host directly
+(docs/specs/v1-tracer-bullet.md, Compute and the tool (S1)).

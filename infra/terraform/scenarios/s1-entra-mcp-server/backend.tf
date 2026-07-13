@@ -1,0 +1,21 @@
+# Remote state on an azurerm backend, OIDC-only (docs/specs/v1-tracer-bullet.md,
+# Terraform and state). Deliberately partial: storage_account_name,
+# container_name, and key are supplied via -backend-config by
+# .github/workflows/ephemeral-env.yml at real-init time, so no account name,
+# container, or state key is committed here. tenant_id/client_id resolve from
+# the ARM_TENANT_ID/ARM_CLIENT_ID environment variables (same OIDC identity as
+# the provider block in versions.tf). PR CI only ever runs `init -backend=false`
+# and never reaches this block; only the gated live-test workflow does.
+#
+# use_oidc and use_azuread_auth are both required together for OIDC auth to
+# the state storage account (verified 2026-07-12 against the Terraform azurerm
+# backend documentation) -- one without the other does not authenticate.
+# Locking uses the storage account's native blob lease, so no separate lock
+# resource is needed.
+
+terraform {
+  backend "azurerm" {
+    use_oidc         = true
+    use_azuread_auth = true
+  }
+}
