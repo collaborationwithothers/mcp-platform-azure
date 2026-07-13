@@ -24,7 +24,19 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
+  # mcp-function-host's storage account has shared_access_key_enabled = false
+  # (managed-identity-only access). The azurerm provider's default post-create
+  # data-plane availability poll authenticates with the storage account key,
+  # which then fails with KeyBasedAuthenticationNotPermitted. data_plane_available
+  # = false skips that poll; safe here because this resource uses neither the
+  # queue_properties nor static_website blocks (the two cases the flag doesn't
+  # support). Flag introduced in azurerm provider v4.9.0, verified against the
+  # provider's features-block guide, 2026-07-13.
+  features {
+    storage {
+      data_plane_available = false
+    }
+  }
 
   use_oidc = true
 }
