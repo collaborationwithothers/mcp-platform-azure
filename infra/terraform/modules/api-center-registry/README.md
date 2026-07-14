@@ -37,12 +37,15 @@ fetches, not recalled from training data:
   [services/workspaces/environments](https://learn.microsoft.com/azure/templates/microsoft.apicenter/2024-06-01-preview/services/workspaces/environments),
   [services/workspaces/apiSources](https://learn.microsoft.com/azure/templates/microsoft.apicenter/2024-06-01-preview/services/workspaces/apisources).
 - API Center supports a single workspace named `default`, which the data-plane
-  registry path (`/workspaces/default/...`) depends on. The module declares it
-  explicitly. Whether ARM auto-creates a `default` workspace with the service
-  (making an explicit declaration a redundant no-op) versus requiring it to be
-  created is a product-behaviour detail not stated in the ARM template
-  reference; re-verify at the live gate that declaring `default` explicitly does
-  not conflict with an auto-created one.
+  registry path (`/workspaces/default/...`) depends on. **Confirmed at the live
+  gate (2026-07-13): Azure auto-provisions this workspace as a side effect of
+  creating the `services` resource.** A `resource "azapi_resource"` declaring
+  it explicitly always fails azapi's own pre-create existence check with
+  "Resource already exists" (the ARM template reference does not document this
+  create-time behaviour; it was only observed live). The module therefore reads
+  it via a `data "azapi_resource"` and never manages its title/description;
+  whether the auto-created instance's properties accept a later PUT/PATCH is
+  unverified.
   [Set up API Center with an ARM template](https://learn.microsoft.com/azure/api-center/set-up-api-center-arm-template).
 - The data-plane MCP registry endpoint has the form
   `https://<name>.data.<region>.azure-apicenter.ms/workspaces/default/v0.1/servers`.
@@ -121,7 +124,6 @@ here. Registry security posture is in `docs/security.md`.
 | `environment` | object | `{ title, kind = "development", server_type = "Azure API Management", management_portal_uri = [] }`. The environment the remote MCP server is associated with. |
 | `deployment` | object | `{ import_specification = "always", target_lifecycle_stage = "production" }`. Auto-sync metadata for the synced servers. |
 | `data_reader_principal_ids` | list(string) | Object ids granted **Azure API Center Data Reader** on the instance for authenticated data-plane read (e.g. the poll's OIDC principal). Default `[]` grants nothing. See Registry read access. |
-| `workspace_title` | string | Display title of the single `default` workspace. Default `"Default workspace"`. |
 | `assign_apim_reader_role` | bool | Whether to assign the service identity the API Management Service Reader role on `apim_source_id`. Default `true`. |
 
 ## Outputs

@@ -117,17 +117,6 @@ variable "data_reader_principal_ids" {
   default     = []
 }
 
-variable "workspace_title" {
-  type        = string
-  description = "Title of the single API Center workspace. API Center currently supports only one workspace, named \"default\" (the data-plane registry path is /workspaces/default/...); the resource name is fixed to \"default\" and only its display title is configurable here."
-  default     = "Default workspace"
-
-  validation {
-    condition     = length(var.workspace_title) >= 1 && length(var.workspace_title) <= 50
-    error_message = "workspace_title must be 1-50 characters (Microsoft.ApiCenter workspace title constraint)."
-  }
-}
-
 variable "assign_apim_reader_role" {
   type        = bool
   description = "Whether this module assigns the API Center service's system-assigned identity the API Management Service Reader role on apim_source_id. This is the access auto-sync needs to import APIs from APIM (per the synchronize-api-management-apis docs). Default true so auto-sync is self-contained and production-correct; set false only if the composition grants that role out of band. Applying it requires the deploying principal to hold role-assignment-write (for example User Access Administrator) on the APIM scope at the live gate."

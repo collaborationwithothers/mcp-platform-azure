@@ -14,7 +14,7 @@ output "registry_endpoint_url" {
 }
 
 output "workspace_name" {
-  value       = azapi_resource.workspace.name
+  value       = data.azapi_resource.workspace.name
   description = "Name of the single API Center workspace (always \"default\"), the /workspaces/default segment of the registry endpoint."
 }
 
