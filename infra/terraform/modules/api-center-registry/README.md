@@ -47,21 +47,27 @@ fetches, not recalled from training data:
   whether the auto-created instance's properties accept a later PUT/PATCH is
   unverified.
   [Set up API Center with an ARM template](https://learn.microsoft.com/azure/api-center/set-up-api-center-arm-template).
-- **API Center has genuine soft-delete** (confirmed at the live gate,
-  2026-07-14, against the `Microsoft.ApiCenter/deletedServices` REST
-  reference: tombstones carry `softDeletionDate`/`scheduledPurgeDate`).
-  Deleting the service (directly or via `terraform destroy`, or by deleting
-  its resource group) does not release its name; a later create with the same
-  name 400s with "The name ... is already taken." **EXPERIMENTAL, unverified**:
-  the module now sets `properties.restore = true` unconditionally on create.
-  `restore` is documented ("Flag used to restore soft-deleted API Center
-  service. If specified and set to 'true' all other properties will be
-  ignored", ARM template reference, 2024-03-15-preview onward), but no source
-  found confirms its behaviour on a genuinely first-ever create with nothing
-  to restore, and no purge REST operation for API Center's deleted services
-  could be confirmed to exist (so purge-before-create was not an available
-  alternative). Re-verify both the fresh-create and restore-after-destroy
-  cases at the next live-test run.
+- **API Center has genuine soft-delete.** Deleting the service (directly, via
+  `terraform destroy`, or by deleting its resource group) does not release its
+  name; a later create with the same name 400s with "The name ... is already
+  taken." Confirmed at the live gate (2026-07-13/14) and against the actual
+  `Microsoft.ApiCenter/deletedServices` operations in the pinned
+  `2024-06-01-preview` OpenAPI spec pulled directly from
+  `Azure/azure-rest-api-specs` (not just the narrative Learn docs):
+  `DeletedServices_ListBySubscription` (`GET
+  /subscriptions/{sub}/providers/Microsoft.ApiCenter/deletedServices`) and
+  `DeletedServices_Delete` (`DELETE
+  .../resourceGroups/{rg}/providers/Microsoft.ApiCenter/deletedServices/{name}`,
+  "Permanently deletes specified service" - a real purge, not a soft toggle).
+  An earlier attempt to fix this with `properties.restore = true`
+  unconditionally on create was tried and disproven live: when no tombstone
+  exists (e.g. the prior one's `scheduledPurgeDate` already elapsed),
+  `restore = true` 400s with "the service does not exist or may have been
+  permanently deleted" - there is no single static value of `restore` that
+  works in both states. The module now looks up any existing tombstone for
+  `var.name` via `data.azapi_resource_list` and purges it via
+  `azapi_resource_action` (`method = "DELETE"`, `ignore_not_found = true`)
+  before the plain create, which never needs `restore` at all.
   [Deleted Services - List](https://learn.microsoft.com/rest/api/resource-manager/apicenter/deleted-services/list).
 - The data-plane MCP registry endpoint has the form
   `https://<name>.data.<region>.azure-apicenter.ms/workspaces/default/v0.1/servers`.

@@ -54,29 +54,54 @@ locals {
   # (.../default/v0.1/servers). Ticket 5's bounded poll must confirm the live
   # form empirically before relying on it; see README.md and COMPATIBILITY.md.
   registry_endpoint_url = "https://${var.name}.data.${local.location_slug}.azure-apicenter.ms/workspaces/${local.workspace_name}/v0.1/servers"
+
+  # Any existing soft-deleted tombstone for var.name, found by name in the
+  # subscription-wide list below. See data.azapi_resource_list.deleted_api_center_services
+  # and azapi_resource_action.purge_deleted_api_center for why this exists.
+  matching_deleted_api_center_services = [
+    for s in try(data.azapi_resource_list.deleted_api_center_services.output.value, []) : s
+    if s.name == var.name
+  ]
+  deleted_api_center_service_id = length(local.matching_deleted_api_center_services) > 0 ? local.matching_deleted_api_center_services[0].id : null
+}
+
+# API Center has genuine soft-delete (verified against the actual
+# Microsoft.ApiCenter/deletedServices operations in the pinned 2024-06-01-preview
+# OpenAPI spec pulled from Azure/azure-rest-api-specs: DeletedServices_ListBySubscription
+# and DeletedServices_Delete, "Permanently deletes specified service"). Live
+# gate (2026-07-13/14): since this module's name (var.name) is a fixed value
+# reused across every ephemeral run, a second run's create 400'd with "The
+# name ... is already taken" against the first run's tombstone, even though
+# that first run's terraform destroy had succeeded (destroy deletes the live
+# service; it does not release the soft-deleted name). An earlier attempt to
+# fix this by setting properties.restore = true unconditionally on create was
+# ALSO proven wrong live: when no tombstone exists (e.g. the prior tombstone's
+# scheduledPurgeDate already elapsed), restore = true 400s with "the service
+# does not exist or may have been permanently deleted." So this looks up any
+# existing tombstone first and purges it via a real DELETE, making the
+# subsequent create a plain, unconditional one with nothing left to collide
+# with either way.
+data "azapi_resource_list" "deleted_api_center_services" {
+  type      = "Microsoft.ApiCenter/deletedServices@2024-06-01-preview"
+  parent_id = "/subscriptions/${local.subscription_id}"
+
+  response_export_values = ["*"]
+}
+
+resource "azapi_resource_action" "purge_deleted_api_center" {
+  count = local.deleted_api_center_service_id != null ? 1 : 0
+
+  type        = "Microsoft.ApiCenter/deletedServices@2024-06-01-preview"
+  resource_id = local.deleted_api_center_service_id
+  method      = "DELETE"
+
+  # The list read above is a point-in-time snapshot from plan; a purge that
+  # already happened out of band by apply time is not an error.
+  ignore_not_found = true
 }
 
 # API Center service. System-assigned identity is enabled so auto-sync can read
 # APIM once the identity holds the API Management Service Reader role (below).
-#
-# EXPERIMENTAL / UNVERIFIED (2026-07-14): restore = true is set unconditionally.
-# API Center has genuine soft-delete (verified against the Microsoft.ApiCenter
-# deletedServices REST reference: tombstones carry softDeletionDate and
-# scheduledPurgeDate). Live gate: since this module's name (var.name) is a
-# fixed value reused across every ephemeral run, a second run's create hit 400
-# "The name ... is already taken" against the first run's tombstone, even
-# though that first run's terraform destroy succeeded (destroy deletes the
-# live service; it does not un-reserve the soft-deleted name). properties.restore
-# is documented ("Flag used to restore soft-deleted API Center service. If
-# specified and set to 'true' all other properties will be ignored", ARM
-# template reference, 2024-03-15-preview onward) but no source found confirms
-# its behavior on a genuinely first-ever create with no prior soft-deleted
-# instance to restore (no purge REST operation for API Center could be
-# confirmed to exist either, so purge-before-create is not an available
-# alternative). Costs nothing to set here since properties was already empty.
-# Re-verify at the next live-test run (both the fresh-create case and the
-# restore-after-destroy case) and correct this comment/COMPATIBILITY.md either
-# way.
 resource "azapi_resource" "api_center" {
   type      = "Microsoft.ApiCenter/services@2024-06-01-preview"
   name      = var.name
@@ -89,10 +114,10 @@ resource "azapi_resource" "api_center" {
   }
 
   body = {
-    properties = {
-      restore = true
-    }
+    properties = {}
   }
+
+  depends_on = [azapi_resource_action.purge_deleted_api_center]
 }
 
 # Single "default" workspace, which the data-plane registry path depends on
