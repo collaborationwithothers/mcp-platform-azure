@@ -47,6 +47,22 @@ fetches, not recalled from training data:
   whether the auto-created instance's properties accept a later PUT/PATCH is
   unverified.
   [Set up API Center with an ARM template](https://learn.microsoft.com/azure/api-center/set-up-api-center-arm-template).
+- **API Center has genuine soft-delete** (confirmed at the live gate,
+  2026-07-14, against the `Microsoft.ApiCenter/deletedServices` REST
+  reference: tombstones carry `softDeletionDate`/`scheduledPurgeDate`).
+  Deleting the service (directly or via `terraform destroy`, or by deleting
+  its resource group) does not release its name; a later create with the same
+  name 400s with "The name ... is already taken." **EXPERIMENTAL, unverified**:
+  the module now sets `properties.restore = true` unconditionally on create.
+  `restore` is documented ("Flag used to restore soft-deleted API Center
+  service. If specified and set to 'true' all other properties will be
+  ignored", ARM template reference, 2024-03-15-preview onward), but no source
+  found confirms its behaviour on a genuinely first-ever create with nothing
+  to restore, and no purge REST operation for API Center's deleted services
+  could be confirmed to exist (so purge-before-create was not an available
+  alternative). Re-verify both the fresh-create and restore-after-destroy
+  cases at the next live-test run.
+  [Deleted Services - List](https://learn.microsoft.com/rest/api/resource-manager/apicenter/deleted-services/list).
 - The data-plane MCP registry endpoint has the form
   `https://<name>.data.<region>.azure-apicenter.ms/workspaces/default/v0.1/servers`.
   Known Microsoft-doc inconsistency (2026-07-12): the page's stated format

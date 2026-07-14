@@ -58,8 +58,25 @@ locals {
 
 # API Center service. System-assigned identity is enabled so auto-sync can read
 # APIM once the identity holds the API Management Service Reader role (below).
-# The only service-scoped property is `restore` (soft-delete restore), which the
-# tracer never sets, so properties is an empty object.
+#
+# EXPERIMENTAL / UNVERIFIED (2026-07-14): restore = true is set unconditionally.
+# API Center has genuine soft-delete (verified against the Microsoft.ApiCenter
+# deletedServices REST reference: tombstones carry softDeletionDate and
+# scheduledPurgeDate). Live gate: since this module's name (var.name) is a
+# fixed value reused across every ephemeral run, a second run's create hit 400
+# "The name ... is already taken" against the first run's tombstone, even
+# though that first run's terraform destroy succeeded (destroy deletes the
+# live service; it does not un-reserve the soft-deleted name). properties.restore
+# is documented ("Flag used to restore soft-deleted API Center service. If
+# specified and set to 'true' all other properties will be ignored", ARM
+# template reference, 2024-03-15-preview onward) but no source found confirms
+# its behavior on a genuinely first-ever create with no prior soft-deleted
+# instance to restore (no purge REST operation for API Center could be
+# confirmed to exist either, so purge-before-create is not an available
+# alternative). Costs nothing to set here since properties was already empty.
+# Re-verify at the next live-test run (both the fresh-create case and the
+# restore-after-destroy case) and correct this comment/COMPATIBILITY.md either
+# way.
 resource "azapi_resource" "api_center" {
   type      = "Microsoft.ApiCenter/services@2024-06-01-preview"
   name      = var.name
@@ -72,7 +89,9 @@ resource "azapi_resource" "api_center" {
   }
 
   body = {
-    properties = {}
+    properties = {
+      restore = true
+    }
   }
 }
 
