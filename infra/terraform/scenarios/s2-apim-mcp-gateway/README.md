@@ -43,6 +43,32 @@ already exposed by the same modules (no private-networking wiring exists in
 v1). A later profile (e.g. the v1.1 private-network variant) is an added map
 entry, not a restructure.
 
+## Global names and soft-delete
+
+Both the API Management service and the API Center service have GLOBAL names
+(the leftmost label of `<name>.azure-api.net` and
+`<name>.data.<region>.azure-apicenter.ms` respectively) and both are
+soft-deleted on delete, so their names stay reserved by a tombstone after
+deletion. Reusing a fixed name across ephemeral runs collides with the prior
+run's tombstone. This composition therefore does NOT use `apim_name` /
+`registry_name` verbatim: it appends a short suffix derived from the resource
+group name (`${name}-${substr(sha1(resource_group_name), 0, 8)}`,
+`local.apim_name_unique` and `local.registry_name_unique`) so each ephemeral
+run (own RG `rg-...-<github.run_id>`) gets a fresh global name and never
+collides with a tombstone. A stable (non-ephemeral) resource group yields a
+stable, deterministic name.
+
+For APIM specifically, the azurerm provider default
+`features.api_management.recover_soft_deleted = true` makes a create ATTEMPT to
+undelete a same-named tombstone. When that tombstone's original resource group
+was deleted out of band (the gate's `az group delete` backstop, which
+soft-deletes APIM without purging it), the undelete fails and the create hangs
+for over an hour before timing out (observed 2026-07-14: `400
+ServiceUndeleteNotPossible`). `versions.tf` sets `recover_soft_deleted = false`
+so a create never attempts an undelete; combined with the unique name, a create
+always proceeds fresh. See COMPATIBILITY.md for the verified soft-delete facts
+and what remains undocumented.
+
 ## No deployment happens in this ticket
 
 This composition is proven by `terraform fmt`, `init -backend=false`,
@@ -59,12 +85,12 @@ the `live-test` environment and never run from PR CI.
 | `tags` | map(string) | Tags applied to every resource, expected to include the ephemeral expiry tag. |
 | `deployment_profile` | string | `"public-demo"` (default and only v1-scope value). |
 | `s1_remote_state` | object | `{ storage_account_name, container_name, key }` identifying `s1-entra-mcp-server`'s state, for `terraform_remote_state`. |
-| `apim_name` | string | Name of the API Management service. |
+| `apim_name` | string | BASE name of the API Management service; a per-deployment suffix is appended (see Global names and soft-delete). |
 | `publisher_name` / `publisher_email` | string | API Management publisher identity. |
 | `server_name` / `server_path` | string | MCP server resource name and path segment. |
 | `entra_validation` | object | `{ tenant_id, audience, allowed_client_application_ids }`. References the out-of-band server resource app and test client app registrations; see `docs/runbooks/entra-app-registrations.md`. Also derives the gateway-root PRM document's `resource` and `authorization_server`. |
 | `prm_scopes` | list(string) | Scopes surfaced in the PRM document's `scopes_supported`. |
-| `registry_name` | string | Resource name of the API Center service. |
+| `registry_name` | string | BASE name of the API Center service; a per-deployment suffix is appended (see Global names and soft-delete). |
 | `registry_environment` | object | Passed straight through to `api-center-registry`. |
 | `registry_deployment` | object | Passed straight through to `api-center-registry`. Default matches the module's own default. |
 | `data_reader_principal_ids` | list(string) | Principals granted Azure API Center Data Reader on the registry instance. The tracer passes the live-test OIDC principal that runs ticket 5's bounded poll. Empty by default. |

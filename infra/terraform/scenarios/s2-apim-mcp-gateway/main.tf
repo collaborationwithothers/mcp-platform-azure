@@ -49,12 +49,27 @@ locals {
   # the tombstone collision entirely. A stable (non-ephemeral) deploy keeps a
   # stable resource group, hence a stable, deterministic name.
   registry_name_unique = "${var.registry_name}-${substr(sha1(var.resource_group_name), 0, 8)}"
+
+  # APIM service names are GLOBAL too (leftmost label of the gateway hostname
+  # <name>.azure-api.net) and are soft-deleted on delete with a 48h retention on
+  # ALL tiers incl. Basic v2 (Microsoft Learn, api-management/soft-delete,
+  # verified 2026-07-14). A soft-deleted name is reserved until purge/auto-purge,
+  # so reusing a fixed APIM name across ephemeral runs collides with the prior
+  # run's tombstone. When the prior run's terraform destroy did not purge it
+  # (e.g. the destroy failed and the belt-and-braces `az group delete` backstop
+  # soft-deleted APIM without purging), the next apply with recover_soft_deleted
+  # left at its default would attempt an undelete and hang (see versions.tf).
+  # Same reasoning and same shape as registry_name_unique above: derive a name
+  # unique per deployment instance from the resource group so each ephemeral run
+  # (own RG rg-...-<github.run_id>) gets a fresh global name that never collides
+  # with a tombstone, and a stable (non-ephemeral) RG yields a stable name.
+  apim_name_unique = "${var.apim_name}-${substr(sha1(var.resource_group_name), 0, 8)}"
 }
 
 module "apim_gateway" {
   source = "../../modules/apim-gateway"
 
-  name                = var.apim_name
+  name                = local.apim_name_unique
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
