@@ -99,6 +99,22 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      # MUST stay here, immediately after azure/login and BEFORE the long s1
+      # apply. azure/login caches the GitHub OIDC token it used as the client
+      # assertion, and that token lives only ~5 minutes; unlike the azurerm and
+      # azapi providers (ARM_USE_OIDC), the Azure CLI does NOT mint a fresh one.
+      # The s1 Flex Consumption apply routinely runs longer than 5 minutes, so an
+      # `az` call placed after it fails with AADSTS700024 ("Client assertion is
+      # not within its valid time range"). Running this lookup while the
+      # assertion is fresh avoids that; its step output persists for the later s2
+      # steps that consume it. Do not move it below the apply.
+      - name: Look up the OIDC principal's object id (for the registry poll's Data Reader grant)
+        id: principal
+        shell: bash
+        run: |
+          object_id="$(az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" --query id -o tsv)"
+          echo "object_id=${object_id}" >> "$GITHUB_OUTPUT"
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -156,13 +172,6 @@ jobs:
           terraform apply -input=false -auto-approve \
             -var-file="${{ github.workspace }}/s1.tfvars.json"
 
-      - name: Look up the OIDC principal's object id (for the registry poll's Data Reader grant)
-        id: principal
-        shell: bash
-        run: |
-          object_id="$(az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" --query id -o tsv)"
-          echo "object_id=${object_id}" >> "$GITHUB_OUTPUT"
-
       - name: terraform init and apply - s2-apim-mcp-gateway
         working-directory: infra/terraform/scenarios/s2-apim-mcp-gateway
         shell: bash
@@ -207,6 +216,22 @@ jobs:
         run: |
           terraform destroy -input=false -auto-approve \
             -var-file="${{ github.workspace }}/s1.tfvars.json"
+
+      # Refresh the Azure CLI credential before the final CLI-based cleanup. By
+      # this point the job has run well past the ~5-minute life of the OIDC
+      # client assertion from the initial azure/login (the s1/s2 applies and
+      # destroys together take far longer), so a stale `az` call would fail with
+      # AADSTS700024 and LEAK the ephemeral resource group. Unlike the azurerm
+      # and azapi providers, the Azure CLI does not mint a fresh OIDC token, so
+      # re-login explicitly. if: always() so cleanup authenticates even when an
+      # earlier step failed.
+      - name: Azure re-login for cleanup (OIDC)
+        if: always()
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Delete ephemeral resource group and verify it is gone
         if: always()
