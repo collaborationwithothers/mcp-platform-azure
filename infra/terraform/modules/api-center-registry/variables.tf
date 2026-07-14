@@ -7,7 +7,7 @@
 
 variable "name" {
   type        = string
-  description = "Resource name of the API Center service. Also the leftmost label of the data-plane registry hostname (https://<name>.data.<region>.azure-apicenter.ms/...), so it must be a valid API Center name (3-90 chars, letters/digits/hyphens)."
+  description = "Resource name of the API Center service. Also the leftmost label of the GLOBAL data-plane registry hostname (https://<name>.data.<region>.azure-apicenter.ms/...), so it must be globally unique AND a valid API Center name (3-90 chars, letters/digits/hyphens). The module does NOT handle soft-delete name reservation (no working purge; see main.tf): in ephemeral contexts the caller MUST vary this per deployment instance so a prior run's soft-deleted tombstone never collides."
 
   validation {
     condition     = can(regex("^[a-zA-Z0-9-]{3,90}$", var.name))

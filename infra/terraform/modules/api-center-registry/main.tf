@@ -54,52 +54,28 @@ locals {
   # (.../default/v0.1/servers). Ticket 5's bounded poll must confirm the live
   # form empirically before relying on it; see README.md and COMPATIBILITY.md.
   registry_endpoint_url = "https://${var.name}.data.${local.location_slug}.azure-apicenter.ms/workspaces/${local.workspace_name}/v0.1/servers"
-
-  # ARM id of the soft-deleted tombstone a prior run of this module would have
-  # left for var.name. Microsoft.ApiCenter/deletedServices is resource-group
-  # scoped and its name segment is the plain service name (verified 2026-07-14
-  # against the 2024-06-01-preview spec; see COMPATIBILITY.md), so the id is
-  # fully derivable from static inputs -- nothing here is unknown until apply.
-  # See azapi_resource_action.purge_deleted_api_center for why it is purged.
-  deleted_api_center_service_id = "${local.resource_group_id}/providers/Microsoft.ApiCenter/deletedServices/${var.name}"
-}
-
-# API Center has genuine soft-delete (verified against the actual
-# Microsoft.ApiCenter/deletedServices operations in the pinned 2024-06-01-preview
-# OpenAPI spec pulled from Azure/azure-rest-api-specs: DeletedServices_Delete,
-# "Permanently deletes specified service"). Live gate (2026-07-13/14): since
-# this module's name (var.name) is a fixed value reused across every ephemeral
-# run, a second run's create 400'd with "The name ... is already taken" against
-# the first run's tombstone, even though that first run's terraform destroy had
-# succeeded (destroy deletes the live service; it does not release the
-# soft-deleted name). An earlier attempt to fix this by setting
-# properties.restore = true unconditionally on create was ALSO proven wrong
-# live: when no tombstone exists (e.g. the prior tombstone's scheduledPurgeDate
-# already elapsed), restore = true 400s with "the service does not exist or may
-# have been permanently deleted."
-#
-# So this issues an unconditional DELETE (purge) against the tombstone's id
-# before the service is created, with ignore_not_found so the common
-# "no tombstone" case is a 404 no-op rather than an error. A previous version
-# gated this via count on a subscription-wide deletedServices list read; that
-# was reverted because a resource count cannot depend on data-source output
-# Terraform only knows after apply ("Invalid count argument"). The
-# deletedServices id is resource-group scoped with a plain-name segment
-# (verified 2026-07-14, COMPATIBILITY.md), so it is fully derivable from static
-# inputs: no lookup is needed and the purge is plan-stable.
-resource "azapi_resource_action" "purge_deleted_api_center" {
-  type        = "Microsoft.ApiCenter/deletedServices@2024-06-01-preview"
-  resource_id = local.deleted_api_center_service_id
-  method      = "DELETE"
-
-  # A tombstone exists only when a prior run's service was soft-deleted; the
-  # steady state (fresh name, or a purge that already happened) is a 404, the
-  # expected no-op here rather than a failure.
-  ignore_not_found = true
 }
 
 # API Center service. System-assigned identity is enabled so auto-sync can read
 # APIM once the identity holds the API Management Service Reader role (below).
+#
+# This module deliberately does NOT handle soft-delete. API Center has genuine
+# soft-delete: deleting the service (even via terraform destroy, or by deleting
+# its resource group) leaves var.name reserved by a subscription-scoped tombstone
+# until it auto-purges on its scheduledPurgeDate. Because var.name is also the
+# leftmost label of a GLOBAL data-plane DNS name
+# (https://<name>.data.<region>.azure-apicenter.ms), reusing a fixed name across
+# ephemeral runs collides with the prior run's tombstone (create 400s with "The
+# name ... is already taken"). That collision cannot be cleared in-module:
+# DeletedServices_Delete (purge) is rejected live with 400
+# UnsupportedResourceOperation ("the resource type 'deletedServices' does not
+# support this operation") despite being in the 2024-06-01-preview spec, and
+# properties.restore = true cannot reach a tombstone stranded in a prior run's
+# already-deleted resource group. The resolution is therefore a naming one: the
+# CALLER must pass a name that is unique per deployment instance in ephemeral
+# contexts (see the s2 composition, which derives it from the per-run resource
+# group). With a unique name no tombstone ever collides, so no restore/purge is
+# needed. See README.md and COMPATIBILITY.md for the live evidence.
 resource "azapi_resource" "api_center" {
   type      = "Microsoft.ApiCenter/services@2024-06-01-preview"
   name      = var.name
@@ -114,8 +90,6 @@ resource "azapi_resource" "api_center" {
   body = {
     properties = {}
   }
-
-  depends_on = [azapi_resource_action.purge_deleted_api_center]
 }
 
 # Single "default" workspace, which the data-plane registry path depends on

@@ -47,33 +47,36 @@ fetches, not recalled from training data:
   whether the auto-created instance's properties accept a later PUT/PATCH is
   unverified.
   [Set up API Center with an ARM template](https://learn.microsoft.com/azure/api-center/set-up-api-center-arm-template).
-- **API Center has genuine soft-delete.** Deleting the service (directly, via
-  `terraform destroy`, or by deleting its resource group) does not release its
-  name; a later create with the same name 400s with "The name ... is already
-  taken." Confirmed at the live gate (2026-07-13/14) and against the actual
-  `Microsoft.ApiCenter/deletedServices` operations in the pinned
-  `2024-06-01-preview` OpenAPI spec pulled directly from
-  `Azure/azure-rest-api-specs` (not just the narrative Learn docs):
-  `DeletedServices_Delete` (`DELETE
-  .../resourceGroups/{rg}/providers/Microsoft.ApiCenter/deletedServices/{name}`,
-  "Permanently deletes specified service" - a real purge, not a soft toggle).
-  An earlier attempt to fix this with `properties.restore = true`
-  unconditionally on create was tried and disproven live: when no tombstone
-  exists (e.g. the prior one's `scheduledPurgeDate` already elapsed),
-  `restore = true` 400s with "the service does not exist or may have been
-  permanently deleted" - there is no single static value of `restore` that
-  works in both states. The module now purges any existing tombstone for
-  `var.name` via `azapi_resource_action` (`method = "DELETE"`,
-  `ignore_not_found = true`) before the plain create, which never needs
-  `restore` at all. The `deletedServices` resource is resource-group scoped
-  with a plain-name segment (verified 2026-07-14, `COMPATIBILITY.md`), so the
-  purge targets a deterministic id built from static inputs
-  (`.../resourceGroups/{rg}/providers/Microsoft.ApiCenter/deletedServices/{name}`)
-  rather than a subscription-wide list read. That matters: gating the purge's
-  `count` on a `data.azapi_resource_list` output failed with "Invalid count
-  argument" because a resource count cannot depend on data Terraform only
-  resolves after apply. A deterministic id keeps the purge plan-stable and
-  needs no lookup.
+- **API Center has genuine soft-delete, and this module does NOT try to clear
+  it - the caller must supply a unique name instead.** Deleting the service
+  (directly, via `terraform destroy`, or by deleting its resource group) does
+  not release its name; a later create with the same name 400s with "The name
+  ... is already taken" (confirmed at the live gate, 2026-07-13/14). Because
+  `var.name` is also the leftmost label of a GLOBAL data-plane DNS name
+  (`https://<name>.data.<region>.azure-apicenter.ms`), that reservation is
+  subscription-scoped and survives resource-group deletion. Two in-module fixes
+  were tried and disproven live, so neither is used:
+  - `properties.restore = true` on create only works when a tombstone exists;
+    with none it 400s "the service does not exist or may have been permanently
+    deleted," and it cannot reach a tombstone stranded in a prior run's already
+    deleted resource group.
+  - Purging the tombstone with `azapi_resource_action` (`method = "DELETE"`)
+    against `.../resourceGroups/{rg}/providers/Microsoft.ApiCenter/deletedServices/{name}`
+    is rejected live with `400 UnsupportedResourceOperation` ("the resource
+    type 'deletedServices' does not support this operation"), even though
+    `DeletedServices_Delete` is present in the `2024-06-01-preview` spec pulled
+    from `Azure/azure-rest-api-specs`. (An earlier variant of this that gated
+    the purge's `count` on a `data.azapi_resource_list` output separately
+    failed at plan with "Invalid count argument," since a resource count cannot
+    depend on data Terraform resolves only after apply.)
+
+  The resolution is a naming one: the caller passes a name that is unique per
+  deployment instance. The **s2 composition** derives it as
+  `${var.registry_name}-${substr(sha1(var.resource_group_name), 0, 8)}`; since
+  the ephemeral gate gives each run its own resource group
+  (`rg-...-<github.run_id>`), every run gets a fresh global name and no
+  tombstone ever collides, so no `restore`/purge is needed. A stable
+  (non-ephemeral) resource group yields a stable, deterministic name.
   [Deleted Services - Delete](https://learn.microsoft.com/rest/api/resource-manager/apicenter/deleted-services/delete).
 - The data-plane MCP registry endpoint has the form
   `https://<name>.data.<region>.azure-apicenter.ms/workspaces/default/v0.1/servers`.

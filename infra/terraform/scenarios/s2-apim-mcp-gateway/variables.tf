@@ -87,7 +87,7 @@ variable "prm_scopes" {
 
 variable "registry_name" {
   type        = string
-  description = "Resource name of the API Center service (api-center-registry's name input)."
+  description = "Base name (prefix) of the API Center service. The composition appends a short suffix derived from resource_group_name to form the actual, globally-unique service name (api-center-registry's name input), because API Center names form a global data-plane DNS label and, once soft-deleted, stay reserved with no working purge. Keep this short enough that base + '-' + 8 chars stays within the 63-char DNS label and 90-char API Center name limits."
 }
 
 variable "registry_environment" {

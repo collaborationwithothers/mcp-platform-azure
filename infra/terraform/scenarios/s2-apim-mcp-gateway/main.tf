@@ -37,6 +37,18 @@ locals {
     authorization_server = "https://login.microsoftonline.com/${var.entra_validation.tenant_id}/v2.0"
     scopes               = var.prm_scopes
   }
+
+  # API Center service names are GLOBAL: var.registry_name is the leftmost label
+  # of the data-plane DNS name (<name>.data.<region>.azure-apicenter.ms). Once a
+  # service is destroyed the name stays reserved by a soft-delete tombstone that
+  # has no working programmatic purge and cannot be restored across resource
+  # groups (see modules/api-center-registry). The ephemeral gate reuses one
+  # registry_name across runs but gives each run its own resource group
+  # (rg-...-<github.run_id>), so a short, stable suffix derived from
+  # resource_group_name makes the API Center name unique per run and sidesteps
+  # the tombstone collision entirely. A stable (non-ephemeral) deploy keeps a
+  # stable resource group, hence a stable, deterministic name.
+  registry_name_unique = "${var.registry_name}-${substr(sha1(var.resource_group_name), 0, 8)}"
 }
 
 module "apim_gateway" {
@@ -71,7 +83,7 @@ module "apim_mcp_server" {
 module "api_center_registry" {
   source = "../../modules/api-center-registry"
 
-  name                = var.registry_name
+  name                = local.registry_name_unique
   location            = var.location
   resource_group_name = var.resource_group_name
   tags                = var.tags
