@@ -24,7 +24,26 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
+  features {
+    api_management {
+      # Never attempt to recover (undelete) a soft-deleted API Management
+      # service on create. This composition does not rely on soft-delete
+      # restore: like the API Center registry name, the APIM name is made
+      # unique per deployment instance (apim_name_unique in main.tf), so a
+      # create never needs to reclaim a prior tombstone. With the azurerm
+      # default (recover_soft_deleted = true), a create that hit a same-named
+      # tombstone attempts an undelete; for a tombstone whose original resource
+      # group was deleted out of band (the ephemeral gate's belt-and-braces
+      # `az group delete`, which soft-deletes APIM without purging it), that
+      # undelete fails and the create hangs for over an hour before timing out
+      # (observed at the s2 live gate 2026-07-14: 400 ServiceUndeleteNotPossible,
+      # "Unable to undelete service"). Failing fast on a fresh create is the
+      # correct behaviour here. Soft-delete/restore is documented as supported
+      # for all tiers incl. Basic v2, but the resource-group-deleted precondition
+      # behind ServiceUndeleteNotPossible is NOT documented; see COMPATIBILITY.md.
+      recover_soft_deleted = false
+    }
+  }
 
   use_oidc = true
 }
