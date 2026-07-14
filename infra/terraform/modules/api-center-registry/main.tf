@@ -146,8 +146,18 @@ resource "azapi_resource" "apim_source" {
         # msiResourceId is only for a user-assigned identity; the tracer uses
         # the service's system-assigned identity, so it is omitted.
       }
-      importSpecification  = var.deployment.import_specification
-      targetEnvironmentId  = azapi_resource.environment.id
+      importSpecification = var.deployment.import_specification
+      # Workspace-relative path, NOT the full ARM resource id. The live API
+      # Center resource provider validates targetEnvironmentId against the form
+      # /workspaces/{workspace}/environments/{environment} and rejects a full
+      # ARM id with 400 "The 'targetEnvironmentId' is in an incorrect format.
+      # The correct format is: '/workspaces/{0}/environments/{1}'" (observed at
+      # the s2 live gate 2026-07-14). This DIVERGES from the published REST
+      # reference for ApiSources_CreateOrUpdate (2024-06-01-preview), which
+      # types the field as arm-id and shows a full ARM id in its sample; the
+      # deployed preview RP enforces the relative form instead. We follow the
+      # live service because it is what actually deploys. See COMPATIBILITY.md.
+      targetEnvironmentId  = "/workspaces/${local.workspace_name}/environments/${azapi_resource.environment.name}"
       targetLifecycleStage = var.deployment.target_lifecycle_stage
     }
   }
