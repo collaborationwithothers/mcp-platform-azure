@@ -17,8 +17,9 @@
 locals {
   # API Center currently supports a single workspace, named "default"; the
   # data-plane registry path is /workspaces/default/... (Microsoft Learn,
-  # register-discover-mcp-server). Resource name is fixed; only the title is an
-  # input.
+  # register-discover-mcp-server). Auto-provisioned by Azure with the service
+  # (see data.azapi_resource.workspace above); this module never sets its
+  # title, only reads it by this fixed name.
   workspace_name = "default"
 
   # Subscription that hosts APIM, reused for the API Center service. The tracer
@@ -77,22 +78,18 @@ resource "azapi_resource" "api_center" {
 
 # Single "default" workspace, which the data-plane registry path depends on
 # (Microsoft Learn, set-up-api-center-arm-template: "Currently, API Center
-# supports a single, default workspace for all child resources"). Declared
-# explicitly here. Whether ARM auto-creates a "default" workspace with the
-# service (making this a redundant no-op) or requires it is not stated in the
-# ARM template reference; re-verify at the live gate that declaring it does not
-# conflict with an auto-created one (README.md, COMPATIBILITY.md).
-resource "azapi_resource" "workspace" {
+# supports a single, default workspace for all child resources"). Confirmed at
+# the live gate (2026-07-13): Azure auto-provisions this workspace as a side
+# effect of creating the service, so a GET on it succeeds immediately after
+# azapi_resource.api_center is created. A `resource "azapi_resource"` here
+# therefore always fails its own pre-create existence check with "Resource
+# already exists". This module never manages the workspace's title/description
+# as a result; whether the auto-created instance's properties can be updated
+# via a later PUT/PATCH is unverified, so this only reads it.
+data "azapi_resource" "workspace" {
   type      = "Microsoft.ApiCenter/services/workspaces@2024-06-01-preview"
   name      = local.workspace_name
   parent_id = azapi_resource.api_center.id
-
-  body = {
-    properties = {
-      title       = var.workspace_title
-      description = "Default workspace. Backs the /workspaces/default data-plane registry path."
-    }
-  }
 }
 
 # Environment the remote MCP server is associated with. The
@@ -102,7 +99,7 @@ resource "azapi_resource" "workspace" {
 resource "azapi_resource" "environment" {
   type      = "Microsoft.ApiCenter/services/workspaces/environments@2024-06-01-preview"
   name      = "apim"
-  parent_id = azapi_resource.workspace.id
+  parent_id = data.azapi_resource.workspace.id
 
   body = {
     properties = {
@@ -124,7 +121,7 @@ resource "azapi_resource" "environment" {
 resource "azapi_resource" "apim_source" {
   type      = "Microsoft.ApiCenter/services/workspaces/apiSources@2024-06-01-preview"
   name      = "apim-sync"
-  parent_id = azapi_resource.workspace.id
+  parent_id = data.azapi_resource.workspace.id
 
   body = {
     properties = {

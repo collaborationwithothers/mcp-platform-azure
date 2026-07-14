@@ -17,10 +17,10 @@ Verified via the azure-docs-verifier subagent against current Microsoft
 Learn, not recalled from training data:
 
 - `Microsoft.ApiManagement/service/apis@2025-09-01-preview` with
-  `properties.type = "mcp"`, `serviceUrl`, and `mcpProperties.transportType
-  = "streamable"` with a single `{ name = "message", uriTemplate = "/mcp" }`
-  endpoint is the correct passthrough MCP server shape; azurerm has no
-  native resource for it.
+  `properties.type = "mcp"` and `mcpProperties.transportType = "streamable"`
+  with a single `{ name = "message", uriTemplate = "/mcp" }` endpoint is the
+  correct passthrough MCP server shape; azurerm has no native resource for
+  it.
   [Manage MCP servers programmatically in API Management](https://learn.microsoft.com/azure/api-management/manage-mcp-servers-rest-api)
   gives a working Terraform `azapi_resource` example, mirrored in `main.tf`.
   One deliberate deviation from that example: it sets
@@ -28,6 +28,29 @@ Learn, not recalled from training data:
   sets `subscriptionRequired = false` and binds no product
   (`product_ids = []`) by default, per the spec (Gateway and authorization
   (S2): "There are no products or subscriptions" in the tracer).
+- **Two live-gate corrections to the above (2026-07-13/14), both stronger
+  evidence than the Learn page since they come from the live service itself:**
+  - `mcpProperties.endpoints` must be a JSON object keyed by endpoint name
+    (`{"message": {"uriTemplate": "/mcp"}}`), not the array of
+    `{name, uriTemplate}` objects the Learn page and ARM template reference
+    both show. A live PUT with the array shape returned 400 naming the
+    deserialization target as `Dictionary<string, McpEndpointContract>`.
+  - `serviceUrl` (the field the Learn page's passthrough example wires the
+    backend through) is silently not honoured for `type = "mcp"`. A live PUT
+    with `serviceUrl` set and no `backendId` returned 400: "Either BackendId
+    or MCP tools must be set, but not both for MCP API." **EXPERIMENTAL,
+    unverified**: this module now creates a
+    `Microsoft.ApiManagement/service/backends` resource (verified shape:
+    `url`, `protocol = "http"`) and wires `properties.backendId` to its bare
+    resource name. `backendId` does not appear anywhere in Microsoft Learn,
+    the ARM template reference, or the actual `2025-09-01-preview`
+    `openapi.json` pulled from `Azure/azure-rest-api-specs` for
+    `Microsoft.ApiManagement/service/apis` (its only appearances anywhere in
+    that spec are unrelated path parameters on the `backends` CRUD
+    endpoints). Whether `backendId` takes a bare name (assumed here, by
+    analogy with other same-service child-entity references in this API
+    family) or a full ARM resource ID is unconfirmed. Re-verify both facts at
+    the next live-test run.
 - APIM Basic v2 (a v2-tier gateway) supports MCP servers.
   [About MCP servers in Azure API Management](https://learn.microsoft.com/azure/api-management/mcp-server-overview),
   [gateway feature comparison](https://learn.microsoft.com/azure/api-management/api-management-gateways-overview#feature-comparison-managed-versus-self-hosted-gateways).
