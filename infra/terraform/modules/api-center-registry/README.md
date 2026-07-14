@@ -54,8 +54,6 @@ fetches, not recalled from training data:
   `Microsoft.ApiCenter/deletedServices` operations in the pinned
   `2024-06-01-preview` OpenAPI spec pulled directly from
   `Azure/azure-rest-api-specs` (not just the narrative Learn docs):
-  `DeletedServices_ListBySubscription` (`GET
-  /subscriptions/{sub}/providers/Microsoft.ApiCenter/deletedServices`) and
   `DeletedServices_Delete` (`DELETE
   .../resourceGroups/{rg}/providers/Microsoft.ApiCenter/deletedServices/{name}`,
   "Permanently deletes specified service" - a real purge, not a soft toggle).
@@ -64,11 +62,19 @@ fetches, not recalled from training data:
   exists (e.g. the prior one's `scheduledPurgeDate` already elapsed),
   `restore = true` 400s with "the service does not exist or may have been
   permanently deleted" - there is no single static value of `restore` that
-  works in both states. The module now looks up any existing tombstone for
-  `var.name` via `data.azapi_resource_list` and purges it via
-  `azapi_resource_action` (`method = "DELETE"`, `ignore_not_found = true`)
-  before the plain create, which never needs `restore` at all.
-  [Deleted Services - List](https://learn.microsoft.com/rest/api/resource-manager/apicenter/deleted-services/list).
+  works in both states. The module now purges any existing tombstone for
+  `var.name` via `azapi_resource_action` (`method = "DELETE"`,
+  `ignore_not_found = true`) before the plain create, which never needs
+  `restore` at all. The `deletedServices` resource is resource-group scoped
+  with a plain-name segment (verified 2026-07-14, `COMPATIBILITY.md`), so the
+  purge targets a deterministic id built from static inputs
+  (`.../resourceGroups/{rg}/providers/Microsoft.ApiCenter/deletedServices/{name}`)
+  rather than a subscription-wide list read. That matters: gating the purge's
+  `count` on a `data.azapi_resource_list` output failed with "Invalid count
+  argument" because a resource count cannot depend on data Terraform only
+  resolves after apply. A deterministic id keeps the purge plan-stable and
+  needs no lookup.
+  [Deleted Services - Delete](https://learn.microsoft.com/rest/api/resource-manager/apicenter/deleted-services/delete).
 - The data-plane MCP registry endpoint has the form
   `https://<name>.data.<region>.azure-apicenter.ms/workspaces/default/v0.1/servers`.
   Known Microsoft-doc inconsistency (2026-07-12): the page's stated format
