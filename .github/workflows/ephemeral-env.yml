@@ -6,14 +6,15 @@
 # credential). Per CLAUDE.md's hard safety rules, this is the ONLY workflow in
 # this repo that may run terraform apply/destroy.
 #
-# Split, documented honestly (docs/specs/v1-tracer-bullet.md, Testing
-# Decisions): this workflow currently proves apply -> destroy for both
-# compositions. The "call" stage -- McpTestClient session/tool assertions,
-# raw-HTTP discovery assertions (401/WWW-Authenticate/PRM/wrong-audience/
-# shadow-key), and the bounded registry poll -- lands in the harness-plus-docs
-# follow-up PR under the same issue (scripts/gate/invoke-and-assert.ps1,
-# tests/integration/discovery-assertions.ps1 do not exist yet). Until that PR
-# lands, the call stage is a labelled no-op, not a faked pass.
+# This workflow proves apply -> call -> destroy for both compositions. The
+# "call" stage (issue 9 slice 2) runs McpTestClient session/tool assertions,
+# the raw-HTTP discovery assertions (401/WWW-Authenticate/PRM/wrong-audience/
+# shadow-key), and the bounded registry poll (scripts/gate/invoke-and-assert.ps1
+# -> tests/integration/discovery-assertions.ps1 + src/McpTestClient). Split,
+# documented honestly (docs/specs/v1-tracer-bullet.md, Testing Decisions): the
+# gate validates non-interactive session and discovery artifacts; it does NOT
+# auto-exercise client-driven interactive discovery, which is validated manually
+# in VS Code and recorded in docs/demos/README.md.
 #
 # Auth pattern verified 2026-07-12 via the azure-docs-verifier subagent:
 # - azure/login@v2 with client-id/tenant-id/subscription-id (no
@@ -121,6 +122,12 @@ jobs:
           terraform_version: 1.15.8
           terraform_wrapper: false
 
+      # McpTestClient targets net10.0; the call stage runs it via `dotnet run`.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
       - name: Compute ephemeral resource group name and expiry tag
         id: rg
         shell: bash
@@ -188,10 +195,72 @@ jobs:
             -var-file="${{ github.workspace }}/s2.tfvars.json" \
             -var="s1_remote_state={\"storage_account_name\":\"${TF_STATE_STORAGE_ACCOUNT}\",\"container_name\":\"${TF_STATE_CONTAINER}\",\"key\":\"${S1_STATE_KEY}\"}"
 
-      - name: "TODO(issue 9 follow-up PR): call stage"
+      # Fresh OIDC login before the call stage. Same rationale as the teardown
+      # and cleanup re-logins below: by this point the job has run past the
+      # ~5-minute life of the initial azure/login client assertion (the s1/s2
+      # applies alone exceed it, and APIM Basic v2 provisioning takes far
+      # longer), and unlike the azurerm/azapi providers (ARM_USE_OIDC) the Azure
+      # CLI does not mint a fresh OIDC token. The call stage makes two `az`
+      # calls that would otherwise fail with AADSTS700024: the fatal API Center
+      # data-plane token (az account get-access-token --resource
+      # https://azure-apicenter.net, a new audience not cached at login) that the
+      # registry poll needs, and the best-effort mcp_extension key lookup. This
+      # step is NOT if: always() -- it belongs to the call path, which only runs
+      # on a successful apply.
+      - name: Azure re-login for call stage (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # Call stage (issue 9 slice 2): McpTestClient session/tool assertions, the
+      # raw-HTTP discovery assertions (401/WWW-Authenticate/PRM/wrong-audience/
+      # shadow-key), and the bounded registry poll. Runs only on a successful
+      # apply (no if: always()), between apply and the destroy steps below. The
+      # gate does NOT auto-exercise interactive discovery; that is validated
+      # manually in VS Code and recorded in docs/demos (spec: Testing Decisions).
+      #
+      # Identity/endpoint values are read from terraform outputs and the s2
+      # tfvars (audience/tenant/test-client-id/server-name); the test client's
+      # SECRET is a live-test Environment secret (TEST_CLIENT_SECRET), never in
+      # the repo or in Terraform state (docs/runbooks/entra-app-registrations.md).
+      - name: Call stage - McpTestClient, discovery assertions, registry poll
         shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
+          TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+          TEST_CLIENT_SECRET: ${{ secrets.TEST_CLIENT_SECRET }}
         run: |
-          echo "::notice::Call stage not yet implemented. scripts/gate/invoke-and-assert.ps1 (McpTestClient session/tool assertions), tests/integration/discovery-assertions.ps1 (raw-HTTP 401/WWW-Authenticate/PRM/wrong-audience/shadow-key), and the bounded registry poll land in the harness-plus-docs follow-up PR under issue 9. This run only proves apply and destroy for the s1/s2 compositions."
+          set -euo pipefail
+          s1_dir=infra/terraform/scenarios/s1-entra-mcp-server
+          s2_dir=infra/terraform/scenarios/s2-apim-mcp-gateway
+          mcp_server_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_url)"
+          prm_url="$(terraform -chdir="$s2_dir" output -raw prm_url)"
+          registry_url="$(terraform -chdir="$s2_dir" output -raw registry_endpoint_url)"
+          backend_base="$(terraform -chdir="$s1_dir" output -raw mcp_backend_base_url)"
+          backend_mcp_url="${backend_base%/}/runtime/webhooks/mcp"
+          func_name="$(terraform -chdir="$s1_dir" output -raw function_app_name)"
+          # entra_validation identity values (non-secret ids) from the s2 tfvars.
+          audience="$(jq -r '.entra_validation.audience' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
+          tenant_id="$(jq -r '.entra_validation.tenant_id' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
+          client_id="$(jq -r '.entra_validation.allowed_client_application_ids[0]' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
+          server_name="$(jq -r '.server_name' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
+          # Best-effort mcp_extension system key: makes the shadow-path test
+          # faithful, but Easy Auth 401s on the absent Entra token regardless, so
+          # a missing key is non-fatal (the script falls back to a placeholder).
+          mcp_ext_key="$(az functionapp keys list -g "${TF_VAR_resource_group_name}" -n "${func_name}" --query 'systemKeys.mcp_extension' -o tsv 2>/dev/null || true)"
+          pwsh scripts/gate/invoke-and-assert.ps1 \
+            -McpServerUrl "$mcp_server_url" \
+            -PrmUrl "$prm_url" \
+            -RegistryEndpointUrl "$registry_url" \
+            -BackendMcpUrl "$backend_mcp_url" \
+            -Audience "$audience" \
+            -TenantId "$tenant_id" \
+            -ClientId "$client_id" \
+            -ClientSecret "$TEST_CLIENT_SECRET" \
+            -ServerName "$server_name" \
+            -McpExtensionKey "${mcp_ext_key:-}"
 
       # Fresh OIDC login before the teardown diagnostic below. Same rationale as
       # the cleanup re-login further down: by this point the job has run past the

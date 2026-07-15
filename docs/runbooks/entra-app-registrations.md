@@ -55,8 +55,10 @@ user identity because the SDK's interactive auth-code flow cannot run in CI
 
 1. **App registrations > New registration.** Single tenant. No redirect URI.
 2. **Certificates & secrets > Client secrets > New client secret.** Record
-   the secret value immediately (it is shown once). This secret is stored
-   only as a GitHub Environment secret on `live-test`, never in this repo.
+   the secret value immediately (it is shown once). Store it only as the
+   GitHub Environment secret **`TEST_CLIENT_SECRET`** on `live-test` (the name
+   `.github/workflows/ephemeral-env.yml`'s call stage reads); never in this
+   repo or in Terraform state.
    ([Service Principal and a Client
    Secret](https://learn.microsoft.com/entra/identity-platform/quickstart-configure-app-access-web-apis))
 3. **API permissions > Add a permission > My APIs**, select the server
@@ -78,7 +80,7 @@ user identity because the SDK's interactive auth-code flow cannot run in CI
 | Server app's client id | `entra_auth.server_app_client_id` |
 | Server/test client shared tenant id | `entra_auth.tenant_id`, `entra_validation.tenant_id` |
 | Test client app's client id | `entra_validation.allowed_client_application_ids` |
-| Test client app's client secret | The gate's non-interactive token acquisition (client credentials), stored as a GitHub Environment secret on `live-test`, never in Terraform state or this repo |
+| Test client app's client secret | The gate's non-interactive token acquisition (client credentials), stored as the GitHub Environment secret `TEST_CLIENT_SECRET` on `live-test`, never in Terraform state or this repo |
 
 None of these values have a default in the s1/s2 composition variables; the
 live-test workflow supplies them all as `TF_VAR_*` environment variables
