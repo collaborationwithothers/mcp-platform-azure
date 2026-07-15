@@ -95,24 +95,26 @@ fetches, not recalled from training data:
   `71522526-b88f-4d52-b57f-d31fc3546d0d`).
   [Synchronize APIs from an API Management instance](https://learn.microsoft.com/azure/api-center/synchronize-api-management-apis#enable-a-managed-identity-in-your-api-center),
   [Azure built-in roles](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles#integration).
-- **Known teardown-ordering failure under investigation (issue 9).** At the
-  live gate, `terraform destroy` deletes the `apiSources` integration and then
-  the `environments/apim` resource as two separate DELETE calls (dependency
-  order). The environment DELETE 400s with "Cannot delete linked resource. To
+- **Teardown-ordering race, diagnosed and fixed (issue 9).** At the live gate,
+  `terraform destroy` deletes the `apiSources` integration and then the
+  `environments/apim` resource as two separate DELETE calls (dependency order).
+  The environment DELETE used to 400 with "Cannot delete linked resource. To
   remove this resource please unlink the API source." Microsoft Learn confirms
-  the ownership model: deleting the `apiSources` integration is the single
-  action that removes the synced APIs AND the environment and deployments
-  associated with it, so the environment is not independently deletable while
-  the source is linked. What the docs do NOT state is whether that cascade is
-  synchronous or eventually consistent, so it is unverified from docs alone
-  whether the terraform failure is a settle-race (a `time_sleep destroy_duration`
-  between the two deletes would fix it) or a hard block (the environment must go
-  via the parent service-level delete, not a granular DELETE). The gate workflow
-  (`.github/workflows/ephemeral-env.yml`) now carries a non-fatal diagnostic step
-  that measures which case it is before a fix lands; it never leaks resources
-  (the always-run resource-group delete is the backstop). Do not pin the async
-  behaviour or a delay value into code or COMPATIBILITY.md until the gate
-  produces the evidence.
+  the ownership model: deleting the `apiSources` integration is the single action
+  that removes the synced APIs AND the associated environment and deployments, so
+  the environment is not independently deletable while the source is linked. The
+  docs do NOT state whether that cascade is synchronous or eventually consistent.
+  An instrumented diagnostic at the live gate (2026-07-15, since removed)
+  measured it: verdict **CASCADE_AUTO** -- deleting the `apiSources` integration
+  removes the environment on its own, and the environment returned 404 about 11 s
+  later. So the failure is a settle-race, not a hard block. The fix is
+  `time_sleep.apisource_cascade_settle` (in `main.tf`): `apim_source` depends on
+  it and it depends on `environment`, so the destroy order becomes
+  `apim_source -> (wait destroy_duration = 60s) -> environment`. By the time
+  terraform deletes the environment, the cascade has already removed it (the
+  DELETE no-ops on the 404) or the link is gone (a plain delete, no 400). The 60s
+  value is a margin over the observed 11s settle, not a measured minimum; it is
+  recorded in COMPATIBILITY.md as an observed-not-documented figure.
   [Synchronize APIs from an API Management instance - Delete an integration](https://learn.microsoft.com/azure/api-center/synchronize-api-management-apis#delete-an-integration).
 
 ## Auto-sync is the production target; explicit registration is a fallback only
