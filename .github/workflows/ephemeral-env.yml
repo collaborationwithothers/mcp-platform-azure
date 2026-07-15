@@ -246,10 +246,18 @@ jobs:
           tenant_id="$(jq -r '.entra_validation.tenant_id' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
           client_id="$(jq -r '.entra_validation.allowed_client_application_ids[0]' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
           server_name="$(jq -r '.server_name' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
-          # Best-effort mcp_extension system key: makes the shadow-path test
-          # faithful, but Easy Auth 401s on the absent Entra token regardless, so
-          # a missing key is non-fatal (the script falls back to a placeholder).
-          mcp_ext_key="$(az functionapp keys list -g "${TF_VAR_resource_group_name}" -n "${func_name}" --query 'systemKeys.mcp_extension' -o tsv 2>/dev/null || true)"
+          # The real mcp_extension system key is REQUIRED for the backend
+          # shadow-key arm: presenting a VALID key that Easy Auth still 401s is
+          # what proves the shadow path is closed (spec story 31); a placeholder
+          # would only prove an invalid key is rejected. The call-stage OIDC
+          # re-login above keeps the az session fresh, and the live-test principal
+          # holds listkeys on the ephemeral RG (Contributor), so this is reliable;
+          # fail loudly rather than silently weaken the proof if it is not.
+          mcp_ext_key="$(az functionapp keys list -g "${TF_VAR_resource_group_name}" -n "${func_name}" --query 'systemKeys.mcp_extension' -o tsv)"
+          if [ -z "${mcp_ext_key}" ]; then
+            echo "::error::Could not retrieve the mcp_extension system key; the backend shadow-key assertion needs it (spec story 31)."
+            exit 1
+          fi
           pwsh scripts/gate/invoke-and-assert.ps1 \
             -McpServerUrl "$mcp_server_url" \
             -PrmUrl "$prm_url" \

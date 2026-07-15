@@ -50,9 +50,11 @@ param(
     # Backend Functions MCP endpoint, e.g.
     # https://<app>.azurewebsites.net/runtime/webhooks/mcp (s1 default_hostname).
     [Parameter(Mandatory)][string]$BackendMcpUrl,
-    # The mcp_extension system key, if retrievable. When empty the shadow-key
-    # check still runs (the point is "no Entra token -> 401" even holding a
-    # function key), presenting a placeholder key value.
+    # The real mcp_extension system key. REQUIRED for the backend shadow-key arm:
+    # that arm proves a VALID key is still blocked by Easy Auth, which a
+    # placeholder cannot show (a placeholder only proves an invalid key is
+    # rejected). So the backend arm FAILS if this is empty. The gateway arm runs
+    # regardless, since APIM has no notion of function keys.
     [string]$McpExtensionKey = ''
 )
 
@@ -197,28 +199,45 @@ Write-Host ''
 #    the backend host directly (spec story 31).
 # ---------------------------------------------------------------------------
 Write-Host "[4] Shadow mcp_extension key path is closed"
-$keyValue = if ([string]::IsNullOrEmpty($McpExtensionKey)) { 'placeholder-not-a-real-key' } else { $McpExtensionKey }
-if ([string]::IsNullOrEmpty($McpExtensionKey)) {
-    Write-Host "  (note: no real mcp_extension key supplied; presenting a placeholder. Easy Auth rejects on the absent Entra token regardless of the key.)"
+
+# Two distinct arms with distinct meaning:
+# - Gateway arm: APIM has no notion of function keys, so presenting one with no
+#   Authorization header 401s regardless of the key value. This proves the
+#   gateway requires an Entra token; it says nothing about function keys, so any
+#   key value (even a dummy) is fine here.
+# - Backend arm: the real shadow-key proof. It must present a VALID mcp_extension
+#   key and still get 401 (Easy Auth intercepts before the key is honoured). A
+#   placeholder would only show "an invalid key is rejected", not "a valid key is
+#   blocked", so a real key is REQUIRED; the arm fails loudly if none was supplied
+#   (spec story 31).
+
+# Gateway arm.
+$gwKey = if ([string]::IsNullOrEmpty($McpExtensionKey)) { 'not-a-real-key' } else { $McpExtensionKey }
+$gwSep = if ($McpServerUrl -match '\?') { '&' } else { '?' }
+$rg = Invoke-Raw -Uri "$McpServerUrl${gwSep}code=$gwKey" -Headers @{ 'x-functions-key' = $gwKey } -Body $initBody
+if ($rg.StatusCode -ne 401) {
+    Fail "gateway: a function key with no Entra token returned $($rg.StatusCode); expected 401."
+}
+else {
+    Pass "gateway: a function key with no Entra token returned 401 (gateway requires an Entra token)."
 }
 
-foreach ($target in @(
-        @{ Name = 'gateway'; Url = $McpServerUrl },
-        @{ Name = 'backend host'; Url = $BackendMcpUrl }
-    )) {
-    $sep = if ($target.Url -match '\?') { '&' } else { '?' }
-    $urlWithKey = "$($target.Url)${sep}code=$keyValue"
-    $r = Invoke-Raw -Uri $urlWithKey -Headers @{ 'x-functions-key' = $keyValue } -Body $initBody
-    if ($r.StatusCode -ne 401) {
-        # A non-401 on the backend host can also be a network-layer block (403/404
-        # from public-network restrictions) rather than an auth regression. In the
-        # tracer the backend is public with Easy Auth, so 401 is the expected proof
-        # the shadow path is closed; revisit this expectation once v1.1 private
-        # networking lands.
-        Fail "$($target.Name): mcp_extension key with no Entra token returned $($r.StatusCode); expected 401 (a non-401 on the backend host may be a network block, not an auth regression)."
+# Backend arm: requires the real key.
+if ([string]::IsNullOrEmpty($McpExtensionKey)) {
+    Fail "backend host: no real mcp_extension key supplied, so the shadow-key proof cannot run. A placeholder would only show an invalid key is rejected, not that a VALID key is blocked by Easy Auth (spec story 31). Pass -McpExtensionKey with the real system key."
+}
+else {
+    $beSep = if ($BackendMcpUrl -match '\?') { '&' } else { '?' }
+    $rb = Invoke-Raw -Uri "$BackendMcpUrl${beSep}code=$McpExtensionKey" -Headers @{ 'x-functions-key' = $McpExtensionKey } -Body $initBody
+    if ($rb.StatusCode -ne 401) {
+        # A non-401 here can also be a network-layer block (403/404 from public-
+        # network restrictions) rather than an auth regression. In the tracer the
+        # backend is public with Easy Auth, so 401 is the expected proof the shadow
+        # path is closed; revisit this expectation once v1.1 private networking lands.
+        Fail "backend host: the REAL mcp_extension key with no Entra token returned $($rb.StatusCode); expected 401 (a non-401 may be a network block, not an auth regression)."
     }
     else {
-        Pass "$($target.Name): mcp_extension key with no Entra token returned 401."
+        Pass "backend host: the real mcp_extension key with no Entra token returned 401 (Easy Auth blocks the shadow path)."
     }
 }
 Write-Host ''
