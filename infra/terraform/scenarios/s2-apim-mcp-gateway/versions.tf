@@ -20,6 +20,13 @@ terraform {
       source  = "azure/azapi"
       version = "~> 2.10"
     }
+    # Required transitively by the api-center-registry module for its
+    # destroy-time settle (time_sleep). Declared here so this composition's
+    # lock file pins it. No provider configuration block is needed.
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.14"
+    }
   }
 }
 

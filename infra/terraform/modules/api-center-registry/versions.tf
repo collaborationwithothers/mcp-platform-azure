@@ -16,5 +16,12 @@ terraform {
       source  = "azure/azapi"
       version = "~> 2.10"
     }
+    # Used only for the destroy-time settle between the apiSource and the
+    # environment (see time_sleep.apisource_cascade_settle in main.tf). No
+    # cloud calls; no credentials.
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.14"
+    }
   }
 }
