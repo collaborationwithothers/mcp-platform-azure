@@ -129,11 +129,35 @@ resource "azapi_resource" "environment" {
   }
 }
 
+# Destroy-time settle between the apiSource and the environment. On destroy
+# terraform deletes the apiSource first (it references the environment via
+# targetEnvironmentId below, so the environment is its dependency). Deleting the
+# apiSource makes the API Center resource provider CASCADE-delete the environment
+# on its own (observed at the s2 live gate 2026-07-15: verdict CASCADE_AUTO, the
+# environment 404'd ~11s after the apiSource delete). Without a pause, terraform's
+# own environment DELETE races that cascade and fails with 400 "Cannot delete
+# linked resource. To remove this resource please unlink the API source", which
+# aborts `terraform destroy` and strands APIM/API Center soft-delete tombstones
+# (the naming workarounds in COMPATIBILITY.md exist because of exactly this).
+#
+# This sleep sits on the destroy edge between the two: apim_source depends on it,
+# it depends on the environment, so the destroy order is
+#   apim_source -> (wait destroy_duration) -> environment.
+# By the time terraform deletes the environment, either the cascade has already
+# removed it (the DELETE no-ops on the absent resource) or the apiSource link is
+# gone (a plain delete, no 400). 60s is a margin over the observed ~11s settle,
+# not a measured minimum. There is no create-time wait.
+resource "time_sleep" "apisource_cascade_settle" {
+  depends_on       = [azapi_resource.environment]
+  destroy_duration = "60s"
+}
+
 # API Management auto-sync. This is the production-correct mechanism that keeps
 # the inventory current: MCP servers managed in APIM populate the registry
 # automatically, rather than being registered explicitly (Microsoft Learn,
 # synchronize-api-management-apis). depends_on the role assignment so the
-# identity can already read APIM when the source is created.
+# identity can already read APIM when the source is created, and the settle
+# above so the destroy edge carries the cascade pause.
 resource "azapi_resource" "apim_source" {
   type      = "Microsoft.ApiCenter/services/workspaces/apiSources@2024-06-01-preview"
   name      = "apim-sync"
@@ -162,7 +186,7 @@ resource "azapi_resource" "apim_source" {
     }
   }
 
-  depends_on = [azapi_resource.apim_reader]
+  depends_on = [azapi_resource.apim_reader, time_sleep.apisource_cascade_settle]
 }
 
 # API Management Service Reader role for the API Center identity on the APIM
