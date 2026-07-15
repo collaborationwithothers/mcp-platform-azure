@@ -195,6 +195,25 @@ jobs:
             -var-file="${{ github.workspace }}/s2.tfvars.json" \
             -var="s1_remote_state={\"storage_account_name\":\"${TF_STATE_STORAGE_ACCOUNT}\",\"container_name\":\"${TF_STATE_CONTAINER}\",\"key\":\"${S1_STATE_KEY}\"}"
 
+      # Fresh OIDC login before the call stage. Same rationale as the teardown
+      # and cleanup re-logins below: by this point the job has run past the
+      # ~5-minute life of the initial azure/login client assertion (the s1/s2
+      # applies alone exceed it, and APIM Basic v2 provisioning takes far
+      # longer), and unlike the azurerm/azapi providers (ARM_USE_OIDC) the Azure
+      # CLI does not mint a fresh OIDC token. The call stage makes two `az`
+      # calls that would otherwise fail with AADSTS700024: the fatal API Center
+      # data-plane token (az account get-access-token --resource
+      # https://azure-apicenter.net, a new audience not cached at login) that the
+      # registry poll needs, and the best-effort mcp_extension key lookup. This
+      # step is NOT if: always() -- it belongs to the call path, which only runs
+      # on a successful apply.
+      - name: Azure re-login for call stage (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
       # Call stage (issue 9 slice 2): McpTestClient session/tool assertions, the
       # raw-HTTP discovery assertions (401/WWW-Authenticate/PRM/wrong-audience/
       # shadow-key), and the bounded registry poll. Runs only on a successful
