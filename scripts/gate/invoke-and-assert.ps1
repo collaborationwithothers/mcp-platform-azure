@@ -157,6 +157,12 @@ catch {
     $anonStatus = "error: $($_.Exception.Message)"
 }
 Write-Host "  anonymous probe status: $anonStatus (401 expected = secure-by-default; recorded, not a pass/fail gate)."
+# The read posture is platform-determined (no ARM surface), so this probe never
+# fails the run. But an anonymous 200 means the registry became publicly
+# readable -- a security-relevant posture change worth surfacing beyond the log.
+if ("$anonStatus" -ne '401') {
+    Write-Host "::warning::Registry anonymous probe returned '$anonStatus', not 401. The data-plane registry may be anonymously readable; confirm the intended access posture (docs/security.md, docs/runbooks/registry-anonymous-access.md)."
+}
 
 # 4b. Authenticated poll. The registry token targets the API Center data plane
 #     (https://azure-apicenter.net); the workflow's OIDC principal holds Azure

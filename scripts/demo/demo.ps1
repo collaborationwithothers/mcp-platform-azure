@@ -30,12 +30,19 @@ param(
     [Parameter(Mandatory)][string]$Audience,
     [Parameter(Mandatory)][string]$TenantId,
     [Parameter(Mandatory)][string]$ClientId,
-    [Parameter(Mandatory)][string]$ClientSecret,
+    # Test client secret. Prefer the TEST_CLIENT_SECRET env var over passing this
+    # on the command line, which would land the secret in shell history and the
+    # process list. Falls back to $env:TEST_CLIENT_SECRET when not passed.
+    [string]$ClientSecret = $env:TEST_CLIENT_SECRET,
     [string]$McpTestClientProject
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrEmpty($ClientSecret)) {
+    throw "No client secret supplied. Set `$env:TEST_CLIENT_SECRET (preferred) or pass -ClientSecret."
+}
 
 $scriptDir = Split-Path -Parent $PSCommandPath
 $repoRoot = Resolve-Path (Join-Path $scriptDir '..' '..')

@@ -25,13 +25,16 @@ measured under a defined method, and a demo warm-up is not that.
    the gateway via `McpTestClient`.
 
 ```pwsh
+# Pass the secret via the environment, not the command line, so it does not land
+# in shell history or the process list. The script also reads it from here.
+$env:TEST_CLIENT_SECRET = '<test-client-secret>'
+
 pwsh scripts/demo/demo.ps1 `
   -McpServerUrl  "<s2 output mcp_server_url>" `
   -PrmUrl        "<s2 output prm_url>" `
   -Audience      "api://<server-app-id>" `
   -TenantId      "<tenant-id>" `
-  -ClientId      "<test-client-app-id>" `
-  -ClientSecret  "<test-client-secret>"
+  -ClientId      "<test-client-app-id>"
 ```
 
 The client id/secret are the dedicated test client app from

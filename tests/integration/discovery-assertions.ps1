@@ -210,7 +210,12 @@ foreach ($target in @(
     $urlWithKey = "$($target.Url)${sep}code=$keyValue"
     $r = Invoke-Raw -Uri $urlWithKey -Headers @{ 'x-functions-key' = $keyValue } -Body $initBody
     if ($r.StatusCode -ne 401) {
-        Fail "$($target.Name): mcp_extension key with no Entra token returned $($r.StatusCode); expected 401."
+        # A non-401 on the backend host can also be a network-layer block (403/404
+        # from public-network restrictions) rather than an auth regression. In the
+        # tracer the backend is public with Easy Auth, so 401 is the expected proof
+        # the shadow path is closed; revisit this expectation once v1.1 private
+        # networking lands.
+        Fail "$($target.Name): mcp_extension key with no Entra token returned $($r.StatusCode); expected 401 (a non-401 on the backend host may be a network block, not an auth regression)."
     }
     else {
         Pass "$($target.Name): mcp_extension key with no Entra token returned 401."
