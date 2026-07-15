@@ -128,6 +128,19 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # Issue 9 (reopened) decision: the gate must run harness assertions against
+      # a live host, which requires deployed function code. Build and package the
+      # MCP server once here, up front, so the artifact is ready before the s1
+      # apply and the deploy step below. Flex Consumption one-deploy takes a zip
+      # whose root is the publish output (host.json at the zip root).
+      - name: Build and package the Functions MCP server (McpTools)
+        shell: bash
+        run: |
+          set -euo pipefail
+          publish_dir="${{ github.workspace }}/publish/mcptools"
+          dotnet publish src/McpTools/McpTools.csproj -c Release -o "${publish_dir}"
+          ( cd "${publish_dir}" && zip -r "${{ github.workspace }}/mcptools.zip" . )
+
       - name: Compute ephemeral resource group name and expiry tag
         id: rg
         shell: bash
@@ -178,6 +191,33 @@ jobs:
             -backend-config="key=${S1_STATE_KEY}"
           terraform apply -input=false -auto-approve \
             -var-file="${{ github.workspace }}/s1.tfvars.json"
+
+      # Issue 9 (reopened) decision: deploy the built package to the s1 Flex
+      # Consumption app so the host specialises and the MCP extension registers
+      # its mcp_extension system key (which the call stage's shadow-key arm and
+      # the McpTestClient assertions require). Flex Consumption's supported
+      # deployment technology is "One deploy"; on a Flex app the config-zip CLI
+      # verb TRIGGERS One deploy -- upload to the module's managed-identity
+      # deploymentpackage container -- NOT the legacy Kudu WEBSITE_RUN_FROM_
+      # PACKAGE path the same verb uses on other plans (Microsoft Learn:
+      # flex-consumption-how-to#deploy-your-code-project). The decision comment
+      # named `az functionapp deploy`, but that command is Preview and not the
+      # Learn-documented Flex path; config-zip is (see PR description). The .NET
+      # isolated output is prebuilt by the publish step above, so no remote
+      # build. Runs after the s1 apply (the app must exist) and before the s2
+      # apply (APIM in s2 fronts the now-live s1 backend).
+      - name: Deploy the Functions MCP server to the s1 Flex Consumption app
+        working-directory: infra/terraform/scenarios/s1-entra-mcp-server
+        shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
+        run: |
+          set -euo pipefail
+          func_name="$(terraform output -raw function_app_name)"
+          az functionapp deployment source config-zip \
+            --resource-group "${TF_VAR_resource_group_name}" \
+            --name "${func_name}" \
+            --src "${{ github.workspace }}/mcptools.zip"
 
       - name: terraform init and apply - s2-apim-mcp-gateway
         working-directory: infra/terraform/scenarios/s2-apim-mcp-gateway
@@ -249,11 +289,23 @@ jobs:
           # The real mcp_extension system key is REQUIRED for the backend
           # shadow-key arm: presenting a VALID key that Easy Auth still 401s is
           # what proves the shadow path is closed (spec story 31); a placeholder
-          # would only prove an invalid key is rejected. The call-stage OIDC
-          # re-login above keeps the az session fresh, and the live-test principal
-          # holds listkeys on the ephemeral RG (Contributor), so this is reliable;
-          # fail loudly rather than silently weaken the proof if it is not.
-          mcp_ext_key="$(az functionapp keys list -g "${TF_VAR_resource_group_name}" -n "${func_name}" --query 'systemKeys.mcp_extension' -o tsv)"
+          # would only prove an invalid key is rejected. The key is registered by
+          # the MCP extension at host specialisation, which happens AFTER the code
+          # deploy completes (not at deploy return), so poll for it rather than
+          # reading it once: 15s interval, 300s (5 min) budget. Each attempt is
+          # guarded (2>/dev/null || true) so a transient listkeys non-zero does
+          # not trip set -e mid-loop; exhausting the budget stays FATAL (issue 9
+          # decision, preserving PR #39's fail-loudly intent -- no placeholder).
+          mcp_ext_key=""
+          key_poll_deadline=$(( SECONDS + 300 ))
+          while [ "${SECONDS}" -lt "${key_poll_deadline}" ]; do
+            mcp_ext_key="$(az functionapp keys list -g "${TF_VAR_resource_group_name}" -n "${func_name}" --query 'systemKeys.mcp_extension' -o tsv 2>/dev/null || true)"
+            if [ -n "${mcp_ext_key}" ]; then
+              break
+            fi
+            echo "mcp_extension system key not registered yet (awaiting host specialisation); retrying in 15s."
+            sleep 15
+          done
           if [ -z "${mcp_ext_key}" ]; then
             echo "::error::Could not retrieve the mcp_extension system key; the backend shadow-key assertion needs it (spec story 31)."
             exit 1
