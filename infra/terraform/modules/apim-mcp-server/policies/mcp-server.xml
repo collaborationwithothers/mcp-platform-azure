@@ -49,6 +49,16 @@
         <audience>${audience}</audience>
       </audiences>
     </validate-azure-ad-token>
+    <!--
+      Forward the caller's validated Entra token to the backend. MCP passthrough
+      does not guarantee the Authorization header reaches the backend (Microsoft
+      Learn, secure-mcp-servers), and the Functions backend's Easy Auth needs it;
+      the same token the client presents is accepted by the backend directly
+      (verified 2026-07-16 by a direct backend probe returning 405, not 401).
+    -->
+    <set-header name="Authorization" exists-action="override">
+      <value>@(context.Request.Headers.GetValueOrDefault("Authorization",""))</value>
+    </set-header>
   </inbound>
   <backend>
     <forward-request />

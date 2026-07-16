@@ -40,37 +40,14 @@ locals {
   mcp_server_url = "${local.apim_gateway_url}/${var.server_path}${local.mcp_message_endpoint}"
 }
 
-# EXPERIMENTAL / UNVERIFIED (2026-07-14): Microsoft.ApiManagement/service/apis
-# with properties.type = "mcp" has a Backend entity, referenced by
-# properties.backendId, wired below. This is NOT documented anywhere
-# Microsoft publishes: not manage-mcp-servers-rest-api, not the ARM template
-# reference for service/apis, and not the actual 2025-09-01-preview
-# openapi.json pulled from Azure/azure-rest-api-specs (all three describe only
-# `serviceUrl`, which a live PUT ignores for type=mcp: it returned 400
-# "Either BackendId or MCP tools must be set, but not both for MCP API." with
-# serviceUrl set and no backendId). The Backend resource shape itself (url,
-# protocol) IS verified against that same openapi.json's BackendContract
-# schema. What is NOT verified: whether properties.backendId on the api takes
-# this backend's bare resource name (assumed here, by analogy with every other
-# same-service child-entity cross-reference in this API family, e.g.
-# product-api links) versus a full ARM resource ID. Re-verify both facts at
-# the next live-test run and correct this comment/COMPATIBILITY.md either way.
-resource "azapi_resource" "mcp_backend" {
-  type      = "Microsoft.ApiManagement/service/backends@2025-09-01-preview"
-  name      = "${var.server_name}-backend"
-  parent_id = var.apim_id
-
-  schema_validation_enabled = local.azapi_schema_validation_enabled
-
-  body = {
-    properties = {
-      title       = "${var.server_name}-backend"
-      description = "Backend for passthrough MCP server ${var.server_name}. Synthetic data; see mcp-function-host for the backend tool contract."
-      url         = var.backend_service_url
-      protocol    = "http"
-    }
-  }
-}
+# Backend wiring for type=mcp is properties.serviceUrl (a bare absolute URL on
+# the api itself), per the 2025-09-01-preview swagger (McpProperties has no
+# backendId field) and the Learn azapi example (manage-mcp-servers-rest-api,
+# verified 2026-07-16). An earlier build used a separate Backend entity +
+# properties.backendId; a 2026-07-16 live GET proved that leaves serviceUrl
+# null and the passthrough unroutable (the call stage got 500 with the backend
+# healthy directly). serviceUrl is the base host; the backend endpoint is
+# serviceUrl + the message endpoint's uriTemplate.
 
 # Passthrough MCP server. For a passthrough server the external backend
 # (mcp-function-host) owns the tool surface, so this module creates no
@@ -90,27 +67,24 @@ resource "azapi_resource" "mcp_server" {
       description          = "Passthrough MCP server. Synthetic data; see mcp-function-host for the backend tool contract."
       path                 = var.server_path
       protocols            = ["https"]
-      backendId            = azapi_resource.mcp_backend.name
+      serviceUrl           = var.backend_service_url
       subscriptionRequired = var.subscription_required
       mcpProperties = {
         transportType = var.transport.type
-        # NOT the documented shape. Microsoft Learn (manage-mcp-servers-rest-api)
-        # and the ARM template reference both show endpoints as a JSON array of
-        # {name, uriTemplate} objects. A live PUT against this api-version
-        # returned 400: "Cannot deserialize the current JSON array ... into type
-        # 'Dictionary<string, McpEndpointContract>' ... requires a JSON object".
-        # That error is read directly off the live service, not a docs source,
-        # so it is stronger evidence than the (evidently stale, preview-API)
-        # docs, but the map-value shape below (endpoint name as key, uriTemplate
-        # as the only remaining value field) is inferred from that error
-        # message, not confirmed by any Microsoft Learn example. Re-verify at
-        # the next live-test run and correct this comment/COMPATIBILITY.md once
-        # confirmed either way.
-        endpoints = {
-          for e in var.transport.endpoints : e.name => {
+        # endpoints is a JSON array of {name, uriTemplate} per the
+        # 2025-09-01-preview swagger (McpProperties.endpoints: McpEndpoint[],
+        # @identifiers name) and the Learn azapi example, verified 2026-07-16.
+        # A 2026-07-14 live PUT had rejected the array and demanded a map; the
+        # preview API has since moved to the array shape (the map form was
+        # accepted on 2026-07-16 but silently dropped transportType, leaving the
+        # server without a transport). Streamable requires exactly one endpoint
+        # named "message". Re-confirm at the live run and update COMPATIBILITY.md.
+        endpoints = [
+          for e in var.transport.endpoints : {
+            name        = e.name
             uriTemplate = e.uri_template
           }
-        }
+        ]
       }
     }
   }
