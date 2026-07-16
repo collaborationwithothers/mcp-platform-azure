@@ -43,7 +43,7 @@ on:
         required: true
         type: string
       skip_teardown:
-        description: "TEMPORARY debugging aid (issue 9): leave the deployed resources running after the run so the APIM 500 can be probed directly (backend auth, APIM trace, portal oracle diff). WARNING: resources bill continuously until you delete the resource group by hand (az group delete -n rg-mcp-tracer-<run_id>). Leave false for normal runs."
+        description: "TEMPORARY debugging aid (issue 9): skip teardown so the deployed stamp stays up for INTERACTIVE investigation - e.g. the portal test console request trace of the no-token WWW-Authenticate/PRM mechanism (which policy or runtime step sets the path-scoped resource_metadata). WARNING: Basic v2 bills continuously until you delete the resource group by hand; the run summary prints the exact command. Destroy it the SAME day. Leave false for normal runs."
         required: false
         type: boolean
         default: false
@@ -464,3 +464,35 @@ jobs:
             exit 1
           fi
           echo "Confirmed: ${{ steps.rg.outputs.name }} no longer exists."
+
+      # Loud, unmissable notice when skip_teardown kept the stamp alive. The last
+      # several issue-9 debug rounds were strangled by the environment evaporating
+      # between runs; keeping it up is deliberate here (interactive portal/curl
+      # trace of the no-token WWW-Authenticate mechanism), but a kept-alive Basic
+      # v2 stamp bills continuously, so the RG name and the exact teardown command
+      # go into the run summary AND a ::warning:: annotation. Runs whether the gate
+      # passed or failed. YOU destroy it the same day; the 4-hour expiry tag is
+      # only a backstop sweep, not a guarantee.
+      - name: Kept-alive environment notice (skip_teardown)
+        if: always() && inputs.skip_teardown
+        shell: bash
+        run: |
+          rg="${{ steps.rg.outputs.name }}"
+          expiry="${{ steps.rg.outputs.expiry }}"
+          echo "::warning title=Live environment kept ALIVE::${rg} was NOT destroyed (skip_teardown=true) and bills continuously. Destroy it today: az group delete -n ${rg} --yes"
+          {
+            echo "## :warning: Live environment kept ALIVE (skip_teardown=true)"
+            echo ""
+            echo "Teardown was **skipped on purpose** so you can trace the no-token"
+            echo "\`WWW-Authenticate\`/PRM mechanism interactively against the running stamp."
+            echo "**A Basic v2 stamp bills continuously.**"
+            echo ""
+            echo "- Resource group: \`${rg}\`"
+            echo "- Backstop expiry tag: \`${expiry}\` (a sweep, not a guarantee)"
+            echo ""
+            echo "### Destroy it yourself, the SAME day"
+            echo ""
+            echo '```bash'
+            echo "az group delete -n ${rg} --yes"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
