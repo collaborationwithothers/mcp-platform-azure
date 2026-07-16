@@ -84,22 +84,19 @@ module "apim_gateway" {
 module "apim_mcp_server" {
   source = "../../modules/apim-mcp-server"
 
-  apim_id             = module.apim_gateway.apim_id
-  server_name         = var.server_name
-  server_path         = var.server_path
-  backend_service_url = local.mcp_backend_base_url
-
-  # The passthrough forwards to backend_service_url + the message endpoint's
-  # uri_template (Microsoft.ApiManagement/service/apis type=mcp,
-  # 2025-09-01-preview; serviceUrl base + uriTemplate suffix, verified
-  # 2026-07-16 against manage-mcp-servers-rest-api). The generic module default
-  # is "/mcp", but this composition's backend is the Functions MCP extension,
-  # whose endpoint is "/runtime/webhooks/mcp"; without this the gateway forwarded
-  # to <base>/mcp (a route the host does not serve) and the call stage got 500.
-  transport = {
-    type      = "streamable"
-    endpoints = [{ name = "message", uri_template = "/runtime/webhooks/mcp" }]
-  }
+  apim_id     = module.apim_gateway.apim_id
+  server_name = var.server_name
+  server_path = var.server_path
+  # In backendId (passthrough) mode the gateway speaks MCP to the backend
+  # entity's url, so that url must be the actual remote MCP server endpoint --
+  # for the Functions MCP extension, <base>/runtime/webhooks/mcp, not the app
+  # root. Diagnosis (2026-07-16, run 29497812933): with the backend url at the
+  # bare app root, a GET to the backend directly returned 405 (alive,
+  # authenticated, wants POST) while the same call through APIM returned 500 --
+  # APIM could not establish an MCP session against the non-MCP app root. The
+  # client-facing transport endpoint stays the module default "/mcp"
+  # (uri_template is the client path, not appended to the backend url here).
+  backend_service_url = "${local.mcp_backend_base_url}/runtime/webhooks/mcp"
 
   # subscription_required and product_ids are left at their module defaults
   # (false, []): no products or subscriptions in the tracer
