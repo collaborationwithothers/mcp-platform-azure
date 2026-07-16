@@ -29,15 +29,14 @@ locals {
 
   apim_gateway_url = data.azapi_resource.apim.output.properties.gatewayUrl
 
-  mcp_message_endpoint = one([
-    for e in var.transport.endpoints : e.uri_template if e.name == "message"
-  ])
-
   # The root protected resource metadata (PRM) document itself is owned by
   # the apim-gateway module (one root well-known path per gateway); this
   # module only needs the URL so its 401 challenge can point callers at it.
-  prm_url        = "${local.apim_gateway_url}/.well-known/oauth-protected-resource"
-  mcp_server_url = "${local.apim_gateway_url}/${var.server_path}${local.mcp_message_endpoint}"
+  prm_url = "${local.apim_gateway_url}/.well-known/oauth-protected-resource"
+  # With no endpoints map (see mcp_server below), the MCP server is exposed at
+  # the api path itself; the client connects to <gateway>/<path>, matching the
+  # AI-Gateway sample (path is the MCP endpoint, no transport suffix).
+  mcp_server_url = "${local.apim_gateway_url}/${var.server_path}"
 }
 
 # Backend wiring for type=mcp is a separate Backend entity referenced by
@@ -58,8 +57,17 @@ resource "azapi_resource" "mcp_backend" {
     properties = {
       title       = "${var.server_name}-backend"
       description = "Backend for passthrough MCP server ${var.server_name}. Synthetic data; see mcp-function-host for the backend tool contract."
-      url         = var.backend_service_url
-      protocol    = "http"
+      # The full backend MCP endpoint (base + /runtime/webhooks/mcp) is baked
+      # into the backend url, matching the shipped AI-Gateway sample: on this
+      # build the map endpoints did not route, so the path lives here, not in
+      # mcpProperties.endpoints.
+      url      = var.backend_service_url
+      protocol = "http"
+      type     = "Single"
+      tls = {
+        validateCertificateChain = true
+        validateCertificateName  = true
+      }
     }
   }
 }
@@ -84,26 +92,22 @@ resource "azapi_resource" "mcp_server" {
       protocols            = ["https"]
       backendId            = azapi_resource.mcp_backend.name
       subscriptionRequired = var.subscription_required
+      # Match the shipped Azure sample (Azure-Samples/AI-Gateway, api-version
+      # 2024-06-01-preview -- the generation this APIM stamp actually runs, ahead
+      # of the 2025-09-01-preview serviceUrl+array swagger): backendId +
+      # mcpProperties.transportType only, NO endpoints map, plus empty
+      # authenticationSettings and isCurrent. The backend MCP path is baked into
+      # the backend entity url above. On this build the map endpoints did not
+      # round-trip transportType and did not route (call stage 500 with the
+      # backend healthy directly). Verified against the sample 2026-07-16.
       mcpProperties = {
         transportType = var.transport.type
-        # endpoints is a MAP keyed by endpoint name, value = McpEndpointContract.
-        # The published 2025-09-01-preview swagger shows an array, but the
-        # DEPLOYED service rejects the array: run 29508169161 returned 400
-        # "Cannot deserialize the current JSON array ... into type
-        # Dictionary<String, McpEndpointContract> ... requires a JSON object"
-        # (Path mcpProperties.endpoints) -- the same error the module's earlier
-        # comment recorded on 2026-07-14. So the swagger is ahead of the deployed
-        # service. An earlier map used value = { uriTemplate } only and the live
-        # GET showed transportType silently dropped; including the full contract
-        # (name + uriTemplate) in the value is the current hypothesis for why.
-        # Streamable requires exactly one endpoint named "message".
-        endpoints = {
-          for e in var.transport.endpoints : e.name => {
-            name        = e.name
-            uriTemplate = e.uri_template
-          }
-        }
       }
+      authenticationSettings = {
+        oAuth2AuthenticationSettings = []
+        openidAuthenticationSettings = []
+      }
+      isCurrent = true
     }
   }
 }

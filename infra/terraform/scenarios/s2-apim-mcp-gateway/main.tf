@@ -87,17 +87,10 @@ module "apim_mcp_server" {
   apim_id     = module.apim_gateway.apim_id
   server_name = var.server_name
   server_path = var.server_path
-  # serviceUrl is the base host; the backend endpoint is serviceUrl + the
-  # message endpoint's uri_template. For the Functions MCP extension the webhook
-  # path is /runtime/webhooks/mcp, so pass the bare base here and carry the path
-  # in the transport endpoint below (2025-09-01-preview MCP shape, verified
-  # 2026-07-16 against manage-mcp-servers-rest-api).
-  backend_service_url = local.mcp_backend_base_url
-
-  transport = {
-    type      = "streamable"
-    endpoints = [{ name = "message", uri_template = "/runtime/webhooks/mcp" }]
-  }
+  # This build's MCP passthrough routes to the backend entity url directly (no
+  # endpoints map), so the full Functions MCP webhook path is baked into the
+  # backend url here. (AI-Gateway sample shape, verified 2026-07-16.)
+  backend_service_url = "${local.mcp_backend_base_url}/runtime/webhooks/mcp"
 
   # subscription_required and product_ids are left at their module defaults
   # (false, []): no products or subscriptions in the tracer
