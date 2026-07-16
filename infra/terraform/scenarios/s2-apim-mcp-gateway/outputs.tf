@@ -13,6 +13,11 @@ output "mcp_server_url" {
   description = "Client-facing MCP endpoint. The McpTestClient session/tool assertions and the demo script target this URL (docs/specs/v1-tracer-bullet.md, Testing Decisions)."
 }
 
+output "mcp_server_api_id" {
+  value       = module.apim_mcp_server.mcp_server_api_id
+  description = "ARM resource ID of the passthrough MCP server API. Consumed by the live gate's call-stage diagnostics to dump the effective backendId/serviceUrl/mcpProperties."
+}
+
 output "prm_url" {
   value       = module.apim_gateway.prm_url
   description = "Gateway-root protected resource metadata URL, per RFC 9728. The no-token discovery assertion checks the WWW-Authenticate challenge points here."

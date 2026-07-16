@@ -330,6 +330,31 @@ jobs:
             echo "::error::Could not retrieve the mcp_extension system key; the backend shadow-key assertion needs it (spec story 31)."
             exit 1
           fi
+          # --- Call-stage diagnostics (read-only, non-fatal): localise the MCP
+          # 500 between the APIM passthrough and the Functions backend before the
+          # assertions run. Probes the backend /runtime/webhooks/mcp directly with
+          # a valid Entra token vs the same call through APIM, and dumps the
+          # effective APIM MCP api config (backendId/serviceUrl/mcpProperties).
+          # Temporary, remove once the call stage is green (issue 9). ---
+          api_id="$(terraform -chdir="$s2_dir" output -raw mcp_server_api_id)"
+          set +e
+          diag_token="$(curl -sS --max-time 20 -X POST "https://login.microsoftonline.com/${tenant_id}/oauth2/v2.0/token" \
+            -d "client_id=${client_id}" -d "client_secret=${TEST_CLIENT_SECRET}" \
+            -d "grant_type=client_credentials" -d "scope=${audience}/.default" | jq -r '.access_token // empty')"
+          if [ -n "${diag_token}" ]; then
+            curl -sS --max-time 15 -o /dev/null -w "[diag] backend direct (${backend_mcp_url}) status: %{http_code}\n" \
+              -H "Authorization: Bearer ${diag_token}" "${backend_mcp_url}"
+            curl -sS --max-time 15 -o /dev/null -w "[diag] via APIM (${mcp_server_url}) status: %{http_code}\n" \
+              -H "Authorization: Bearer ${diag_token}" "${mcp_server_url}"
+          else
+            echo "[diag] could not acquire a diagnostic token; skipping HTTP probes."
+          fi
+          echo "[diag] effective APIM MCP api config:"
+          az rest --method GET --url "https://management.azure.com${api_id}?api-version=2025-09-01-preview" \
+            --query "properties.{type:type,path:path,backendId:backendId,serviceUrl:serviceUrl,mcpProperties:mcpProperties}" -o json 2>/dev/null \
+            || echo "[diag]   (az rest dump failed)"
+          set -e
+          # --- end diagnostics ---
           pwsh scripts/gate/invoke-and-assert.ps1 \
             -McpServerUrl "$mcp_server_url" \
             -PrmUrl "$prm_url" \
