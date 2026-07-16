@@ -69,6 +69,9 @@ data "azurerm_storage_account" "existing" {
 
 locals {
   storage_account_id = var.create_storage_account ? azurerm_storage_account.this[0].id : data.azurerm_storage_account.existing[0].id
+  # Blob endpoint (https://<account>.blob.core.windows.net/) of the deployment
+  # storage account, used to build the Flex deployment.storage.value below.
+  storage_primary_blob_endpoint = var.create_storage_account ? azurerm_storage_account.this[0].primary_blob_endpoint : data.azurerm_storage_account.existing[0].primary_blob_endpoint
 }
 
 # prevent_destroy would block the gated live-test environment's destroy
@@ -170,8 +173,17 @@ module "function_app" {
   storage_uses_managed_identity     = true
   storage_authentication_type       = "UserAssignedIdentity"
   storage_user_assigned_identity_id = azurerm_user_assigned_identity.storage.id
-  storage_container_endpoint        = azurerm_storage_container.deployment_package.id
-  storage_container_type            = "blobContainer"
+  # Flex deployment.storage.value must be the blob CONTAINER URL
+  # (https://<account>.blob.core.windows.net/<container>), NOT the container's
+  # ARM resource id. azurerm 4.x returns the ARM resource id from the container
+  # resource's .id (it is created with storage_account_id), which the Flex
+  # deployment path cannot use: the first three live deploys failed identically
+  # regardless of identity type with StorageAccessibleCheck /
+  # MSITokenUnavailableException 400 because the value was malformed. Build the
+  # container URL from the account's blob endpoint instead. (Microsoft.Web/sites
+  # 2024-11-01 FunctionsDeploymentStorage.value, verified 2026-07-16.)
+  storage_container_endpoint = "${trimsuffix(local.storage_primary_blob_endpoint, "/")}/${azurerm_storage_container.deployment_package.name}"
+  storage_container_type     = "blobContainer"
 
   managed_identities = {
     system_assigned            = true

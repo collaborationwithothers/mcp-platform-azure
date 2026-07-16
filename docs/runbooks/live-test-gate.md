@@ -64,23 +64,37 @@ facts. Note also that Microsoft Learn specifies the deployment-storage identity
 role as **Storage Blob Data Contributor**; the module grants **Storage Blob Data
 Owner**, a strict superset, which satisfies the requirement.
 
-The first two live runs (2026-07-16) both hit config-zip failing the Kudu
+Three live runs (2026-07-16) hit config-zip failing the Kudu
 StorageAccessibleCheck with `InaccessibleStorageException` /
-`MSITokenUnavailableException: Unable to fetch MSI token ... 400`. A 400 at the
-MSI token fetch happens before any blob authorization check, so it is an
-identity/token-availability problem, not role scope (the grant is a superset of
-the documented role). A bounded retry over the full 600s window did NOT clear
-it, which ruled out an RBAC-propagation race: the failure was structural. Root
-cause: the app's SYSTEM-assigned identity was not usable on the Flex Kudu
-one-deploy storage path. The AVM avm-res-web-site Flex example configures
-deployment storage with a USER-assigned identity, so `mcp-function-host` now
-does the same, and because this module is storage-key-free it also pins the
-runtime `AzureWebJobsStorage` path to that same user-assigned identity
-(`AzureWebJobsStorage__credential=managedidentity` + `__clientId`). The
-user-assigned identity holds Storage Blob Data Owner on the storage account
-(superset of the documented Storage Blob Data Contributor minimum). The deploy
-step keeps a shorter bounded retry (30s backoff, 300s window, fatal on
-exhaustion) purely as insurance for role-assignment propagation. The gate does
-not fall back to storage-account keys (the account has
+`MSITokenUnavailableException: Unable to fetch MSI token ... 400`. The
+diagnosis went through two wrong turns before the root cause, both recorded
+here so the reasoning is not repeated:
+
+1. A bounded retry over a 600s window did NOT clear it, ruling out an
+   RBAC-propagation race: the failure was structural, not timing.
+2. Switching deployment storage from a system-assigned to a user-assigned
+   identity did NOT change the error at all (run 3 failed byte-for-byte the
+   same). That ruled out the identity TYPE: the failure is identity-independent.
+
+Root cause (verified against the `Microsoft.Web/sites` 2024-11-01 ARM schema,
+`FunctionsDeploymentStorage.value`): the Flex `deployment.storage.value` must be
+the blob CONTAINER URL (`https://<account>.blob.core.windows.net/<container>`),
+but the module was passing `azurerm_storage_container.<...>.id`, which on
+azurerm 4.x (container created with `storage_account_id`) is the ARM resource
+id. A malformed storage value is identity-independent, which is exactly why
+system- and user-assigned identities failed identically. The module now builds
+the value from the account's blob endpoint (`storage_primary_blob_endpoint`).
+
+Identity configuration retained from the (necessary but not sufficient)
+investigation: deployment storage and the runtime `AzureWebJobsStorage` path are
+both pinned to one user-assigned identity
+(`storage_authentication_type = "UserAssignedIdentity"`,
+`AzureWebJobsStorage__credential=managedidentity` + `__clientId`), which holds
+Storage Blob Data Owner (superset of the documented Storage Blob Data
+Contributor minimum). System-assigned would also be supported per Learn; the
+user-assigned config matches the AVM Flex example and was kept to change only
+the storage value on the fixing run. The deploy step keeps a bounded retry (30s
+backoff, 300s window, fatal on exhaustion) as insurance for grant propagation.
+The gate does not fall back to storage-account keys (the account has
 `shared_access_key_enabled = false`). If config-zip still exhausts on a future
 run, triage via the portal "Flex Consumption Deployment" diagnostic.
