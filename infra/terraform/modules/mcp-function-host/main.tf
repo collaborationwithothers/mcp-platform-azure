@@ -192,6 +192,19 @@ module "function_app" {
 
   public_network_access_enabled = true
 
+  # APIM (Basic v2) negotiates TLS 1.2 on its backend hop. avm-res-web-site
+  # defaults the site's minimum TLS to 1.3, and a 1.3-only backend rejects
+  # APIM's handshake with a TLS "ProtocolVersion" alert, which APIM surfaces to
+  # the caller as a generic HTTP 500. This was invisible in every ARM GET of the
+  # MCP api/backend and only showed up in the gateway trace (issue 9, 2026-07-16:
+  # the APIM->backend hop failed at the TLS layer, not the MCP layer; setting the
+  # live app to 1.2 turned the call-stage 500 into a clean backend 401). Lower
+  # the floor to 1.2 so the APIM gateway can reach the Functions MCP endpoint;
+  # TLS 1.2 remains the industry-standard service-to-service minimum.
+  site_config = {
+    minimum_tls_version = "1.2"
+  }
+
   app_settings = local.merged_app_settings
 
   # Entra built-in auth (Easy Auth). require_authentication plus
