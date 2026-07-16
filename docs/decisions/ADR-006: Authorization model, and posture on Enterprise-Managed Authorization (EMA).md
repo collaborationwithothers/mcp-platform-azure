@@ -77,6 +77,38 @@ in docs/tradeoffs.md; only the document's contents (resource identifier,
 authorization server URL, scopes) describe a specific server, and those
 flow into the gateway as inputs.
 
+### Observed platform deviation (issue 9, 2026-07-16)
+
+The decision above stands, but the deployed APIM `type=mcp` runtime does not let
+the policy own the challenge URL. Recorded here from the issue-9 live trace so the
+gap is not rediscovered.
+
+An APIM gateway trace of the no-token request (stamp apim-mcp-tracer-42fa1c27,
+listDebugCredentials/listTrace, trace f07bae7f) proves the apim-mcp-server policy
+emits the gateway-ROOT `resource_metadata` and return-response sends that root
+value "to the caller in full" - yet the client receives a PATH-SCOPED value,
+`https://<gateway>/<server_path>/.well-known/oauth-protected-resource`. So the
+type=mcp runtime rewrites `resource_metadata` downstream of the policy pipeline,
+with no policy hook to override it. That path-appended shape matches neither the
+MCP authorization spec (root) nor RFC 9728 section 3.1 (insert-before-path), and
+Microsoft Learn documents no native APIM MCP challenge at all (azure-docs-verifier,
+2026-07-16; COMPATIBILITY.md). The rewritten path-scoped location does not serve a
+document (the per-server MCP API swallows it and returns 401); the gateway-root PRM
+document decided above is still served and valid.
+
+Posture taken (issue 9 Exit 2): do not adopt the non-spec path-scoped shape into
+the design or serve a document there. The root PRM document continues to be served;
+the discovery assertion asserts the OBSERVED rewritten value explicitly as a
+platform observation, so the gate flags it if a future APIM release changes the
+behaviour. The McpTestClient session and tool contracts pass regardless (they use
+client credentials, not the discovery dance), so the rewrite does not break the
+tokened auth flow; interactive client discovery (which does follow the challenge)
+is to be confirmed against the running stamp and recorded in docs/demos. This
+weakens the "clients resolve at root" driver only for clients that follow the
+challenge URL literally: for them, neither the root document nor the (non-serving)
+path-scoped URL is what a strict RFC 9728 construction would build. Revisit the
+placement decision if that interactive confirmation fails.
+
 ### Growth paths
 
 The single-root-document form serves exactly one MCP server's metadata per

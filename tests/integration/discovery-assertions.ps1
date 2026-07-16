@@ -17,8 +17,14 @@
   2026-07-15; see COMPATIBILITY.md), so these assertions are the proof it works.
 
   Checks:
-    1. No-token call            -> 401 with WWW-Authenticate: Bearer
-                                   resource_metadata="<PrmUrl>".
+    1. No-token call            -> 401 with WWW-Authenticate: Bearer. The
+                                   resource_metadata is asserted against the
+                                   OBSERVED platform-rewritten value (path-scoped
+                                   under the MCP API path), NOT the gateway-root
+                                   value the policy emits: the deployed type=mcp
+                                   runtime rewrites it downstream of the policy
+                                   (gateway trace, 2026-07-16; see the check [1]
+                                   note, COMPATIBILITY.md, ADR-006).
     2. PRM document content      -> 200 JSON with the RFC 9728 fields; resource
                                    equals the expected server audience.
     3. Wrong-audience token      -> 401 (validate-azure-ad-token rejects it).
@@ -116,9 +122,45 @@ Write-Host "Backend MCP  : $BackendMcpUrl"
 Write-Host ''
 
 # ---------------------------------------------------------------------------
-# 1. No-token call -> 401 + WWW-Authenticate pointing at the root PRM URL.
+# 1. No-token call -> 401 + WWW-Authenticate. The challenge is asserted against
+#    the OBSERVED platform behaviour, which is not what this repo's policy emits.
+#
+#    The apim-mcp-server policy sets resource_metadata to the gateway-ROOT PrmUrl
+#    (mcp-server.xml). An APIM gateway trace of the no-token request (2026-07-16,
+#    stamp apim-mcp-tracer-42fa1c27, trace f07bae7f) proves the policy pipeline
+#    emits that ROOT value and return-response/transfer-response send it "to the
+#    caller in full" -- yet the client receives a PATH-SCOPED value under the MCP
+#    API path: "<gateway>/<server_path>/.well-known/oauth-protected-resource".
+#    So the deployed type=mcp runtime REWRITES resource_metadata downstream of the
+#    policy, with no policy hook to prevent it. This shape matches neither the MCP
+#    auth spec (root) nor RFC 9728 s3.1 (insert-before-path), and Microsoft Learn
+#    documents no native APIM MCP challenge (azure-docs-verifier 2026-07-16; see
+#    COMPATIBILITY.md and ADR-006). We assert the observed shape ON PURPOSE: this
+#    check then flags it if a future APIM release changes the rewrite. The
+#    gateway-ROOT PRM document that this repo actually serves is validated in
+#    check [2]. The path-scoped location does NOT serve a document (the orders MCP
+#    API swallows it and 401s); interactive client discovery is confirmed
+#    separately in the demo (docs/demos), and the McpTestClient session/tool
+#    contracts pass regardless (they use client-credentials, not the discovery
+#    dance), proving the rewrite does not break the tokened auth flow.
+#
+#    Derive the observed path-scoped URL from the gateway base + server path.
 # ---------------------------------------------------------------------------
+$wellKnownSuffix = '/.well-known/oauth-protected-resource'
+$gatewayBase = if ($PrmUrl.EndsWith($wellKnownSuffix)) {
+    $PrmUrl.Substring(0, $PrmUrl.Length - $wellKnownSuffix.Length)
+}
+else {
+    ([System.Uri]$PrmUrl).GetLeftPart([System.UriPartial]::Authority)
+}
+$serverPath = ''
+if ($McpServerUrl.StartsWith($gatewayBase)) {
+    $serverPath = ($McpServerUrl.Substring($gatewayBase.Length).TrimStart('/') -split '/', 2)[0]
+}
+$observedChallengeUrl = "$gatewayBase/$serverPath$wellKnownSuffix"
+
 Write-Host "[1] No-token call returns 401 with the RFC 9728 challenge"
+Write-Host "    (asserting the OBSERVED platform-rewritten challenge URL; see the note above)"
 $r = Invoke-Raw -Uri $McpServerUrl -Body $initBody
 if ($r.StatusCode -ne 401) {
     Fail "expected HTTP 401 with no token, got $($r.StatusCode)."
@@ -132,11 +174,11 @@ else {
     elseif ($wwwAuth -notmatch 'Bearer') {
         Fail "WWW-Authenticate is not a Bearer challenge: '$wwwAuth'."
     }
-    elseif ($wwwAuth -notmatch [regex]::Escape("resource_metadata=`"$PrmUrl`"")) {
-        Fail "WWW-Authenticate resource_metadata does not point at '$PrmUrl'. Got: '$wwwAuth'."
+    elseif ($wwwAuth -notmatch [regex]::Escape("resource_metadata=`"$observedChallengeUrl`"")) {
+        Fail "WWW-Authenticate resource_metadata does not match the observed platform-rewritten URL '$observedChallengeUrl'. Got: '$wwwAuth'. If the platform stopped rewriting, the policy value is the gateway root '$PrmUrl' -- re-check the APIM release and update this assertion + COMPATIBILITY.md."
     }
     else {
-        Pass "WWW-Authenticate points at the root PRM URL."
+        Pass "WWW-Authenticate matches the observed platform-rewritten challenge URL ($observedChallengeUrl)."
     }
 }
 Write-Host ''
