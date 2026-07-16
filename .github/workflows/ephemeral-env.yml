@@ -260,6 +260,35 @@ jobs:
             -var-file="${{ github.workspace }}/s2.tfvars.json" \
             -var="s1_remote_state={\"storage_account_name\":\"${TF_STATE_STORAGE_ACCOUNT}\",\"container_name\":\"${TF_STATE_CONTAINER}\",\"key\":\"${S1_STATE_KEY}\"}"
 
+      # Issue-9 instrumentation (temporary, non-fatal): capture the verbatim
+      # WWW-Authenticate challenges and every candidate PRM location in one shot,
+      # so a single live run settles which layer owns the RFC 9728 challenge and
+      # which PRM URL shape resolves (two emitters exist: the APIM policy's
+      # gateway-root challenge and the backend App Service Auth PRM feature). The
+      # probes are anonymous (no token), so this sits before the call stage and is
+      # decoupled from its token/key machinery. terraform output reads remote
+      # state via the providers' own OIDC, so it does not need a fresh az login.
+      # continue-on-error: a probe hiccup must never mask the real gate result.
+      # Paired with the "Upload PRM discovery evidence" step (if: always()).
+      # Remove this step, the upload step, and scripts/gate/capture-prm-evidence.ps1
+      # once the PRM ownership is settled and the gate is green.
+      - name: Capture PRM discovery evidence (anonymous probes)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          s1_dir=infra/terraform/scenarios/s1-entra-mcp-server
+          s2_dir=infra/terraform/scenarios/s2-apim-mcp-gateway
+          mcp_server_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_url)"
+          prm_url="$(terraform -chdir="$s2_dir" output -raw prm_url)"
+          backend_base="$(terraform -chdir="$s1_dir" output -raw mcp_backend_base_url)"
+          backend_mcp_url="${backend_base%/}/runtime/webhooks/mcp"
+          pwsh scripts/gate/capture-prm-evidence.ps1 \
+            -McpServerUrl "$mcp_server_url" \
+            -PrmUrl "$prm_url" \
+            -BackendMcpUrl "$backend_mcp_url" \
+            -OutDir "${GITHUB_WORKSPACE}/gate-evidence"
+
       # Fresh OIDC login before the call stage. Same rationale as the teardown
       # and cleanup re-logins below: by this point the job has run past the
       # ~5-minute life of the initial azure/login client assertion (the s1/s2
@@ -371,6 +400,19 @@ jobs:
             -ClientSecret "$TEST_CLIENT_SECRET" \
             -ServerName "$server_name" \
             -McpExtensionKey "${mcp_ext_key:-}"
+
+      # Always upload whatever PRM evidence was captured above, even when the
+      # call stage failed its assertions (the failing assertion is the whole
+      # reason we want the evidence). Reads the runner's local filesystem, so it
+      # is unaffected by the destroy steps that follow. Temporary issue-9
+      # instrumentation; remove with the capture step and script.
+      - name: Upload PRM discovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prm-discovery-evidence
+          path: gate-evidence/
+          if-no-files-found: warn
 
       - name: terraform destroy - s2-apim-mcp-gateway
         if: always() && !inputs.skip_teardown
