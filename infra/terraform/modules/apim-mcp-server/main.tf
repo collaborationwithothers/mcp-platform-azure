@@ -71,20 +71,23 @@ resource "azapi_resource" "mcp_server" {
       subscriptionRequired = var.subscription_required
       mcpProperties = {
         transportType = var.transport.type
-        # endpoints is a JSON array of {name, uriTemplate} per the
-        # 2025-09-01-preview swagger (McpProperties.endpoints: McpEndpoint[],
-        # @identifiers name) and the Learn azapi example, verified 2026-07-16.
-        # A 2026-07-14 live PUT had rejected the array and demanded a map; the
-        # preview API has since moved to the array shape (the map form was
-        # accepted on 2026-07-16 but silently dropped transportType, leaving the
-        # server without a transport). Streamable requires exactly one endpoint
-        # named "message". Re-confirm at the live run and update COMPATIBILITY.md.
-        endpoints = [
-          for e in var.transport.endpoints : {
+        # endpoints is a MAP keyed by endpoint name, value = McpEndpointContract.
+        # The published 2025-09-01-preview swagger shows an array, but the
+        # DEPLOYED service rejects the array: run 29508169161 returned 400
+        # "Cannot deserialize the current JSON array ... into type
+        # Dictionary<String, McpEndpointContract> ... requires a JSON object"
+        # (Path mcpProperties.endpoints) -- the same error the module's earlier
+        # comment recorded on 2026-07-14. So the swagger is ahead of the deployed
+        # service. An earlier map used value = { uriTemplate } only and the live
+        # GET showed transportType silently dropped; including the full contract
+        # (name + uriTemplate) in the value is the current hypothesis for why.
+        # Streamable requires exactly one endpoint named "message".
+        endpoints = {
+          for e in var.transport.endpoints : e.name => {
             name        = e.name
             uriTemplate = e.uri_template
           }
-        ]
+        }
       }
     }
   }

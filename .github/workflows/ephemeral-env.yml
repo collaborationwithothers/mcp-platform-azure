@@ -42,6 +42,11 @@ on:
         description: "Type \"apply\" to confirm you understand this deploys billable Azure resources (APIM Basic v2, Flex Consumption, API Center) and accept them being destroyed at the end of this run."
         required: true
         type: string
+      skip_teardown:
+        description: "TEMPORARY debugging aid (issue 9): leave the deployed resources running after the run instead of destroying them, for faster iteration on the call stage. WARNING: the resources bill continuously until you delete the resource group by hand (az group delete -n rg-mcp-tracer-<run_id>). Leave false for normal runs."
+        required: false
+        type: boolean
+        default: false
 
 # Only one live-test run at a time: prevents two runs racing on the same
 # state keys or doubling billable resources.
@@ -368,7 +373,7 @@ jobs:
             -McpExtensionKey "${mcp_ext_key:-}"
 
       - name: terraform destroy - s2-apim-mcp-gateway
-        if: always()
+        if: always() && !inputs.skip_teardown
         working-directory: infra/terraform/scenarios/s2-apim-mcp-gateway
         shell: bash
         env:
@@ -381,7 +386,7 @@ jobs:
             -var="s1_remote_state={\"storage_account_name\":\"${TF_STATE_STORAGE_ACCOUNT}\",\"container_name\":\"${TF_STATE_CONTAINER}\",\"key\":\"${S1_STATE_KEY}\"}"
 
       - name: terraform destroy - s1-entra-mcp-server
-        if: always()
+        if: always() && !inputs.skip_teardown
         working-directory: infra/terraform/scenarios/s1-entra-mcp-server
         shell: bash
         env:
@@ -400,7 +405,7 @@ jobs:
       # re-login explicitly. if: always() so cleanup authenticates even when an
       # earlier step failed.
       - name: Azure re-login for cleanup (OIDC)
-        if: always()
+        if: always() && !inputs.skip_teardown
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -408,7 +413,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Delete ephemeral resource group and verify it is gone
-        if: always()
+        if: always() && !inputs.skip_teardown
         shell: bash
         run: |
           az group delete --name "${{ steps.rg.outputs.name }}" --yes
