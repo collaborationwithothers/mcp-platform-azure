@@ -40,14 +40,29 @@ locals {
   mcp_server_url = "${local.apim_gateway_url}/${var.server_path}${local.mcp_message_endpoint}"
 }
 
-# Backend wiring for type=mcp is properties.serviceUrl (a bare absolute URL on
-# the api itself), per the 2025-09-01-preview swagger (McpProperties has no
-# backendId field) and the Learn azapi example (manage-mcp-servers-rest-api,
-# verified 2026-07-16). An earlier build used a separate Backend entity +
-# properties.backendId; a 2026-07-16 live GET proved that leaves serviceUrl
-# null and the passthrough unroutable (the call stage got 500 with the backend
-# healthy directly). serviceUrl is the base host; the backend endpoint is
-# serviceUrl + the message endpoint's uriTemplate.
+# Backend wiring for type=mcp is a separate Backend entity referenced by
+# properties.backendId, NOT properties.serviceUrl. The 2025-09-01-preview
+# swagger describes only serviceUrl, but the DEPLOYED service rejects it: run
+# 29509xxxxx returned 400 "Either BackendId or MCP tools must be set, but not
+# both for MCP API." with serviceUrl set. backendId is therefore required (the
+# swagger is ahead of the deployed service on this too). serviceUrl reads back
+# null in that mode -- expected, the backend url lives on this Backend entity.
+resource "azapi_resource" "mcp_backend" {
+  type      = "Microsoft.ApiManagement/service/backends@2025-09-01-preview"
+  name      = "${var.server_name}-backend"
+  parent_id = var.apim_id
+
+  schema_validation_enabled = local.azapi_schema_validation_enabled
+
+  body = {
+    properties = {
+      title       = "${var.server_name}-backend"
+      description = "Backend for passthrough MCP server ${var.server_name}. Synthetic data; see mcp-function-host for the backend tool contract."
+      url         = var.backend_service_url
+      protocol    = "http"
+    }
+  }
+}
 
 # Passthrough MCP server. For a passthrough server the external backend
 # (mcp-function-host) owns the tool surface, so this module creates no
@@ -67,7 +82,7 @@ resource "azapi_resource" "mcp_server" {
       description          = "Passthrough MCP server. Synthetic data; see mcp-function-host for the backend tool contract."
       path                 = var.server_path
       protocols            = ["https"]
-      serviceUrl           = var.backend_service_url
+      backendId            = azapi_resource.mcp_backend.name
       subscriptionRequired = var.subscription_required
       mcpProperties = {
         transportType = var.transport.type
