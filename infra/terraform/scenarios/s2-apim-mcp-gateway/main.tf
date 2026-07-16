@@ -89,6 +89,18 @@ module "apim_mcp_server" {
   server_path         = var.server_path
   backend_service_url = local.mcp_backend_base_url
 
+  # The passthrough forwards to backend_service_url + the message endpoint's
+  # uri_template (Microsoft.ApiManagement/service/apis type=mcp,
+  # 2025-09-01-preview; serviceUrl base + uriTemplate suffix, verified
+  # 2026-07-16 against manage-mcp-servers-rest-api). The generic module default
+  # is "/mcp", but this composition's backend is the Functions MCP extension,
+  # whose endpoint is "/runtime/webhooks/mcp"; without this the gateway forwarded
+  # to <base>/mcp (a route the host does not serve) and the call stage got 500.
+  transport = {
+    type      = "streamable"
+    endpoints = [{ name = "message", uri_template = "/runtime/webhooks/mcp" }]
+  }
+
   # subscription_required and product_ids are left at their module defaults
   # (false, []): no products or subscriptions in the tracer
   # (docs/specs/v1-tracer-bullet.md, Gateway and authorization (S2)).
