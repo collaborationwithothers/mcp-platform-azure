@@ -373,7 +373,7 @@ jobs:
             -McpExtensionKey "${mcp_ext_key:-}"
 
       - name: terraform destroy - s2-apim-mcp-gateway
-        if: always() && !inputs.skip_teardown()
+        if: always() && !inputs.skip_teardown
         working-directory: infra/terraform/scenarios/s2-apim-mcp-gateway
         shell: bash
         env:
