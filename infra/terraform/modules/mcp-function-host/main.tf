@@ -85,6 +85,25 @@ resource "azurerm_storage_container" "deployment_package" {
   container_access_type = "private"
 }
 
+# Storage identity for the Function App. Flex Consumption's Kudu one-deploy
+# path (config-zip) fetches a managed-identity token to reach the
+# deploymentpackage container; in practice the app's SYSTEM-assigned identity
+# is not reliably usable there (the first live-test deploy failed persistently,
+# not transiently, with "MSITokenUnavailableException ... 400"). The AVM
+# avm-res-web-site Flex example uses a USER-assigned identity for deployment
+# storage, so this module does too. Because this module is storage-key-free
+# (shared_access_key_enabled = false), the runtime AzureWebJobsStorage path
+# must also use an identity, so both deployment storage and AzureWebJobsStorage
+# are pinned to this one user-assigned identity (see the module block and the
+# AzureWebJobsStorage__clientId app setting below). See
+# docs/runbooks/live-test-gate.md.
+resource "azurerm_user_assigned_identity" "storage" {
+  name                = "${var.name_prefix}-storage-id"
+  resource_group_name = data.azurerm_resource_group.this.name
+  location            = var.location
+  tags                = var.tags
+}
+
 locals {
   open_id_issuer = "https://login.microsoftonline.com/${var.entra_auth.tenant_id}/v2.0"
 
@@ -109,10 +128,22 @@ locals {
     WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES = var.prm_scope
   }
 
+  # avm-res-web-site sets AzureWebJobsStorage__accountName (identity-based
+  # runtime storage) but no credential/clientId, which the host resolves
+  # against the system-assigned identity. Because storage auth here is pinned
+  # to the user-assigned identity (see storage_user_assigned_identity_id in the
+  # module block), the runtime path must name that same identity explicitly, or
+  # the host is ambiguous once both identities are present.
+  webjobs_identity_app_settings = {
+    AzureWebJobsStorage__credential = "managedidentity"
+    AzureWebJobsStorage__clientId   = azurerm_user_assigned_identity.storage.client_id
+  }
+
   merged_app_settings = merge(
     var.app_settings,
     local.mcp_extension_key_app_settings,
     local.prm_app_settings,
+    local.webjobs_identity_app_settings,
   )
 }
 
@@ -135,14 +166,16 @@ module "function_app" {
   instance_memory_in_mb  = var.flex_consumption.instance_memory_mb
   maximum_instance_count = var.flex_consumption.maximum_instance_count
 
-  storage_account_name          = var.storage_account_name
-  storage_uses_managed_identity = true
-  storage_authentication_type   = "SystemAssignedIdentity"
-  storage_container_endpoint    = azurerm_storage_container.deployment_package.id
-  storage_container_type        = "blobContainer"
+  storage_account_name              = var.storage_account_name
+  storage_uses_managed_identity     = true
+  storage_authentication_type       = "UserAssignedIdentity"
+  storage_user_assigned_identity_id = azurerm_user_assigned_identity.storage.id
+  storage_container_endpoint        = azurerm_storage_container.deployment_package.id
+  storage_container_type            = "blobContainer"
 
   managed_identities = {
-    system_assigned = true
+    system_assigned            = true
+    user_assigned_resource_ids = [azurerm_user_assigned_identity.storage.id]
   }
 
   public_network_access_enabled = true
@@ -179,12 +212,18 @@ module "function_app" {
   tags = var.tags
 }
 
-# storage_uses_managed_identity above requires the Function App's
-# system-assigned identity to hold data-plane access on the deployment
-# storage account; avm-res-web-site does not create this role assignment
-# itself (confirmed against its examples, see README.md).
-resource "azurerm_role_assignment" "function_app_storage_blob_data_owner" {
+# Both deployment storage (Flex config-zip / one-deploy, via the user-assigned
+# identity in deployment.storage.authentication) and runtime storage
+# (AzureWebJobsStorage, pinned to the same identity by the __clientId app
+# setting above) authenticate as this user-assigned identity, so it must hold
+# data-plane access on the storage account. avm-res-web-site does not create
+# this role assignment itself (confirmed against its examples, see README.md).
+# Storage Blob Data Owner covers the Functions host's AzureWebJobsStorage
+# operations and is a superset of the Storage Blob Data Contributor that
+# Microsoft Learn documents as the deployment-storage minimum
+# (flex-consumption-how-to#configure-deployment-settings, verified 2026-07-16).
+resource "azurerm_role_assignment" "storage_identity_blob_data_owner" {
   scope                = local.storage_account_id
   role_definition_name = "Storage Blob Data Owner"
-  principal_id         = module.function_app.identity_principal_id
+  principal_id         = azurerm_user_assigned_identity.storage.principal_id
 }

@@ -64,18 +64,23 @@ facts. Note also that Microsoft Learn specifies the deployment-storage identity
 role as **Storage Blob Data Contributor**; the module grants **Storage Blob Data
 Owner**, a strict superset, which satisfies the requirement.
 
-First live run (2026-07-16) hit exactly one of these: config-zip failed the
-Kudu StorageAccessibleCheck with `InaccessibleStorageException` /
+The first two live runs (2026-07-16) both hit config-zip failing the Kudu
+StorageAccessibleCheck with `InaccessibleStorageException` /
 `MSITokenUnavailableException: Unable to fetch MSI token ... 400`. A 400 at the
-MSI token fetch happens before any blob authorization check, so the cause is
-identity/RBAC propagation timing, not role scope (the module already grants a
-superset of the documented role). This exact pattern is community-reported for
-Flex first deploys (Azure/functions-action#245, Azure/azure-functions-host
-#10620), not Microsoft-documented; general Azure RBAC propagation is up to ~10
-minutes. The deploy step therefore retries config-zip with a fixed 30s backoff
-over a bounded 600s window and stays fatal on exhaustion. The gate does not fall
-back to storage-account keys or switch to a user-assigned identity for this (no
-evidence a user-assigned identity fixes this specific error, and the gate is
-identity-only by design). If retries still exhaust on a future run, triage via
-the portal "Flex Consumption Deployment" diagnostic rather than weakening the
-deploy path.
+MSI token fetch happens before any blob authorization check, so it is an
+identity/token-availability problem, not role scope (the grant is a superset of
+the documented role). A bounded retry over the full 600s window did NOT clear
+it, which ruled out an RBAC-propagation race: the failure was structural. Root
+cause: the app's SYSTEM-assigned identity was not usable on the Flex Kudu
+one-deploy storage path. The AVM avm-res-web-site Flex example configures
+deployment storage with a USER-assigned identity, so `mcp-function-host` now
+does the same, and because this module is storage-key-free it also pins the
+runtime `AzureWebJobsStorage` path to that same user-assigned identity
+(`AzureWebJobsStorage__credential=managedidentity` + `__clientId`). The
+user-assigned identity holds Storage Blob Data Owner on the storage account
+(superset of the documented Storage Blob Data Contributor minimum). The deploy
+step keeps a shorter bounded retry (30s backoff, 300s window, fatal on
+exhaustion) purely as insurance for role-assignment propagation. The gate does
+not fall back to storage-account keys (the account has
+`shared_access_key_enabled = false`). If config-zip still exhausts on a future
+run, triage via the portal "Flex Consumption Deployment" diagnostic.
