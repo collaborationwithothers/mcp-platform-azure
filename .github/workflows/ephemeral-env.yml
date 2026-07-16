@@ -214,10 +214,36 @@ jobs:
         run: |
           set -euo pipefail
           func_name="$(terraform output -raw function_app_name)"
-          az functionapp deployment source config-zip \
-            --resource-group "${TF_VAR_resource_group_name}" \
-            --name "${func_name}" \
-            --src "${{ github.workspace }}/mcptools.zip"
+          # First-deploy race: the app's system-assigned identity and its Storage
+          # role assignment are created seconds earlier in this same apply, and
+          # Kudu's deployment pipeline fetches an MSI token to reach the
+          # deploymentpackage container before that identity/RBAC has propagated.
+          # It surfaces as "InaccessibleStorageException: ... MSITokenUnavailable-
+          # Exception: Unable to fetch MSI token ... 400". A 400 at token fetch is
+          # before any blob authorization check, so this is propagation timing,
+          # not role scope (the module already grants a superset of the documented
+          # Storage Blob Data Contributor requirement). This exact pattern is
+          # community-reported for Flex first deploys, NOT Microsoft-documented
+          # (Azure/functions-action#245, Azure/azure-functions-host#10620); the
+          # reported remediation is to retry once the grant propagates (general
+          # Azure RBAC propagation is up to ~10 min). So retry config-zip with a
+          # fixed backoff over a bounded window; exhaustion stays FATAL. We do NOT
+          # fall back to storage-account keys or switch identity type here (no
+          # evidence UAMI fixes this, and the gate is identity-only by design).
+          deploy_deadline=$(( SECONDS + 600 ))
+          attempt=1
+          until az functionapp deployment source config-zip \
+                  --resource-group "${TF_VAR_resource_group_name}" \
+                  --name "${func_name}" \
+                  --src "${{ github.workspace }}/mcptools.zip"; do
+            if [ "${SECONDS}" -ge "${deploy_deadline}" ]; then
+              echo "::error::config-zip deploy did not succeed within 600s; the Flex deployment-storage identity/RBAC never became usable (see the MSITokenUnavailableException in this step's log)."
+              exit 1
+            fi
+            echo "Deploy attempt ${attempt} failed (likely deployment-storage identity/RBAC not yet propagated); retrying in 30s."
+            attempt=$(( attempt + 1 ))
+            sleep 30
+          done
 
       - name: terraform init and apply - s2-apim-mcp-gateway
         working-directory: infra/terraform/scenarios/s2-apim-mcp-gateway

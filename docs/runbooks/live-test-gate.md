@@ -63,3 +63,19 @@ Microsoft behaviour, so they are recorded here as risks to watch, not as settled
 facts. Note also that Microsoft Learn specifies the deployment-storage identity
 role as **Storage Blob Data Contributor**; the module grants **Storage Blob Data
 Owner**, a strict superset, which satisfies the requirement.
+
+First live run (2026-07-16) hit exactly one of these: config-zip failed the
+Kudu StorageAccessibleCheck with `InaccessibleStorageException` /
+`MSITokenUnavailableException: Unable to fetch MSI token ... 400`. A 400 at the
+MSI token fetch happens before any blob authorization check, so the cause is
+identity/RBAC propagation timing, not role scope (the module already grants a
+superset of the documented role). This exact pattern is community-reported for
+Flex first deploys (Azure/functions-action#245, Azure/azure-functions-host
+#10620), not Microsoft-documented; general Azure RBAC propagation is up to ~10
+minutes. The deploy step therefore retries config-zip with a fixed 30s backoff
+over a bounded 600s window and stays fatal on exhaustion. The gate does not fall
+back to storage-account keys or switch to a user-assigned identity for this (no
+evidence a user-assigned identity fixes this specific error, and the gate is
+identity-only by design). If retries still exhaust on a future run, triage via
+the portal "Flex Consumption Deployment" diagnostic rather than weakening the
+deploy path.
