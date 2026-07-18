@@ -151,8 +151,8 @@ after-the-fact rationale; the order of evidence is the argument.
   ADR already cites) or a custom verified domain (so the server URL is a
   registerable App ID URI). This is deferred to v1.1 as a genuine choice between
   the two, not a pre-decided one; the custom-domain option interacts with the v1.1
-  private-network variant and belongs in the blueprint revision cycle. See the
-  v1.1 issue.
+  private-network variant and belongs in the blueprint revision cycle. See issue
+  #42 (gated).
 - v1 demo scope: the McpTestClient session plus the discovery chain, which the VS
   Code trace demonstrates step by step. Interactive sign-in lands with the v1.1
   auth work (docs/demos).
