@@ -87,11 +87,14 @@ gap").
 
 **Token passthrough is forbidden as a measured claim, not a README
 sentence:** presenting the inbound (server-audience) token directly to the
-downstream is rejected with 401, because the platform's own audience check
-on the downstream instance does not accept it -- proven by
-`tests/integration/obo-passthrough-negative.ps1`, run in the live-test gate.
-This requires no application code to enforce; it follows from the two
-Function App instances having disjoint `allowed_audiences`.
+downstream must be rejected with 401, because the platform's own audience
+check on the downstream instance does not accept it. This is wired into the
+live gate as `tests/integration/obo-passthrough-negative.ps1`, invoked from
+`scripts/gate/invoke-and-assert.ps1`'s step [5] -- **not yet run against a
+live deployment as of this PR** (docs/runbooks/live-test-gate.md); the
+measured result lands with the first live-test run that includes it, not
+this PR. This requires no application code to enforce; it follows from the
+two Function App instances having disjoint `allowed_audiences`.
 
 The sanctioned path is the OBO exchange: the server exchanges the inbound
 token for a downstream-audience token via Entra, authenticating itself with

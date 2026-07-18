@@ -24,7 +24,7 @@ public class DownstreamOrdersClientTests
 {
     private const string InboundAssertion = "inbound-user-assertion-token";
     private const string DownstreamToken = "obo-exchanged-downstream-token";
-    private const string DownstreamScope = "api://downstream-app/.default";
+    private const string DownstreamScope = "api://downstream-app/user_impersonation";
 
     [Fact]
     public async Task GetOrderStatusAsync_KnownId_ReturnsTypedSuccessShape()

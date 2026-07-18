@@ -76,7 +76,7 @@ variable "downstream_app" {
     client_id = string
     api_scope = string
   })
-  description = "The out-of-band downstream (Orders API) app registration, referenced by id: client_id is its application (client) id, api_scope is the scope the OBO exchange requests (e.g. api://<downstream-app-id>/.default). Wired into the MCP server's app settings (DownstreamOrdersApi__ClientId, DownstreamOrdersApi__Scope) for McpTools.Downstream.DownstreamOrdersClient; not currently consumed by GetOrderStatus.Run (see its doc comment and ADR-006, \"OBO exchange: the inbound-token gap\")."
+  description = "The out-of-band downstream (Orders API) app registration, referenced by id: client_id is its application (client) id, api_scope is the delegated scope the OBO exchange requests (api://<downstream-app-id>/user_impersonation -- the scope docs/runbooks/obo-app-registrations.md step 2 grants the server app consent for; OBO's AcquireTokenOnBehalfOf needs the specific consented delegated scope, not a .default app-only scope). Wired into the MCP server's app settings (DownstreamOrdersApi__ClientId, DownstreamOrdersApi__Scope) for McpTools.Downstream.DownstreamOrdersClient; not currently consumed by GetOrderStatus.Run (see its doc comment and ADR-006, \"OBO exchange: the inbound-token gap\")."
 }
 
 variable "downstream_entra_auth" {

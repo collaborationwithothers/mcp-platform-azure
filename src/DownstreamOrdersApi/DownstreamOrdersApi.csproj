@@ -35,9 +35,4 @@
     </None>
   </ItemGroup>
 
-  <!-- Let the unit tests read the internal fixture/resolve logic. -->
-  <ItemGroup>
-    <InternalsVisibleTo Include="DownstreamOrdersApi.Tests" />
-  </ItemGroup>
-
 </Project>
