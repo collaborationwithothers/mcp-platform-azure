@@ -44,7 +44,7 @@ the `live-test` environment and never run from PR CI.
 | `entra_auth` | object | `{ tenant_id, server_app_client_id, allowed_audiences, unauthenticated_action = "Return401" }`. References the out-of-band server resource app registration; see `docs/runbooks/entra-app-registrations.md`. |
 | `prm_scope` | string | e.g. `api://<server-app-id>/user_impersonation`. |
 | `app_settings` | map(string) | Additional app settings, merged in alongside the module's own. Empty by default. |
-| `downstream_app` | object | Issue 10: `{ client_id, api_scope }` of the out-of-band downstream Orders API app registration. Wired into the MCP server's `DownstreamOrdersApi__*` app settings. |
+| `downstream_app` | object | Issue 10: `{ client_id, api_scope }` of the out-of-band downstream Orders API app registration. `api_scope` wires into the MCP server's `DownstreamOrdersApi__Scope` app setting; `client_id` is used by the `azuread_service_principal` data source that backs the OBO consent grant. |
 | `downstream_entra_auth` | object | Issue 10: same shape as `entra_auth`, for the downstream Orders API's own `mcp-function-host` instantiation. `allowed_audiences` is scoped to only the downstream app. |
 | `downstream_storage_account_name` | string | Issue 10: deployment storage account name for the downstream instantiation. |
 | `downstream_create_storage_account` | bool | Issue 10: whether to create `downstream_storage_account_name`. Default `false`. |
@@ -61,12 +61,34 @@ the `live-test` environment and never run from PR CI.
 | `downstream_function_app_name` | Issue 10: name of the downstream Orders API's Function App. The live gate deploys `src/DownstreamOrdersApi` here. |
 | `downstream_base_url` | Issue 10: base URL of the downstream Orders API, read by `tests/integration/obo-passthrough-negative.ps1`. |
 
+## Issue 10: azuread resources (OBO identity wiring)
+
+Beyond `azurerm`/`azapi`, this composition also configures the `azuread`
+provider (OIDC, same identity as the other two) to manage two child objects
+on the out-of-band server/downstream app registrations that must be
+re-created every ephemeral run, not set up once by a human:
+
+- `azuread_application_federated_identity_credential` -- trusts the MCP
+  server's Function App system-assigned managed identity as the OBO
+  confidential client's assertion source (no stored secret). Re-created
+  every run because the managed identity's principal id is different each
+  time (a fresh identity in a fresh, ephemeral resource group);
+  `display_name` is suffixed per run to avoid colliding with a leftover
+  credential from a prior run's failed teardown.
+- `azuread_service_principal_delegated_permission_grant` -- the OBO
+  admin-consent grant from the server app to the downstream app's
+  `user_impersonation` scope.
+
+See `main.tf`'s block comment above these resources for the full reasoning,
+and `docs/runbooks/obo-app-registrations.md` for the Graph API permissions
+(`Application.ReadWrite.All`, `Directory.ReadWrite.All`) the deploying
+principal needs beyond the ARM `roleAssignments/write` already documented in
+`docs/runbooks/live-test-gate.md`.
+
 ## Out of scope (this ticket)
 
 No `terraform apply`/`destroy` outside the gated live-test environment; no
 APIM, API Center, or gateway wiring (that is `s2-apim-mcp-gateway`); no
-private networking. Issue 10 adds the downstream Orders API instance and its
-referenced app registration inputs, and the OBO exchange building block
-(`McpTools.Downstream`), but does NOT wire OBO into `GetOrderStatus.Run`'s
-live call path -- see that method's doc comment and ADR-006, "OBO exchange:
-the inbound-token gap," for the verified platform gap that blocks it.
+private networking; no creating the app registrations themselves (referenced
+by id only, per `docs/specs/v1-tracer-bullet.md`'s Identity provisioning
+decision).

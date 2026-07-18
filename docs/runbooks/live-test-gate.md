@@ -118,15 +118,30 @@ gain three new fields, sourced from
 missing required variable, not a subtle runtime issue -- `terraform plan`
 surfaces it immediately.
 
+**New Graph permission bootstrap (issue 10), beyond the ARM
+`roleAssignments/write` above.** `s1-entra-mcp-server/main.tf` now also
+configures the `azuread` provider (same OIDC identity) to manage the OBO
+federated identity credential and consent grant, which needs the live-test
+OIDC principal to hold Microsoft Graph `Application.ReadWrite.All` and
+`Directory.ReadWrite.All` application permissions, admin-consented. This is
+a ONE-TIME manual bootstrap (a principal cannot grant itself permissions);
+see [obo-app-registrations.md](obo-app-registrations.md) section 2 for the
+exact steps and a plain statement of the privilege trade-off involved.
+Without this, the s1 apply fails on the `azuread_application_federated_identity_credential`
+or `azuread_service_principal_delegated_permission_grant` resource with an
+authorization error, not a missing-variable error.
+
 The call stage additionally runs
 `tests/integration/obo-passthrough-negative.ps1` (via
 `scripts/gate/invoke-and-assert.ps1`'s new step [5]), reusing the
 step-1 server-audience token as the inbound token presented directly to the
-downstream. This is NOT a test of the OBO exchange succeeding -- see
-`docs/decisions/ADR-006`, "OBO exchange: the inbound-token gap," for the
-verified platform gap that keeps the OBO happy path out of this automated
-gate; that path is validated manually (same ADR, "Testing strategy: the
-user-context token problem").
+downstream. This proves token passthrough is rejected; it is NOT a test of
+the OBO exchange succeeding. `GetOrderStatus.Run` DOES call the OBO
+exchange in its live path (ADR-006, "OBO exchange: the inbound-token gap
+and its correction"), but the automated gate still cannot exercise that
+HAPPY path: no non-interactive mechanism exists to acquire a genuine
+delegated user token in CI (same ADR, "Testing strategy: the user-context
+token problem"). That path is validated manually.
 
 **Not yet run against a live deployment.** This section, the new deploy
 step, and the new tfvars fields are unverified by an actual live-test run as

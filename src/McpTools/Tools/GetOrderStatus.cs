@@ -1,5 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
-using McpTools.Fixtures;
+using McpTools.Downstream;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
 
@@ -8,24 +9,32 @@ namespace McpTools.Tools;
 /// <summary>
 /// The single synthetic tool exposed by the tracer: get_order_status.
 ///
-/// The tool contract is frozen at v1; only the implementation may change
-/// later. <see cref="Resolve"/> still serves from <see cref="SyntheticOrders"/>
-/// and calls nothing downstream, NOT because OBO thickening (issue 10) is
-/// undone, but because it hit a verified platform gap: the Azure Functions
-/// MCP extension's McpToolTrigger binding (<see cref="ToolInvocationContext"/>)
-/// has no Microsoft-Learn-documented path to the caller's inbound bearer
-/// token, and MSAL's on-behalf-of exchange needs that token as its user
-/// assertion. azure-docs-verifier confirmed this three ways on 2026-07-18
-/// (McpToolTrigger exposes no headers; a function cannot bind both
-/// McpToolTrigger and HttpTrigger; the ASP.NET Core integration hosting
-/// model does not expose its middleware pipeline to non-HttpTrigger
-/// bindings) -- see docs/decisions/ADR-006, "OBO exchange: the inbound-token
-/// gap", and COMPATIBILITY.md. The OBO exchange itself is fully implemented
-/// and unit-tested (<see cref="McpTools.Downstream.DownstreamOrdersClient"/>),
-/// ready to wire in here once the gap is resolved (e.g. a redesigned tool
-/// hosting model). Per CLAUDE.md ("if the ticket cannot be verified or
-/// completed as written, say so ... instead of improvising"), this is
-/// recorded rather than papered over with an unverifiable workaround.
+/// The tool contract is frozen at v1 (see <see cref="OrderStatus"/> /
+/// <see cref="OrderNotFound"/>); only the implementation changed with issue
+/// 10 (OBO thickening), from an in-memory fixture to a live call through
+/// <see cref="IDownstreamOrdersClient"/> to the synthetic downstream Orders
+/// API (src/DownstreamOrdersApi), authorized via the Entra On-Behalf-Of
+/// exchange.
+///
+/// The caller's inbound bearer token reaches this function via
+/// <c>ToolInvocationContext.TryGetHttpTransport</c> -&gt;
+/// <c>HttpTransport.Headers</c>. An earlier pass of this ticket concluded
+/// (wrongly) that McpToolTrigger had no path to the inbound token at all;
+/// that was corrected after review pointed at
+/// <c>ToolInvocationContextExtensions.TryGetHttpTransport</c>, confirmed
+/// present (via direct assembly reflection, then re-verified against
+/// Microsoft Learn and the official Azure-Samples/remote-mcp-functions-dotnet
+/// sample) in the pinned Microsoft.Azure.Functions.Worker.Extensions.Mcp
+/// 1.5.1. See docs/decisions/ADR-006, "OBO exchange: confused deputy,
+/// audience validation, and the inbound-token gap," for the full chronology,
+/// and COMPATIBILITY.md for the verification evidence. This mechanism is
+/// confirmed only for the Streamable HTTP transport
+/// (/runtime/webhooks/mcp); the SSE transport
+/// (/runtime/webhooks/mcp/sse, deprecated) routes session state through a
+/// storage-queue-backed backplane whose effect on header availability is
+/// unconfirmed at runtime, so this repo's tracer targets Streamable HTTP
+/// only (matches apim-mcp-server's mcpProperties.transportType = streamable
+/// on the gateway side).
 /// </summary>
 public sealed class GetOrderStatus
 {
@@ -37,35 +46,74 @@ public sealed class GetOrderStatus
         + "demo data (ids CONTOSO-1001 to CONTOSO-1005) and is not sourced from any "
         + "real system.";
 
-    /// <summary>
-    /// MCP tool trigger entry point. This is the only Azure-Functions-aware code
-    /// path; it delegates immediately to the host-independent <see cref="Resolve"/>
-    /// so the tool logic can be unit-tested in process with no Functions host.
-    /// </summary>
+    // Order: the token-store header wins when present (requires the
+    // token store explicitly enabled, per COMPATIBILITY.md); the raw
+    // Authorization header is the fallback MCP clients that send a Bearer
+    // token directly rely on. Matches the header order and names in
+    // Microsoft's own OBO sample (Azure-Samples/remote-mcp-functions-dotnet,
+    // HelloToolWithAuth.cs, GetUserToken), which is sample-derived
+    // behaviour, not a documented platform guarantee (COMPATIBILITY.md).
+    private static readonly string[] InboundTokenHeaderNames =
+        ["X-MS-TOKEN-AAD-ACCESS-TOKEN", "Authorization"];
+
+    private readonly IDownstreamOrdersClient _downstreamOrdersClient;
+
+    public GetOrderStatus(IDownstreamOrdersClient downstreamOrdersClient)
+    {
+        _downstreamOrdersClient = downstreamOrdersClient;
+    }
+
     [Function(nameof(GetOrderStatus))]
-    public object Run(
+    public async Task<object> Run(
         [McpToolTrigger(ToolName, ToolDescription)] ToolInvocationContext context,
         [McpToolProperty("orderId", "The order id to look up, for example CONTOSO-1001.", isRequired: true)]
-            string orderId)
-        => Resolve(orderId);
-
-    /// <summary>
-    /// Pure tool logic. Returns the typed success shape for a known id and the
-    /// typed not-found shape (found:false) for any other id. The not-found case
-    /// is a typed result, never a thrown or unhandled error.
-    /// </summary>
-    public static object Resolve(string orderId)
+            string orderId,
+        CancellationToken cancellationToken)
     {
-        if (SyntheticOrders.All.TryGetValue(orderId, out var order))
+        // TryGetHttpTransport's out parameter is not nullable-annotated in the
+        // extension package, but the method's own contract guarantees it is
+        // non-null when it returns true (confirmed by reflection against the
+        // installed 1.5.1 assembly): the null-forgiving operator just silences
+        // a warning the third-party signature can't express, not an unchecked
+        // assumption of our own.
+        if (!context.TryGetHttpTransport(out var transport)
+            || !TryExtractInboundAccessToken(transport!.Headers, out var inboundToken))
         {
-            return new OrderStatus(orderId, order.Status, order.UpdatedUtc);
+            throw new InvalidOperationException(
+                "get_order_status: no inbound Entra access token was found on the request "
+                + "(checked X-MS-TOKEN-AAD-ACCESS-TOKEN and Authorization). Easy Auth requires "
+                + "authentication to reach this function, so this indicates either a transport "
+                + "this repo has not verified header availability for (see GetOrderStatus's doc "
+                + "comment on the Streamable HTTP constraint) or a token-store misconfiguration.");
         }
 
-        return new OrderNotFound(
-            orderId,
-            Found: false,
-            Message: $"No order was found for id '{orderId}'. Order data is synthetic "
-                + "(known ids are CONTOSO-1001 to CONTOSO-1005).");
+        return await _downstreamOrdersClient.GetOrderStatusAsync(orderId, inboundToken, cancellationToken);
+    }
+
+    /// <summary>
+    /// Pure header-extraction logic, unit-tested with plain dictionaries and
+    /// no Functions/MCP-extension dependency (spec: Testing Decisions, "unit
+    /// seam"). Strips a leading "Bearer " scheme from the Authorization
+    /// header (X-MS-TOKEN-AAD-ACCESS-TOKEN is already a bare token).
+    /// </summary>
+    public static bool TryExtractInboundAccessToken(
+        IReadOnlyDictionary<string, string> headers, [NotNullWhen(true)] out string? token)
+    {
+        foreach (var headerName in InboundTokenHeaderNames)
+        {
+            if (!headers.TryGetValue(headerName, out var value) || string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            token = value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? value["Bearer ".Length..]
+                : value;
+            return true;
+        }
+
+        token = null;
+        return false;
     }
 }
 

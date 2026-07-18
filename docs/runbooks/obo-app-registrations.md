@@ -1,16 +1,33 @@
-# Runbook: OBO app registrations and federated credential (issue 10)
+# Runbook: OBO app registrations and Graph permission bootstrap (issue 10)
 
-Out-of-band procedure for issue 10 (OBO thickening): the downstream Orders
-API's app registration, the OBO consent grant on the server resource app,
-and the federated identity credential that lets the server's OBO exchange
-authenticate with NO stored client secret. This extends
-[entra-app-registrations.md](entra-app-registrations.md) (read that runbook
-first for the server resource app and test client app, both of which
-already exist before this ticket); the same rationale applies here: creating
-app registrations, granting consent, and adding federated credentials needs
-directory-write privilege the ephemeral CI principal does not hold, so this
-is a human, out-of-band step, executed once before the first live run that
-exercises OBO.
+Out-of-band procedure for issue 10 (OBO thickening): creating the downstream
+Orders API's app registration, and granting the live-test OIDC principal the
+Microsoft Graph application permissions it needs to manage the OBO
+federated identity credential and consent grant itself, via Terraform. This
+extends [entra-app-registrations.md](entra-app-registrations.md) (read that
+runbook first for the server resource app and test client app, both of
+which already exist before this ticket).
+
+**What stays a manual, out-of-band, one-time step, and why:** creating an
+app registration needs directory-write privilege the ephemeral CI principal
+should not hold (docs/specs/v1-tracer-bullet.md, Identity provisioning) --
+section 1 below. Granting the deploying principal ITS OWN new Graph
+permissions is a bootstrap action no automated process can perform on
+itself -- section 2 below.
+
+**What is NOT a manual step, and why:** the OBO federated identity
+credential and the OBO consent grant are BOTH Terraform-managed
+(`infra/terraform/scenarios/s1-entra-mcp-server/main.tf`, the `azuread`
+provider), applied and destroyed every live-test run alongside everything
+else. This is a deliberate change from the naive design: the federated
+credential's subject is the MCP server's Function App system-assigned
+managed identity's principal id, which is DIFFERENT every ephemeral run (a
+fresh identity in a fresh, ephemeral resource group) -- a one-time manual
+credential would go stale on the very next run. See main.tf's block comment
+above those resources for the full reasoning, and ADR-006, "OBO exchange:
+the inbound-token gap and its correction," for why this runbook's earlier
+revision (which described the federated credential as a manual step) was
+wrong.
 
 None of the values this runbook produces are committed to this repo. The
 downstream app's client id and scope become the `downstream_app` Terraform
@@ -39,108 +56,79 @@ as the wrong audience on the other.
    `downstream_app.api_scope`.
 3. **Expose an API > Add a scope**, name `user_impersonation`, "Who can
    consent" = Admins and users. This is `downstream_app.api_scope`
-   (`api://<downstream-app-id>/user_impersonation`), the scope the OBO
-   exchange requests.
+   (`api://<downstream-app-id>/user_impersonation`), the scope the
+   Terraform-managed OBO consent grant (section 2 below) authorizes and the
+   scope the OBO exchange requests.
 4. Record the **Application (client) ID** and confirm the **Directory
    (tenant) ID** matches the server app's tenant (both apps must be in the
    same tenant for OBO). These become `downstream_app.client_id` and
    `downstream_entra_auth.server_app_client_id` /
    `downstream_entra_auth.tenant_id`.
 
-## 2. Grant the server app consent to call the downstream app via OBO
+## 2. Bootstrap the live-test OIDC principal's Graph permissions
 
-Standard OBO consent model, unchanged for the lifetime of the v2.0 endpoint
-([On-behalf-of flow: gaining consent for the middle-tier
-application](https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow#gaining-consent-for-the-middle-tier-application)):
-the middle-tier app (the server app) needs an API permission entry for the
-downstream app's scope, admin-consented, before `AcquireTokenOnBehalfOf` can
-succeed. Without this step the OBO exchange fails at the token endpoint
-regardless of the federated credential in step 3.
+This is the step that actually needs doing by a human before the first live
+run that exercises OBO. Terraform manages the FIC and the consent grant
+(main.tf), but the identity RUNNING Terraform -- the live-test workflow's
+OIDC-federated service principal (the same one already granted ARM
+`roleAssignments/write` per docs/runbooks/live-test-gate.md, "Role-assignment
+write (RBAC bootstrap)") -- needs its OWN Microsoft Graph application
+permissions to manage these Entra objects, and nothing can grant a
+principal permissions on itself.
 
-1. On the **server** resource app (entra-app-registrations.md section 1) >
-   **API permissions > Add a permission > My APIs**, select the downstream
-   app from section 1 above, choose **Delegated permissions**, select
-   `user_impersonation`, **Add permissions**.
+1. On the live-test OIDC principal's app registration (the same one whose
+   client id is `ARM_CLIENT_ID`/`vars.AZURE_CLIENT_ID` in
+   `.github/workflows/ephemeral-env.yml`) > **API permissions > Add a
+   permission > Microsoft Graph > Application permissions**, add:
+   - **`Application.ReadWrite.All`** -- required by
+     `azuread_application_federated_identity_credential`
+     ([resource docs](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/application_federated_identity_credential):
+     "requires one of the following application roles:
+     `Application.ReadWrite.OwnedBy` or `Application.ReadWrite.All`"; this
+     runbook uses the broader `.All` role rather than making the CI
+     principal an owner of the server app, to avoid a second manual
+     ownership-assignment step).
+   - **`Directory.ReadWrite.All`** -- required by
+     `azuread_service_principal_delegated_permission_grant`
+     ([resource docs](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/service_principal_delegated_permission_grant):
+     "requires the following application role: `Directory.ReadWrite.All`").
 2. **Grant admin consent for `<tenant>`.**
 
-## 3. Federated identity credential: no stored secret for the OBO exchange
-
-The server app authenticates itself to the Microsoft identity platform (as
-a confidential client, for the OBO token request) with NO client secret and
-NO certificate: it presents a client assertion signed by the MCP server's
-Function App's SYSTEM-assigned managed identity, which the server app
-trusts via a federated identity credential. This is GA Microsoft Entra
-workload identity federation with a managed identity as the credential
-source, not preview (azure-docs-verifier, 2026-07-18:
-[Configure an application to trust a managed
-identity](https://learn.microsoft.com/entra/workload-id/workload-identity-federation-config-app-trust-managed-identity)).
-CLAUDE.md forbids committing secrets to this repo; this is how the OBO
-exchange complies with that rule without a Key Vault module (out of v1
-module scope).
-
-Prerequisite: the MCP server's Function App must already exist (its
-system-assigned identity's principal id, `identity_principal_id`, is an
-`s1-entra-mcp-server` output), so this step runs AFTER the first `terraform
-apply` of `s1-entra-mcp-server` with the downstream inputs wired in, not
-before.
-
-1. Get the Function App's system-assigned identity's **Object (principal)
-   ID**: `terraform -chdir=infra/terraform/scenarios/s1-entra-mcp-server
-   output -raw identity_principal_id`, or from the Function App's
-   **Identity** blade in the portal (System assigned tab).
-2. On the **server** resource app > **Certificates & secrets > Federated
-   credentials > Add a credential**. The admin center's guided scenario
-   picker only lists user-assigned managed identities as of 2026-07-18
-   (azure-docs-verifier); a system-assigned identity's object id works
-   identically at the validation layer but must be entered directly, so use
-   **Other issuer** (or the Azure CLI / Graph API below) rather than the
-   picker:
-   - **Issuer**: `https://login.microsoftonline.com/<tenant-id>/v2.0`
-   - **Subject identifier**: the Object ID from step 1
-   - **Audience**: `api://AzureADTokenExchange`
-   - **Name**: e.g. `mcp-server-obo-managed-identity`
-
-   Equivalent Azure CLI (if the portal's "Other issuer" flow proves
-   awkward for a managed-identity subject):
-   ```bash
-   az ad app federated-credential create \
-     --id <server-app-client-id> \
-     --parameters '{
-       "name": "mcp-server-obo-managed-identity",
-       "issuer": "https://login.microsoftonline.com/<tenant-id>/v2.0",
-       "subject": "<function-app-system-assigned-principal-id>",
-       "audiences": ["api://AzureADTokenExchange"]
-     }'
-   ```
-   ([Configure an application to trust a managed
-   identity](https://learn.microsoft.com/entra/workload-id/workload-identity-federation-config-app-trust-managed-identity),
-   `az ad app federated-credential create` reference)
-
-No secret or certificate is ever generated for the server app by this step.
-`McpTools.Downstream.ManagedIdentityOboTokenAcquirer` (via
-`Microsoft.Identity.Web.Certificateless`'s `ManagedIdentityClientAssertion`)
-is the code that consumes this federated credential at runtime.
+**This is a meaningful privilege increase for the CI/live-test principal,**
+worth flagging plainly rather than downplaying: `Directory.ReadWrite.All`
+is one of the broadest Microsoft Graph application permissions that exists,
+short of directory-role-equivalent access. It is scoped to this single
+principal (already OIDC-only, no stored credential, per CLAUDE.md), and its
+blast radius is the same principal that already holds ARM
+`roleAssignments/write` across this repo's ephemeral resources -- but it is
+real, tenant-wide, directory-object write capability, not narrowly scoped
+to this repo's own objects. If that trade-off is unacceptable, the
+alternative is reverting the FIC and consent grant to manual, one-time
+steps against a STABLE (non-rotating) credential source instead of the
+per-run managed identity -- which would require a different design (e.g. a
+long-lived user-assigned managed identity referenced by id, out of this
+ticket's Now-column scope) and is not what this PR implements.
 
 ## Values this runbook produces, and where they are consumed
 
 | Value | Consumed by |
 |---|---|
 | Downstream app's App ID URI / scope (`api://<downstream-app-id>/user_impersonation`) | `downstream_app.api_scope` |
-| Downstream app's client id | `downstream_app.client_id` |
+| Downstream app's client id | `downstream_app.client_id`; also used by `data "azuread_service_principal" "downstream"` in `s1-entra-mcp-server/main.tf` |
 | Downstream app's client id and App ID URI | `downstream_entra_auth.server_app_client_id`, `downstream_entra_auth.allowed_audiences` |
 | Shared tenant id | `downstream_entra_auth.tenant_id` |
-| Server app's OBO consent (step 2) | Prerequisite for `AcquireTokenOnBehalfOf` to succeed at all; no Terraform variable, an Entra-side grant only |
-| Federated identity credential (step 3) | Prerequisite for `ManagedIdentityOboTokenAcquirer` to authenticate the confidential client with no stored secret; no Terraform variable, an Entra-side credential only |
+| Live-test OIDC principal's Graph permissions (section 2) | Prerequisite for `s1-entra-mcp-server/main.tf`'s `azuread_application_federated_identity_credential` and `azuread_service_principal_delegated_permission_grant` to apply successfully; no Terraform variable, a Graph-side grant on the deploying principal itself |
 
-## What this runbook does NOT resolve
+## What this runbook does NOT need to resolve (already resolved)
 
-This runbook makes the OBO exchange runnable end to end from the server
-app's identity/credential perspective. It does NOT resolve the separate,
-verified platform gap that currently keeps `GetOrderStatus.Run` from
-invoking that exchange: the Azure Functions MCP extension's McpToolTrigger
-binding has no documented path to the caller's inbound bearer token (see
-`src/McpTools/Tools/GetOrderStatus.cs`'s doc comment and
-`docs/decisions/ADR-006`, "OBO exchange: the inbound-token gap"). Completing
-this runbook is necessary but not sufficient for the OBO happy path to run
-live; it is what makes `McpTools.Downstream.DownstreamOrdersClient`
-deployable and ready the moment that gap closes.
+An earlier revision of this PR treated the federated identity credential as
+a manual runbook step and separately documented (wrongly) that
+`GetOrderStatus.Run` had no path to the caller's inbound token at all. Both
+are corrected: the FIC and consent grant are Terraform-managed (this
+runbook only bootstraps the Graph permissions that makes possible), and
+`GetOrderStatus.Run` does call the OBO exchange in its live path (ADR-006,
+"OBO exchange: the inbound-token gap and its correction"). What remains
+genuinely unautomated is the OBO HAPPY PATH in CI -- a different, unrelated
+constraint (no non-interactive way to acquire a delegated user token; see
+ADR-006, "Testing strategy: the user-context token problem") -- validated
+manually, not by this runbook or by the automated live gate.

@@ -267,79 +267,101 @@ live gate covers only the negative test (audience-mismatch rejection),
 which needs no user context at all -- the existing client-credentials token
 is sufficient to prove passthrough is closed.
 
-### OBO exchange: the inbound-token gap
+### OBO exchange: the inbound-token gap and its correction
 
 Ticket 10 was designed on the assumption that `GetOrderStatus.Run` (an
 Azure Functions MCP extension `McpToolTrigger`-bound function) could read
 the caller's inbound bearer token and use it as OBO's `user_assertion`.
-azure-docs-verifier's 2026-07-18 pass REFUTED that assumption three
-independent ways, not just left it undemonstrated:
+The sequence below matters and is recorded AS a sequence, per this ADR's
+own established convention (see "What the live interactive trace showed,
+issue 9" above): the order of evidence is the argument, and a wrong
+intermediate step is not flattened out of the record just because a later
+step corrected it.
 
-1. The `McpToolTrigger` binding's own documented surface
-   (`ToolInvocationContext`) exposes only `Name`, `Arguments`, `SessionId`,
-   `Transport` -- confirmed against the extension's own source, not just the
-   docs page.
-2. A single Azure Functions method may declare exactly one trigger
-   attribute; `McpToolTrigger` cannot be combined with `HttpTrigger` on the
-   same function to reach `HttpRequestData` instead.
-3. The isolated-worker ASP.NET Core integration hosting model
-   (`ConfigureFunctionsWebApplication()`) explicitly does NOT expose the
-   ASP.NET Core middleware pipeline or routing to the app; its
-   `GetHttpRequestDataAsync()` accessor is documented as scoped to
-   `[HttpTrigger]`-dispatched invocations only, not extension-defined
-   bindings like `McpToolTrigger`.
+1. **First verification pass concluded REFUTED, three independent ways.**
+   azure-docs-verifier's first 2026-07-18 pass checked `ToolInvocationContext`
+   (the type `[McpToolTrigger]`-bound functions receive) against the
+   extension's own GitHub source and Microsoft Learn, and reported: the
+   type's documented surface exposes only `Name`, `Arguments`, `SessionId`,
+   `Transport`; a single Azure Functions method may declare exactly one
+   trigger attribute, so `McpToolTrigger` cannot be paired with `HttpTrigger`
+   to reach `HttpRequestData`; and the isolated-worker ASP.NET Core
+   integration hosting model does not expose its middleware pipeline to
+   non-HttpTrigger bindings. This shipped in an earlier revision of this
+   PR: `GetOrderStatus.Run` served the in-memory fixture unchanged, with the
+   gap documented here, in security.md, and in COMPATIBILITY.md.
 
-Whether the isolated worker's own trigger metadata
-(`FunctionContext.BindingContext.BindingData`) happens to carry the
-Authorization header through for an MCP-triggered invocation is
-UNVERIFIABLE from current Microsoft Learn docs and samples -- neither
-confirmed nor denied, because no MCP-extension sample demonstrates a tool
-needing the caller's identity for a downstream call. Per CLAUDE.md ("if the
-verifier returns UNVERIFIABLE, the claim does not go into code or docs"),
-this repo does not build on it as if it works.
+2. **The REFUTED conclusion was wrong -- a reviewer caught it.** The
+   `Transport` property that step 1 noted but did not further inspect
+   is not a dead end: `Microsoft.Azure.Functions.Worker.Extensions.Mcp`
+   ships a separate static class, `ToolInvocationContextExtensions`
+   (a sibling file to `ToolInvocationContext.cs`, not nested inside it --
+   the reason step 1's browse missed it), with
+   `TryGetHttpTransport(ToolInvocationContext, out HttpTransport)`, and
+   `HttpTransport` (a `Transport` subtype) exposes a `Headers` dictionary.
+   This was confirmed directly by reflecting the installed 1.5.1 assembly
+   (not a doc page, not training data -- the literal DLL in the NuGet
+   cache), then independently re-verified against Microsoft Learn and the
+   official `Azure-Samples/remote-mcp-functions-dotnet` sample
+   (`HelloToolWithAuth.cs`), which does exactly this for exactly an OBO
+   downstream call: reads `X-MS-TOKEN-AAD-ACCESS-TOKEN` first, falls back
+   to the raw `Authorization` header, and exchanges it via
+   `OnBehalfOfCredential`.
 
-**Decision and posture (issue 10):** `GetOrderStatus.Run` keeps serving the
-in-memory fixture (unchanged from the tracer), NOT because OBO thickening
-is undone, but because wiring in a call with no verified path to the real
-inbound token would be either silently wrong (no real user context) or
-require guessing at an unverified mechanism -- both worse than stating the
-gap plainly, per CLAUDE.md's "a stalled issue is recoverable; a confident
-wrong public doc is not." The OBO exchange itself IS fully implemented and
-unit-tested end to end (`McpTools.Downstream.DownstreamOrdersClient`,
-`ManagedIdentityOboTokenAcquirer`), including the certificateless federated
-credential and the downstream call, and is ready to wire in the moment the
-gap closes.
+3. **Two caveats the correction carries, both recorded rather than
+   asserted as platform guarantees.** First, whether the client's original
+   `Authorization` header reaches the app unmodified through Easy Auth is
+   sample-derived behaviour (the official sample's fallback path implies
+   it), not a stated Microsoft Learn platform contract -- `X-MS-TOKEN-AAD-
+   ACCESS-TOKEN` is the documented mechanism, and it requires the token
+   store explicitly enabled (COMPATIBILITY.md). Second, `TryGetHttpTransport`
+   returns `bool` because the transport can be something other than HTTP:
+   the extension exposes two transports (Streamable HTTP at
+   `/runtime/webhooks/mcp`, and the deprecated SSE at
+   `/runtime/webhooks/mcp/sse`, which relies on an Azure Queue Storage-backed
+   session backplane), and there is no host.json setting to pin the
+   transport -- it is purely a function of which endpoint URL the client
+   connects to, per session. The extension's own type model represents SSE
+   invocations as `HttpTransport` too (tagged `Type =
+   HttpTransportType.ServerSentEvents`, not a separate non-HTTP class), so
+   the specific failure mode "SSE routes through a queue and `Transport`
+   becomes non-HTTP" is not supported by the source -- but header
+   availability for SSE specifically was not confirmed at runtime either.
+   This repo's tracer targets Streamable HTTP only (matching
+   apim-mcp-server's `mcpProperties.transportType = streamable` on the
+   gateway side); `GetOrderStatus.Run` throws if no token-bearing header is
+   found, so an SSE-routed request that lacked headers would fail loudly,
+   not silently.
 
-### Growth paths
+**Decision and posture (issue 10, corrected):** `GetOrderStatus.Run` DOES
+call the OBO exchange in its live path. The caller's inbound token is
+extracted via `TryGetHttpTransport` -> `HttpTransport.Headers`
+(token-store header first, `Authorization` fallback), exchanged via
+`McpTools.Downstream.DownstreamOrdersClient` /
+`ManagedIdentityOboTokenAcquirer` (the certificateless federated-credential
+confidential client), and the downstream's typed response is mapped onto
+get_order_status's frozen contract. The federated identity credential and
+the OBO consent grant are Terraform-managed
+(`infra/terraform/scenarios/s1-entra-mcp-server/main.tf`, the `azuread`
+provider), re-created every ephemeral run rather than a one-time manual
+step, because the Function App's system-assigned identity's principal id
+differs every apply.
 
-Two documented ways to close the gap, neither built in v1:
-
-1. **A live instrumented trace against a deployed Flex Consumption
-   function**, checking whether `BindingContext.BindingData` actually
-   carries the Authorization header for an MCP-triggered invocation despite
-   no Learn doc confirming it either way. The live-test gate is well
-   positioned to run this (it already deploys a real stamp); this is
-   UNVERIFIABLE-not-REFUTED, so a live trace could resolve it either
-   direction, per this repo's "verify instrument first" debugging
-   convention.
-2. **Redesign the tool's hosting as a self-hosted remote MCP server**
-   (Azure Functions custom handlers, `enableProxying: true`), which
-   Microsoft Learn documents as explicitly forwarding the entire raw HTTP
-   request, headers included, to the handler process. Trade-off: this is a
-   genuinely different hosting model from `McpToolTrigger` (custom
-   handlers, not the attribute-based binding model this tracer is built
-   on), and the surface is public preview as of 2026-07-18
-   (azure-docs-verifier) -- adopting it is a hosting-architecture decision
-   of its own, out of this ticket's scope (docs/specs/v1-tracer-bullet.md:
-   "get_order_status keeps its exact v1 contract... only its data source
-   changes," not its hosting model).
+This does NOT resolve the separate "Testing strategy" problem above: CI
+still cannot acquire a genuine delegated user token, so the OBO HAPPY PATH
+still cannot be exercised by the automated live gate -- that is a different
+constraint (no non-interactive delegated-token mechanism exists in Entra)
+from the one this section corrects (whether the header is reachable at
+all). The automated gate continues to cover only the negative test.
 
 ### Trigger
 
-Re-test (live instrumented trace, growth path 1) when a future issue
-revisits the OBO happy path, or when the Functions MCP extension's own
-docs or samples change to demonstrate inbound-token access from a
-McpToolTrigger-bound function.
+Re-verify header availability for the SSE transport specifically (step 3's
+open caveat) if a future issue needs SSE support, or if Microsoft Learn or
+the Functions MCP extension's samples publish guidance either way. Re-verify
+the `Authorization`-header-passthrough behaviour (also step 3) against
+Microsoft Learn if a documented statement appears, since it is currently
+sample-derived, not a stated platform contract.
 
 ## Alternatives considered
 

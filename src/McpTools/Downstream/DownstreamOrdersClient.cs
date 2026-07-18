@@ -21,14 +21,13 @@ namespace McpTools.Downstream;
 /// the downstream carries the OBO-exchanged token, never the caller's
 /// inbound assertion.
 ///
-/// NOT currently called by <see cref="GetOrderStatus.Run"/>: the Azure
-/// Functions MCP extension's McpToolTrigger binding has no Microsoft-Learn-
-/// documented path to the caller's inbound bearer token (azure-docs-verifier,
-/// 2026-07-18; see ADR-006, "OBO exchange: the inbound-token gap" and
-/// COMPATIBILITY.md). This class is the complete, tested building block
-/// ready to wire in once that gap is resolved.
+/// Called by <see cref="GetOrderStatus.Run"/> via <see cref="IDownstreamOrdersClient"/>:
+/// the caller's inbound bearer token reaches the tool function through
+/// <c>ToolInvocationContext.TryGetHttpTransport</c> (see GetOrderStatus.cs's
+/// doc comment and ADR-006, "OBO exchange: confused deputy, audience
+/// validation, and the inbound-token gap").
 /// </summary>
-public sealed class DownstreamOrdersClient
+public sealed class DownstreamOrdersClient : IDownstreamOrdersClient
 {
     private readonly IOboTokenAcquirer _tokenAcquirer;
     private readonly HttpClient _httpClient;

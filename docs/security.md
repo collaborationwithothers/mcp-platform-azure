@@ -96,29 +96,30 @@ measured result lands with the first live-test run that includes it, not
 this PR. This requires no application code to enforce; it follows from the
 two Function App instances having disjoint `allowed_audiences`.
 
-The sanctioned path is the OBO exchange: the server exchanges the inbound
-token for a downstream-audience token via Entra, authenticating itself with
-NO stored client secret (a federated identity credential trusting the
-server's Function App managed identity, docs/runbooks/obo-app-registrations.md).
-The exchange logic itself (`McpTools.Downstream.DownstreamOrdersClient`,
-`ManagedIdentityOboTokenAcquirer`) is implemented and unit-tested, including
-an explicit test asserting the downstream call never carries the inbound
-assertion.
+The sanctioned path is the OBO exchange, and `get_order_status` calls it in
+its live/deployed path: `GetOrderStatus.Run` reads the caller's inbound
+token via the MCP extension's `TryGetHttpTransport`/`HttpTransport.Headers`
+(token-store header first, raw `Authorization` header fallback -- see
+ADR-006, "OBO exchange: the inbound-token gap and its correction," for why
+an earlier revision of this PR wrongly concluded this was unreachable, and
+the correction chronology), then exchanges it for a downstream-audience
+token via Entra, authenticating itself with NO stored client secret (a
+federated identity credential trusting the server's Function App managed
+identity, Terraform-managed and re-created every ephemeral run,
+docs/runbooks/obo-app-registrations.md). The exchange logic
+(`McpTools.Downstream.DownstreamOrdersClient`, `ManagedIdentityOboTokenAcquirer`)
+is unit-tested, including an explicit test asserting the downstream call
+never carries the inbound assertion, and `GetOrderStatus.Run`'s own
+orchestration is unit-tested against a fake downstream client.
 
-**Honest limitation, current as of this ticket:** `get_order_status` does
-NOT currently call the OBO exchange in its live/deployed path. Wiring it in
-is blocked by a verified platform gap -- the Azure Functions MCP extension's
-`McpToolTrigger` binding has no Microsoft-Learn-documented way to reach the
-caller's inbound bearer token, so there is no `user_assertion` to exchange
-(see `src/McpTools/Tools/GetOrderStatus.cs`'s doc comment and ADR-006 for
-the three-way verification and the growth paths). `get_order_status` still
-serves the in-memory synthetic fixture, unchanged from the tracer, rather
-than a call built on an unverified workaround.
-
-Because the OBO happy path cannot be driven by a non-interactive
-client-credentials token (app-only, no user context) and no other GA,
-CLAUDE.md-compliant non-interactive mechanism exists to acquire a delegated
-token in CI (ADR-006, "Testing strategy: the user-context token problem"),
-the happy path is validated manually in the live-test environment by a
-human with a real interactive sign-in, not automated. The automated live
-gate covers the negative test only.
+**Honest limitation, current as of this ticket:** the OBO HAPPY PATH (a
+real delegated user token round-tripping through the downstream) is not
+exercised by the automated live gate. This is a different constraint from
+the inbound-token question above: no GA, non-interactive,
+CLAUDE.md-compliant mechanism exists to acquire a genuine delegated user
+token in CI (client-credentials tokens are app-only, ROPC is discouraged
+and would need a stored password, device code needs a human) -- ADR-006,
+"Testing strategy: the user-context token problem." The happy path is
+validated manually in the live-test environment by a human with a real
+interactive sign-in, not automated. The automated live gate covers the
+negative test only.
