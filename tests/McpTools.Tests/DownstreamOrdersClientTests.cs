@@ -127,6 +127,27 @@ public class DownstreamOrdersClientTests
         Assert.Equal(DownstreamScope, tokenAcquirer.LastDownstreamScope);
     }
 
+    [Fact]
+    public async Task GetOrderStatusAsync_WhenOboExchangeRejectsTheAssertion_PropagatesTheRejection()
+    {
+        // Fed an assertion the OBO exchange rejects -- the "designed rejection"
+        // an app-only (app-context) assertion produces at Entra's token
+        // endpoint, since a client-credentials token is not a valid OBO
+        // user_assertion. The tool never routes app-context callers here (it
+        // serves them from the fixture; GetOrderStatusRunTests), but if the
+        // broker IS fed such an assertion the rejection must surface, never be
+        // swallowed into a wrong success or a silent fixture fallback.
+        var rejectingAcquirer = new RejectingTokenAcquirer();
+        var handler = new FakeHttpMessageHandler((_, _) =>
+            throw new InvalidOperationException("the downstream must never be reached when OBO is rejected"));
+
+        var client = new DownstreamOrdersClient(
+            rejectingAcquirer, new HttpClient(handler), new Uri("https://downstream.example/"), DownstreamScope);
+
+        await Assert.ThrowsAsync<OboExchangeRejectedException>(
+            () => client.GetOrderStatusAsync("CONTOSO-1001", InboundAssertion, CancellationToken.None));
+    }
+
     private static DownstreamOrdersClient CreateClient(FakeHttpMessageHandler handler) =>
         new(
             new FakeTokenAcquirer(DownstreamToken),
@@ -146,6 +167,17 @@ public class DownstreamOrdersClientTests
             LastDownstreamScope = downstreamScope;
             return Task.FromResult(tokenToReturn);
         }
+    }
+
+    private sealed class OboExchangeRejectedException(string message) : Exception(message);
+
+    private sealed class RejectingTokenAcquirer : IOboTokenAcquirer
+    {
+        public Task<string> AcquireDownstreamTokenAsync(
+            string userAssertion, string downstreamScope, CancellationToken cancellationToken) =>
+            throw new OboExchangeRejectedException(
+                "Entra rejects this assertion for OBO (e.g. an app-only client-credentials token, "
+                + "which is not a valid user_assertion).");
     }
 
     private sealed class FakeHttpMessageHandler(

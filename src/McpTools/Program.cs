@@ -1,7 +1,30 @@
 using McpTools.Downstream;
+using McpTools.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+
+// Fail-closed startup check (issue 10): in a production-like environment,
+// refuse to start unless built-in auth (Easy Auth) is enabled. get_order_status
+// trusts the Easy-Auth-injected X-MS-CLIENT-PRINCIPAL header for its
+// identity-mode and authorization decisions and does NOT re-validate the token
+// signature itself, so the host must never serve tools with Easy Auth off (a
+// caller could otherwise forge that header). Read the platform-injected env
+// vars directly -- they are process environment variables, not app settings
+// behind a config provider. A throw here crashes startup with a clear message
+// on stderr before any tool is reachable (docs/security.md, "trust chain").
+try
+{
+    BuiltInAuthGuard.EnsureBuiltInAuthEnabled(
+        Environment.GetEnvironmentVariable("AZURE_FUNCTIONS_ENVIRONMENT"),
+        Environment.GetEnvironmentVariable(BuiltInAuthGuard.WebsiteAuthEnabledVar),
+        Environment.GetEnvironmentVariable(BuiltInAuthGuard.AuthV2ConfigJsonVar));
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    throw;
+}
 
 // .NET isolated-worker host for the Functions MCP server (ADR-002). The MCP
 // tool triggers are discovered by the worker SDK from the [McpToolTrigger]

@@ -26,6 +26,31 @@ public class GetOrderStatusTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    // The app-context branch (roles claim, no scp) is served from the in-memory
+    // fixture, unchanged from the tracer's frozen contract. These pin that the
+    // fixture path still returns the exact typed success/not-found shapes.
+    [Fact]
+    public void ServeFromFixture_KnownId_ReturnsTypedSuccessShape()
+    {
+        var result = GetOrderStatus.ServeFromFixture("CONTOSO-1001");
+
+        var status = Assert.IsType<OrderStatus>(result);
+        Assert.Equal("CONTOSO-1001", status.OrderId);
+        Assert.Equal("Delivered", status.Status);
+        Assert.Equal("2026-06-01T14:05:00Z", status.UpdatedUtc);
+    }
+
+    [Fact]
+    public void ServeFromFixture_UnknownId_ReturnsTypedNotFoundShape()
+    {
+        var result = GetOrderStatus.ServeFromFixture("CONTOSO-9999");
+
+        var notFound = Assert.IsType<OrderNotFound>(result);
+        Assert.Equal("CONTOSO-9999", notFound.OrderId);
+        Assert.False(notFound.Found);
+        Assert.Contains("synthetic", notFound.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void TryExtractInboundAccessToken_PrefersTheTokenStoreHeader()
     {

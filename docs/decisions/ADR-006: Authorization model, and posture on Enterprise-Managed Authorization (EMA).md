@@ -363,6 +363,67 @@ the `Authorization`-header-passthrough behaviour (also step 3) against
 Microsoft Learn if a documented statement appears, since it is currently
 sample-derived, not a stated platform contract.
 
+## Identity-mode branching and fail-closed header trust (issue 10, amended)
+
+Added 2026-07-18 (same day, amending the correction above). The "inbound-token
+gap" section concluded `GetOrderStatus.Run` calls the OBO exchange in its live
+path. That is now refined: `Run` calls OBO **only for delegated callers**, and
+the decision is recorded here AS the next step in the chronology, not flattened
+into the prior section.
+
+### Why branch at all
+
+The live gate's non-interactive caller holds a **client-credentials** token,
+which is app-only (a `roles` app-role claim, no `scp` scope claim, no user).
+That token cannot drive an OBO exchange -- OBO's `user_assertion` needs a
+delegated, user-context token. An always-OBO `Run` would therefore FAIL the
+gate's own happy path the first time it ran live (it never had, per the PR).
+So the tool must distinguish the two caller shapes:
+
+- **Delegated (`scp` present):** a real user context -> source from the
+  downstream via OBO (the sanctioned path above).
+- **App-context (`roles` present, no `scp`):** an app-only caller with no user
+  to act for -> serve from the in-memory fixture, a **documented interim**
+  until the workload-identity hardening issue. This is honestly a weaker
+  posture (see the backstop asymmetry below), chosen because the alternative
+  (an app-only token forced through a user-context flow) does not exist.
+
+The mode decision lives in one testable component
+(`McpTools.Identity.IdentityModeResolver`), decided from the Easy-Auth-injected
+`X-MS-CLIENT-PRINCIPAL` claims, not inline in the tool.
+
+### The header trust chain, and why the code does not validate signatures
+
+The server deliberately does **not** perform full in-code JWT signature
+validation. It relies on a layered chain and asserts (rather than re-checks)
+the upstream parts: APIM validates the token at the gateway; Easy Auth
+validates it again on the Function App and, when enabled, **strips
+client-supplied `X-MS-*` headers before injecting its own** decoded
+`X-MS-CLIENT-PRINCIPAL`; the code then does claims-based authorization on that
+trusted header. Two fail-closed checks make this sound:
+
+- **Startup (`BuiltInAuthGuard`):** in any non-`Development` environment, refuse
+  to start unless a built-in-auth signal is present (`WEBSITE_AUTH_ENABLED`, or
+  the documented v2 `WEBSITE_AUTH_V2_CONFIG_JSON`). Without this, a host with
+  Easy Auth accidentally off would trust a header a caller could forge.
+- **Per-request:** reject any request whose `X-MS-CLIENT-PRINCIPAL` is missing
+  or malformed. This is **only sound in combination with the startup check** --
+  the header is trustworthy only because enabled Easy Auth strips forged
+  copies, which the startup check guarantees.
+
+**Backstop asymmetry, stated plainly.** The delegated branch has an
+Entra-exchange backstop: a forged/invalid assertion is rejected at the OBO
+token endpoint, so a bad delegated request fails at the exchange. The
+app-context branch has **no** such backstop -- it serves the fixture on the
+strength of the `roles` claim alone, resting entirely on the trust chain. That
+asymmetry is a further reason the app-context/fixture path is an interim.
+
+Note on the delegated-token strings: the exact `scp`/`roles` claim-type strings
+inside `X-MS-CLIENT-PRINCIPAL` are UNVERIFIABLE on Microsoft Learn (Easy Auth
+applies a claims mapping), so the resolver matches both the short and the
+schema-URI forms and the actual form is confirmed by a live trace, not asserted
+(COMPATIBILITY.md; docs/security.md).
+
 ## Alternatives considered
 
 - Implement EMA now against Okta: rejected for v1; adds a non-Azure IdP

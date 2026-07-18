@@ -2,8 +2,10 @@
 
   <!--
     In-process unit tests for the tool logic (spec: Testing Decisions, "unit
-    seam"). These test GetOrderStatus.Resolve directly, with no Azure Functions
-    host and no Azure dependency. Package pins verified 2026-07-12.
+    seam"), with no Azure Functions host and no Azure dependency: the
+    identity-mode decision, the tool's mode branching, the app-context fixture
+    path, the OBO exchange client, and the startup auth guard. Package pins
+    verified 2026-07-12.
   -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>

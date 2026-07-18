@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using McpTools.Downstream;
+using McpTools.Fixtures;
+using McpTools.Identity;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
 
@@ -10,31 +12,43 @@ namespace McpTools.Tools;
 /// The single synthetic tool exposed by the tracer: get_order_status.
 ///
 /// The tool contract is frozen at v1 (see <see cref="OrderStatus"/> /
-/// <see cref="OrderNotFound"/>); only the implementation changed with issue
-/// 10 (OBO thickening), from an in-memory fixture to a live call through
-/// <see cref="IDownstreamOrdersClient"/> to the synthetic downstream Orders
-/// API (src/DownstreamOrdersApi), authorized via the Entra On-Behalf-Of
-/// exchange.
+/// <see cref="OrderNotFound"/>); only the data source varies, and it varies by
+/// caller identity mode (issue 10, OBO thickening):
 ///
-/// The caller's inbound bearer token reaches this function via
+/// <list type="bullet">
+///   <item><b>Delegated</b> (the validated principal carries an <c>scp</c>
+///   claim): a user-context caller, sourced from the synthetic downstream
+///   Orders API (src/DownstreamOrdersApi) via the Entra On-Behalf-Of exchange
+///   (<see cref="IDownstreamOrdersClient"/>). The caller's inbound token is the
+///   OBO user assertion.</item>
+///   <item><b>App-context</b> (the principal carries a <c>roles</c> claim and
+///   no <c>scp</c>): a client-credentials, app-only caller with no user to act
+///   on behalf of, so it CANNOT drive an OBO exchange. Served from the
+///   in-memory <see cref="SyntheticOrders"/> fixture. This is a DOCUMENTED
+///   INTERIM until the workload-identity hardening issue (see src/README.md);
+///   the live gate's client-credentials happy path exercises exactly this
+///   branch, which is why it keeps passing against the fixture-served contract
+///   without a user-context token.</item>
+/// </list>
+///
+/// The mode decision itself lives in <see cref="IdentityModeResolver"/>, not
+/// inline here, so it is unit-testable in isolation.
+///
+/// The inbound bearer token reaches this function via
 /// <c>ToolInvocationContext.TryGetHttpTransport</c> -&gt;
 /// <c>HttpTransport.Headers</c>. An earlier pass of this ticket concluded
-/// (wrongly) that McpToolTrigger had no path to the inbound token at all;
-/// that was corrected after review pointed at
+/// (wrongly) that McpToolTrigger had no path to the inbound token; that was
+/// corrected after review pointed at
 /// <c>ToolInvocationContextExtensions.TryGetHttpTransport</c>, confirmed
-/// present (via direct assembly reflection, then re-verified against
-/// Microsoft Learn and the official Azure-Samples/remote-mcp-functions-dotnet
-/// sample) in the pinned Microsoft.Azure.Functions.Worker.Extensions.Mcp
-/// 1.5.1. See docs/decisions/ADR-006, "OBO exchange: confused deputy,
-/// audience validation, and the inbound-token gap," for the full chronology,
-/// and COMPATIBILITY.md for the verification evidence. This mechanism is
-/// confirmed only for the Streamable HTTP transport
-/// (/runtime/webhooks/mcp); the SSE transport
-/// (/runtime/webhooks/mcp/sse, deprecated) routes session state through a
-/// storage-queue-backed backplane whose effect on header availability is
-/// unconfirmed at runtime, so this repo's tracer targets Streamable HTTP
-/// only (matches apim-mcp-server's mcpProperties.transportType = streamable
-/// on the gateway side).
+/// present (via direct assembly reflection, then re-verified against Microsoft
+/// Learn and the official Azure-Samples/remote-mcp-functions-dotnet sample) in
+/// the pinned Microsoft.Azure.Functions.Worker.Extensions.Mcp 1.5.1. See
+/// docs/decisions/ADR-006 for the full chronology and COMPATIBILITY.md for the
+/// verification evidence. This mechanism is confirmed only for the Streamable
+/// HTTP transport (/runtime/webhooks/mcp); the SSE transport
+/// (/runtime/webhooks/mcp/sse, deprecated) is unconfirmed at runtime, so this
+/// repo's tracer targets Streamable HTTP only (matches apim-mcp-server's
+/// mcpProperties.transportType = streamable on the gateway side).
 /// </summary>
 public sealed class GetOrderStatus
 {
@@ -46,13 +60,15 @@ public sealed class GetOrderStatus
         + "demo data (ids CONTOSO-1001 to CONTOSO-1005) and is not sourced from any "
         + "real system.";
 
-    // Order: the token-store header wins when present (requires the
-    // token store explicitly enabled, per COMPATIBILITY.md); the raw
-    // Authorization header is the fallback MCP clients that send a Bearer
-    // token directly rely on. Matches the header order and names in
-    // Microsoft's own OBO sample (Azure-Samples/remote-mcp-functions-dotnet,
-    // HelloToolWithAuth.cs, GetUserToken), which is sample-derived
-    // behaviour, not a documented platform guarantee (COMPATIBILITY.md).
+    // The user assertion for the OBO exchange. The token-store header
+    // (X-MS-TOKEN-AAD-ACCESS-TOKEN) is expected ABSENT in this topology: APIM
+    // forwards a bearer and Easy Auth validates it without brokering a
+    // sign-in, and no token store is enabled -- the token-store header is what
+    // requires the token store (verified; COMPATIBILITY.md). So the raw
+    // Authorization header is the OPERATIVE source here. The token-store header
+    // is still checked first (harmless, and matches Microsoft's own OBO sample
+    // Azure-Samples/remote-mcp-functions-dotnet, HelloToolWithAuth.cs) so the
+    // code is correct if a future topology enables the token store.
     private static readonly string[] InboundTokenHeaderNames =
         ["X-MS-TOKEN-AAD-ACCESS-TOKEN", "Authorization"];
 
@@ -73,21 +89,80 @@ public sealed class GetOrderStatus
         // TryGetHttpTransport's out parameter is not nullable-annotated in the
         // extension package, but the method's own contract guarantees it is
         // non-null when it returns true (confirmed by reflection against the
-        // installed 1.5.1 assembly): the null-forgiving operator just silences
-        // a warning the third-party signature can't express, not an unchecked
-        // assumption of our own.
-        if (!context.TryGetHttpTransport(out var transport)
-            || !TryExtractInboundAccessToken(transport!.Headers, out var inboundToken))
+        // installed 1.5.1 assembly).
+        if (!context.TryGetHttpTransport(out var transport))
         {
             throw new InvalidOperationException(
-                "get_order_status: no inbound Entra access token was found on the request "
-                + "(checked X-MS-TOKEN-AAD-ACCESS-TOKEN and Authorization). Easy Auth requires "
-                + "authentication to reach this function, so this indicates either a transport "
-                + "this repo has not verified header availability for (see GetOrderStatus's doc "
-                + "comment on the Streamable HTTP constraint) or a token-store misconfiguration.");
+                "get_order_status: no HTTP transport is available on this invocation. This repo's "
+                + "tracer targets the Streamable HTTP transport only (see the doc comment on the "
+                + "SSE-transport constraint); headers, and therefore the caller identity and inbound "
+                + "token, are unavailable otherwise.");
+        }
+
+        var headers = transport!.Headers;
+
+        // Per-request fail-closed check plus mode decision, in one place. The
+        // rejection of a missing/malformed/unsupported principal IS the
+        // "established error shape" (a thrown tool error, distinct from the
+        // typed not-found RESULT, which is reserved for a genuinely unknown
+        // order id). This is only a sound security boundary in production
+        // because the startup BuiltInAuthGuard asserts Easy Auth is enabled,
+        // and enabled Easy Auth strips client-supplied X-MS-* headers before
+        // injecting its own (docs/security.md, "trust chain").
+        var mode = IdentityModeResolver.Resolve(headers);
+        return mode switch
+        {
+            IdentityMode.Delegated => await ServeFromDownstreamViaObo(orderId, headers, cancellationToken),
+            IdentityMode.AppContext => ServeFromFixture(orderId),
+            IdentityMode.MissingPrincipal => throw new InvalidOperationException(
+                $"get_order_status: the {ClientPrincipal.HeaderName} header is missing. In production "
+                + "this is a fail-closed rejection: Easy Auth injects that header on every request it "
+                + "validates, and the startup auth guard guarantees Easy Auth is enabled, so a missing "
+                + "header means the request did not traverse the authenticated path."),
+            IdentityMode.MalformedPrincipal => throw new InvalidOperationException(
+                $"get_order_status: the {ClientPrincipal.HeaderName} header was present but could not be "
+                + "decoded as the Base64 JSON client principal Easy Auth emits."),
+            _ => throw new InvalidOperationException(
+                "get_order_status: the caller principal carried neither an scp (delegated) nor a roles "
+                + "(app-context) claim, so no data-source mode applies."),
+        };
+    }
+
+    private async Task<object> ServeFromDownstreamViaObo(
+        string orderId, IReadOnlyDictionary<string, string> headers, CancellationToken cancellationToken)
+    {
+        if (!TryExtractInboundAccessToken(headers, out var inboundToken))
+        {
+            throw new InvalidOperationException(
+                "get_order_status: a delegated (scp) principal was present but no inbound Entra access "
+                + "token was found on the request (checked X-MS-TOKEN-AAD-ACCESS-TOKEN and Authorization). "
+                + "The Authorization bearer is the operative OBO user assertion in this topology; its "
+                + "absence indicates an unverified transport or a token-store misconfiguration.");
         }
 
         return await _downstreamOrdersClient.GetOrderStatusAsync(orderId, inboundToken, cancellationToken);
+    }
+
+    /// <summary>
+    /// The app-context data source: the fixed in-memory <see cref="SyntheticOrders"/>
+    /// fixture, mapped onto get_order_status's frozen contract. Pure and
+    /// host-independent (spec: Testing Decisions, "unit seam"). Returns the
+    /// typed success shape for a known id and the typed not-found shape
+    /// (found:false) for any other id; the not-found case is a typed RESULT,
+    /// never a thrown error.
+    /// </summary>
+    public static object ServeFromFixture(string orderId)
+    {
+        if (SyntheticOrders.All.TryGetValue(orderId, out var order))
+        {
+            return new OrderStatus(orderId, order.Status, order.UpdatedUtc);
+        }
+
+        return new OrderNotFound(
+            orderId,
+            Found: false,
+            Message: $"No order was found for id '{orderId}'. Order data is synthetic "
+                + "(known ids are CONTOSO-1001 to CONTOSO-1005).");
     }
 
     /// <summary>
@@ -101,7 +176,10 @@ public sealed class GetOrderStatus
     {
         foreach (var headerName in InboundTokenHeaderNames)
         {
-            if (!headers.TryGetValue(headerName, out var value) || string.IsNullOrWhiteSpace(value))
+            // Case-insensitive, via the same helper the resolver uses: HTTP/2
+            // lowercases header names and the transport dictionary's comparer
+            // is not guaranteed case-insensitive.
+            if (!HeaderLookup.TryGet(headers, headerName, out var value) || string.IsNullOrWhiteSpace(value))
             {
                 continue;
             }

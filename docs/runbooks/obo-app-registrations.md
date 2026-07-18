@@ -109,6 +109,91 @@ per-run managed identity -- which would require a different design (e.g. a
 long-lived user-assigned managed identity referenced by id, out of this
 ticket's Now-column scope) and is not what this PR implements.
 
+## 3. User-context token strategy (the OBO happy path)
+
+The OBO exchange needs a delegated, user-context token as its `user_assertion`.
+The live gate's existing caller acquires a **client-credentials** token, which
+is app-only (no user), so it cannot drive a real OBO exchange (issue 10 amended
+"Verified facts"; ADR-006, "Testing strategy: the user-context token problem").
+This section records the decided strategy exactly. The honesty rule applies
+throughout: nothing below is a measured result until the manual demo is run and
+its evidence captured; do not write a claim you have not evidenced.
+
+### Decision: no live user-context token in the PR-blocking gate
+
+There is no GA, non-interactive, CLAUDE.md-compliant mechanism to acquire a
+delegated user token in unattended CI (verifier 2026-07-18). So the OBO happy
+path is **not** gated. It is covered at two levels instead:
+
+1. **Unit / integration tests behind a token-broker abstraction (automated,
+   PR-blocking).** The OBO exchange sits behind `IOboTokenAcquirer` and the
+   downstream call behind `IDownstreamOrdersClient` (`src/McpTools/Downstream`).
+   The tests (`tests/McpTools.Tests/DownstreamOrdersClientTests.cs`,
+   `GetOrderStatusRunTests.cs`) fake the broker to assert, with no Azure
+   dependency: the inbound assertion and downstream scope are passed to the
+   exchange; the downstream call carries the OBO-exchanged token and **never**
+   the inbound assertion; and the downstream's responses map to the frozen
+   `get_order_status` shapes. This proves the code's OBO behaviour without any
+   real token.
+2. **Manual demo with a sandbox test user (evidenced, not gated).** A human
+   acquires a genuine delegated token and exercises the delegated branch end to
+   end, capturing the evidence below.
+
+### Manual demo procedure (device-code flow)
+
+Use the **device-code flow** with a dedicated **sandbox test user** (a
+cloud-only user in the same tenant, with no standing access to anything beyond
+the demo scope). Device code is chosen over a full auth-code redirect because it
+needs no registered reply URL and runs from a terminal, while still being a
+genuine interactive user sign-in (MFA/Conditional Access apply normally).
+
+1. Ensure the demo client app registration has the delegated
+   `api://<server-app>/user_impersonation` scope and a
+   `allowPublicClient`/native platform so device code is permitted; sign the
+   sandbox user in once to consent (or admin-consent the scope).
+2. Acquire a delegated token as the sandbox user, e.g.
+   `az login --use-device-code --allow-no-subscriptions` then
+   `az account get-access-token --scope api://<server-app>/user_impersonation`
+   (or an equivalent MSAL device-code call). Confirm it is a **user** token:
+   the decoded token has an `scp` claim and a user `oid`/`preferred_username`,
+   not a `roles` claim.
+3. Call `get_order_status` through the gateway with that token (McpTestClient or
+   the MCP Inspector). Because the token carries `scp`, the server takes the
+   **delegated** branch and sources the result from the downstream via OBO.
+
+### Evidence to capture (label each as evidence, never fabricate)
+
+- The decoded **inbound** token showing `scp` + a real user identity (redact
+  the raw token; capture only the non-sensitive claim names/values that prove
+  it is delegated).
+- The `get_order_status` result for a known id (e.g. CONTOSO-1001) matching the
+  frozen contract, and an unknown id returning the typed not-found shape.
+- Evidence the downstream was reached via OBO, not passthrough: the downstream
+  received a token whose **audience is the downstream app** (from the
+  downstream Function App's auth logs / a gateway or app trace), distinct from
+  the inbound server-audience token. Pair this with the automated negative test
+  result (app-context passthrough rejected) so the delegated-passthrough-also-
+  rejected claim in docs/security.md is backed by captured evidence.
+- The date, the tenant, the sandbox user (by role, not by any secret), and the
+  tool/version used. Record the run in `docs/demos`.
+
+If any step cannot be completed, say so in the demo record rather than writing
+an unverified success.
+
+### Rejected alternatives (and why)
+
+- **ROPC (resource-owner password credentials).** Rejected. Microsoft is
+  deprecating ROPC in MSAL and removing it product by product; it is
+  incompatible with MFA and Conditional Access; and it would require storing a
+  real user's password as a CI credential -- itself the kind of secret CLAUDE.md
+  forbids. It would defeat the point (a "user" token that bypasses the controls
+  a real user is subject to).
+- **Seeded refresh token in Key Vault.** Rejected for v1. A long-lived seeded
+  refresh token carries lifetime, Conditional Access interaction, and rotation
+  overhead that outweigh the benefit at this scale. Recorded as the least-bad
+  automated option **only** if a future consumer genuinely requires
+  PR-blocking live OBO; it is not implemented here.
+
 ## Values this runbook produces, and where they are consumed
 
 | Value | Consumed by |
