@@ -65,3 +65,37 @@ variable "app_settings" {
   description = "Additional app settings merged in alongside mcp-function-host's own. Empty by default; the tracer needs none beyond what the module sets."
   default     = {}
 }
+
+# --- Issue 10 (OBO thickening): downstream Orders API, referenced inputs ---
+# The downstream app registration is provisioned out of band, the same
+# pattern as entra_auth above (docs/runbooks/obo-app-registrations.md); no
+# app id or scope value is committed or given a default.
+
+variable "downstream_app" {
+  type = object({
+    client_id = string
+    api_scope = string
+  })
+  description = "The out-of-band downstream (Orders API) app registration, referenced by id: client_id is its application (client) id, api_scope is the scope the OBO exchange requests (e.g. api://<downstream-app-id>/.default). Wired into the MCP server's app settings (DownstreamOrdersApi__ClientId, DownstreamOrdersApi__Scope) for McpTools.Downstream.DownstreamOrdersClient; not currently consumed by GetOrderStatus.Run (see its doc comment and ADR-006, \"OBO exchange: the inbound-token gap\")."
+}
+
+variable "downstream_entra_auth" {
+  type = object({
+    tenant_id              = string
+    server_app_client_id   = string
+    allowed_audiences      = list(string)
+    unauthenticated_action = optional(string, "Return401")
+  })
+  description = "Entra built-in auth (Easy Auth) settings for the downstream Orders API's own Function App instance, passed straight through to its mcp-function-host instantiation. allowed_audiences is scoped to ONLY the downstream app (docs/runbooks/obo-app-registrations.md): this is what makes the negative test meaningful (a token minted for the MCP server app has a different audience and is rejected by the platform)."
+}
+
+variable "downstream_storage_account_name" {
+  type        = string
+  description = "Name of the downstream Orders API instance's Flex Consumption deployment storage account. Passed straight through to its mcp-function-host instantiation (existing account by default; see downstream_create_storage_account)."
+}
+
+variable "downstream_create_storage_account" {
+  type        = bool
+  description = "Whether this composition has the downstream instantiation create downstream_storage_account_name (true) or expects it to already exist (false, the default)."
+  default     = false
+}

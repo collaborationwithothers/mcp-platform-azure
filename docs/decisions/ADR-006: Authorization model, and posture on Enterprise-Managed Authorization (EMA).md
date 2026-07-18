@@ -191,6 +191,156 @@ only against the root authority, a second server needs hostname-per-server
 (or stays on its own gateway); if clients have gained path-suffix support,
 the path-suffixed router becomes available.
 
+## OBO exchange: confused deputy, audience validation, and the inbound-token gap (issue 10)
+
+Added 2026-07-18 recording the reasoning from the OBO thickening ticket
+(ticket 6, issue 10). This section refines the "OBO (never token
+passthrough)" line in the Decision above; it does not change the decision.
+
+### OBO vs token passthrough: the confused-deputy mechanic
+
+Token passthrough (the server forwarding the client's own inbound token,
+unchanged, to a downstream API) is forbidden because it creates a confused
+deputy: the downstream cannot tell "the server acting on behalf of THIS
+specific user, with THIS specific consent" from "the server reusing
+whatever token it happened to receive." The inbound token's audience is the
+MCP server app, not the downstream; if the downstream trusted it anyway
+(no audience check, or a shared audience across services), any caller
+holding a valid server-audience token could reach the downstream, without
+the downstream ever being party to a consent decision about that caller.
+
+OBO closes this by minting a NEW token: the server presents the inbound
+token as a `user_assertion` to Entra's token endpoint, along with its own
+credential (docs/runbooks/obo-app-registrations.md, step 3) and a scope on
+the downstream (step 2's consent grant), and receives back a token whose
+audience is the downstream app, issued only because Entra checked (a) the
+inbound token is valid, (b) the server has been granted delegated
+permission to call the downstream on this user's behalf, and (c) the
+federated credential correctly identifies the server as the confidential
+client it claims to be. The downstream never sees the client's original
+token at all.
+
+**Audience validation at two layers**, both enforced by Easy Auth
+(`auth_settings_v2`), not application code: the server's Function App
+validates the inbound token's audience is the server app
+(`entra_auth.allowed_audiences`, unchanged since the tracer); the downstream
+Orders API's Function App independently validates the OBO-exchanged token's
+audience is the downstream app (`downstream_entra_auth.allowed_audiences`,
+scoped to ONLY that app). These are two separate Easy Auth configurations on
+two separate Function App instances (infra/terraform/scenarios/
+s1-entra-mcp-server reuses `mcp-function-host` for both), not one shared
+audience list -- which is what makes token passthrough a MEASURED failure
+mode rather than an assumed one: a server-audience token presented directly
+to the downstream is rejected by the platform's own audience check, before
+any of this repo's code runs (the negative test,
+tests/integration/obo-passthrough-negative.ps1).
+
+### Testing strategy: the user-context token problem (spec: Testing Decisions knock-on)
+
+The ticket's own "Verified facts" flagged this at issue start: the live
+gate's existing non-interactive caller acquires a client-credentials token,
+which is app-only (no user), so it cannot drive a real OBO exchange (OBO's
+`user_assertion` parameter needs a delegated, user-context token).
+azure-docs-verifier confirmed on 2026-07-18 that no GA, non-interactive,
+CLAUDE.md-compliant mechanism exists to acquire one in unattended CI:
+
+- ROPC (resource-owner password) is still technically supported but
+  Microsoft Learn documents it as discouraged, incompatible with MFA and
+  Conditional Access, and it would require storing a real user's password
+  as a CI credential -- itself the kind of secret CLAUDE.md forbids.
+- Device code flow requires a human to complete an interactive sign-in on a
+  second device; it is not headless-automatable by design.
+- Every fully non-interactive, GA mechanism (client credentials, managed
+  identity, workload identity federation) produces an app-only token, never
+  a delegated one.
+
+**Decision and posture:** the OBO happy path (a real delegated token
+successfully round-tripping through the downstream) is validated MANUALLY
+in the live-test environment -- a human acquires a genuine user token (e.g.
+interactive sign-in via VS Code, or `az login` plus `az account
+get-access-token` against the server app's scope) and exercises
+get_order_status, with the result recorded in docs/demos. This mirrors the
+precedent issue 9 already set for interactive discovery (see "What the live
+interactive trace showed" above: full interactive validation deferred to a
+human-run trace, not force-fitted into the automated gate). The AUTOMATED
+live gate covers only the negative test (audience-mismatch rejection),
+which needs no user context at all -- the existing client-credentials token
+is sufficient to prove passthrough is closed.
+
+### OBO exchange: the inbound-token gap
+
+Ticket 10 was designed on the assumption that `GetOrderStatus.Run` (an
+Azure Functions MCP extension `McpToolTrigger`-bound function) could read
+the caller's inbound bearer token and use it as OBO's `user_assertion`.
+azure-docs-verifier's 2026-07-18 pass REFUTED that assumption three
+independent ways, not just left it undemonstrated:
+
+1. The `McpToolTrigger` binding's own documented surface
+   (`ToolInvocationContext`) exposes only `Name`, `Arguments`, `SessionId`,
+   `Transport` -- confirmed against the extension's own source, not just the
+   docs page.
+2. A single Azure Functions method may declare exactly one trigger
+   attribute; `McpToolTrigger` cannot be combined with `HttpTrigger` on the
+   same function to reach `HttpRequestData` instead.
+3. The isolated-worker ASP.NET Core integration hosting model
+   (`ConfigureFunctionsWebApplication()`) explicitly does NOT expose the
+   ASP.NET Core middleware pipeline or routing to the app; its
+   `GetHttpRequestDataAsync()` accessor is documented as scoped to
+   `[HttpTrigger]`-dispatched invocations only, not extension-defined
+   bindings like `McpToolTrigger`.
+
+Whether the isolated worker's own trigger metadata
+(`FunctionContext.BindingContext.BindingData`) happens to carry the
+Authorization header through for an MCP-triggered invocation is
+UNVERIFIABLE from current Microsoft Learn docs and samples -- neither
+confirmed nor denied, because no MCP-extension sample demonstrates a tool
+needing the caller's identity for a downstream call. Per CLAUDE.md ("if the
+verifier returns UNVERIFIABLE, the claim does not go into code or docs"),
+this repo does not build on it as if it works.
+
+**Decision and posture (issue 10):** `GetOrderStatus.Run` keeps serving the
+in-memory fixture (unchanged from the tracer), NOT because OBO thickening
+is undone, but because wiring in a call with no verified path to the real
+inbound token would be either silently wrong (no real user context) or
+require guessing at an unverified mechanism -- both worse than stating the
+gap plainly, per CLAUDE.md's "a stalled issue is recoverable; a confident
+wrong public doc is not." The OBO exchange itself IS fully implemented and
+unit-tested end to end (`McpTools.Downstream.DownstreamOrdersClient`,
+`ManagedIdentityOboTokenAcquirer`), including the certificateless federated
+credential and the downstream call, and is ready to wire in the moment the
+gap closes.
+
+### Growth paths
+
+Two documented ways to close the gap, neither built in v1:
+
+1. **A live instrumented trace against a deployed Flex Consumption
+   function**, checking whether `BindingContext.BindingData` actually
+   carries the Authorization header for an MCP-triggered invocation despite
+   no Learn doc confirming it either way. The live-test gate is well
+   positioned to run this (it already deploys a real stamp); this is
+   UNVERIFIABLE-not-REFUTED, so a live trace could resolve it either
+   direction, per this repo's "verify instrument first" debugging
+   convention.
+2. **Redesign the tool's hosting as a self-hosted remote MCP server**
+   (Azure Functions custom handlers, `enableProxying: true`), which
+   Microsoft Learn documents as explicitly forwarding the entire raw HTTP
+   request, headers included, to the handler process. Trade-off: this is a
+   genuinely different hosting model from `McpToolTrigger` (custom
+   handlers, not the attribute-based binding model this tracer is built
+   on), and the surface is public preview as of 2026-07-18
+   (azure-docs-verifier) -- adopting it is a hosting-architecture decision
+   of its own, out of this ticket's scope (docs/specs/v1-tracer-bullet.md:
+   "get_order_status keeps its exact v1 contract... only its data source
+   changes," not its hosting model).
+
+### Trigger
+
+Re-test (live instrumented trace, growth path 1) when a future issue
+revisits the OBO happy path, or when the Functions MCP extension's own
+docs or samples change to demonstrate inbound-token access from a
+McpToolTrigger-bound function.
+
 ## Alternatives considered
 
 - Implement EMA now against Okta: rejected for v1; adds a non-Azure IdP

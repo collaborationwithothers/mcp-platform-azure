@@ -75,3 +75,47 @@ The shadow `mcp_extension` system-key access path is closed on the backend
 gate's negative test (system key present, no Entra token, expect 401) proves
 this against both the gateway and the backend host directly
 (docs/specs/v1-tracer-bullet.md, Compute and the tool (S1)).
+
+## OBO and downstream auth (issue 10)
+
+The synthetic downstream Orders API (`src/DownstreamOrdersApi`) is a second
+Function App instance with its OWN Entra built-in auth, `allowed_audiences`
+scoped to ONLY the downstream app registration -- a separate audience
+check from the MCP server's, not a shared one (docs/decisions/ADR-006,
+"OBO exchange: confused deputy, audience validation, and the inbound-token
+gap").
+
+**Token passthrough is forbidden as a measured claim, not a README
+sentence:** presenting the inbound (server-audience) token directly to the
+downstream is rejected with 401, because the platform's own audience check
+on the downstream instance does not accept it -- proven by
+`tests/integration/obo-passthrough-negative.ps1`, run in the live-test gate.
+This requires no application code to enforce; it follows from the two
+Function App instances having disjoint `allowed_audiences`.
+
+The sanctioned path is the OBO exchange: the server exchanges the inbound
+token for a downstream-audience token via Entra, authenticating itself with
+NO stored client secret (a federated identity credential trusting the
+server's Function App managed identity, docs/runbooks/obo-app-registrations.md).
+The exchange logic itself (`McpTools.Downstream.DownstreamOrdersClient`,
+`ManagedIdentityOboTokenAcquirer`) is implemented and unit-tested, including
+an explicit test asserting the downstream call never carries the inbound
+assertion.
+
+**Honest limitation, current as of this ticket:** `get_order_status` does
+NOT currently call the OBO exchange in its live/deployed path. Wiring it in
+is blocked by a verified platform gap -- the Azure Functions MCP extension's
+`McpToolTrigger` binding has no Microsoft-Learn-documented way to reach the
+caller's inbound bearer token, so there is no `user_assertion` to exchange
+(see `src/McpTools/Tools/GetOrderStatus.cs`'s doc comment and ADR-006 for
+the three-way verification and the growth paths). `get_order_status` still
+serves the in-memory synthetic fixture, unchanged from the tracer, rather
+than a call built on an unverified workaround.
+
+Because the OBO happy path cannot be driven by a non-interactive
+client-credentials token (app-only, no user context) and no other GA,
+CLAUDE.md-compliant non-interactive mechanism exists to acquire a delegated
+token in CI (ADR-006, "Testing strategy: the user-context token problem"),
+the happy path is validated manually in the live-test environment by a
+human with a real interactive sign-in, not automated. The automated live
+gate covers the negative test only.

@@ -44,6 +44,10 @@ the `live-test` environment and never run from PR CI.
 | `entra_auth` | object | `{ tenant_id, server_app_client_id, allowed_audiences, unauthenticated_action = "Return401" }`. References the out-of-band server resource app registration; see `docs/runbooks/entra-app-registrations.md`. |
 | `prm_scope` | string | e.g. `api://<server-app-id>/user_impersonation`. |
 | `app_settings` | map(string) | Additional app settings, merged in alongside the module's own. Empty by default. |
+| `downstream_app` | object | Issue 10: `{ client_id, api_scope }` of the out-of-band downstream Orders API app registration. Wired into the MCP server's `DownstreamOrdersApi__*` app settings. |
+| `downstream_entra_auth` | object | Issue 10: same shape as `entra_auth`, for the downstream Orders API's own `mcp-function-host` instantiation. `allowed_audiences` is scoped to only the downstream app. |
+| `downstream_storage_account_name` | string | Issue 10: deployment storage account name for the downstream instantiation. |
+| `downstream_create_storage_account` | bool | Issue 10: whether to create `downstream_storage_account_name`. Default `false`. |
 
 ## Outputs
 
@@ -53,10 +57,16 @@ the `live-test` environment and never run from PR CI.
 | `function_app_name` | Name of the Function App. |
 | `default_hostname` | Default hostname. The shadow-key negative test in the live gate runs against this host directly, as well as the gateway. |
 | `mcp_backend_base_url` | Base URL the `s2-apim-mcp-gateway` composition reads via `terraform_remote_state`. |
-| `identity_principal_id` | Principal ID of the Function App's managed identity. Unused in the tracer; present for the OBO issue. |
+| `identity_principal_id` | Principal ID of the Function App's managed identity. Issue 10: federated onto the server app registration as a client-assertion credential source (`docs/runbooks/obo-app-registrations.md`), so the OBO exchange needs no stored secret. |
+| `downstream_function_app_name` | Issue 10: name of the downstream Orders API's Function App. The live gate deploys `src/DownstreamOrdersApi` here. |
+| `downstream_base_url` | Issue 10: base URL of the downstream Orders API, read by `tests/integration/obo-passthrough-negative.ps1`. |
 
 ## Out of scope (this ticket)
 
 No `terraform apply`/`destroy` outside the gated live-test environment; no
-APIM, API Center, or gateway wiring (that is `s2-apim-mcp-gateway`); no OBO,
-no downstream call, no second app registration; no private networking.
+APIM, API Center, or gateway wiring (that is `s2-apim-mcp-gateway`); no
+private networking. Issue 10 adds the downstream Orders API instance and its
+referenced app registration inputs, and the OBO exchange building block
+(`McpTools.Downstream`), but does NOT wire OBO into `GetOrderStatus.Run`'s
+live call path -- see that method's doc comment and ADR-006, "OBO exchange:
+the inbound-token gap," for the verified platform gap that blocks it.

@@ -90,7 +90,8 @@ variable "entra_auth" {
 
 variable "prm_scope" {
   type        = string
-  description = "OAuth scope surfaced to callers via the WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES app setting, e.g. api://<server-app-id>/user_impersonation. This is a preview App Service capability; see README.md and COMPATIBILITY.md."
+  default     = null
+  description = "OAuth scope surfaced to callers via the WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES app setting, e.g. api://<server-app-id>/user_impersonation. This is a preview App Service capability; see README.md and COMPATIBILITY.md. Optional (default null): leave unset for an instance that is not itself an MCP resource server, e.g. the issue-10 downstream Orders API, which skips the WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES app setting entirely rather than publish an RFC 9728 challenge nothing points at."
 }
 
 variable "app_settings" {

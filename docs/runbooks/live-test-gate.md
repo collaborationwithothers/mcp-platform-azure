@@ -99,6 +99,44 @@ The gate does not fall back to storage-account keys (the account has
 `shared_access_key_enabled = false`). If config-zip still exhausts on a future
 run, triage via the portal "Flex Consumption Deployment" diagnostic.
 
+## Downstream Orders API deploy and tfvars (issue 10)
+
+The gate now also deploys `src/DownstreamOrdersApi` to its own Flex
+Consumption app (a second `mcp-function-host` instance from the same s1
+apply), between the s1 apply/deploy and the s2 apply, using the identical
+`config-zip` / bounded-retry pattern as the McpTools deploy step above (see
+that section's root-cause history; the same identity-based deployment
+storage mechanics apply to this instance).
+
+Before the first live run that includes this deploy, the `S1_TFVARS_JSON`
+live-test secret (docs/runbooks/entra-app-registrations.md's pattern) must
+gain three new fields, sourced from
+[obo-app-registrations.md](obo-app-registrations.md): `downstream_app`
+(`{client_id, api_scope}`), `downstream_entra_auth` (same shape as
+`entra_auth`, pointed at the downstream app registration), and
+`downstream_storage_account_name`. Without these the s1 apply fails on a
+missing required variable, not a subtle runtime issue -- `terraform plan`
+surfaces it immediately.
+
+The call stage additionally runs
+`tests/integration/obo-passthrough-negative.ps1` (via
+`scripts/gate/invoke-and-assert.ps1`'s new step [5]), reusing the
+step-1 server-audience token as the inbound token presented directly to the
+downstream. This is NOT a test of the OBO exchange succeeding -- see
+`docs/decisions/ADR-006`, "OBO exchange: the inbound-token gap," for the
+verified platform gap that keeps the OBO happy path out of this automated
+gate; that path is validated manually (same ADR, "Testing strategy: the
+user-context token problem").
+
+**Not yet run against a live deployment.** This section, the new deploy
+step, and the new tfvars fields are unverified by an actual live-test run as
+of this PR (issue 10 does not carry authority to trigger one); the first
+live run after this PR merges is where the config-zip deploy, the new
+Terraform variables, and the negative test assertion get their first live
+proof. If anything here does not match what the gate actually does, the fix
+PR updates this runbook and COMPATIBILITY.md, per this file's own History
+convention.
+
 ## Tracing the no-token WWW-Authenticate / PRM mechanism (issue 9)
 
 The live gate's discovery assertion fails on one check: a no-token call to the

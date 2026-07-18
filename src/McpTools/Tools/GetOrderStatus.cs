@@ -8,11 +8,24 @@ namespace McpTools.Tools;
 /// <summary>
 /// The single synthetic tool exposed by the tracer: get_order_status.
 ///
-/// The tool contract is frozen at v1; only the implementation may change later
-/// (the OBO issue reimplements <see cref="Resolve"/> to fetch on behalf of the
-/// user, without changing the shapes below). In the tracer the tool is
-/// self-contained: it serves from <see cref="SyntheticOrders"/> and calls
-/// nothing downstream.
+/// The tool contract is frozen at v1; only the implementation may change
+/// later. <see cref="Resolve"/> still serves from <see cref="SyntheticOrders"/>
+/// and calls nothing downstream, NOT because OBO thickening (issue 10) is
+/// undone, but because it hit a verified platform gap: the Azure Functions
+/// MCP extension's McpToolTrigger binding (<see cref="ToolInvocationContext"/>)
+/// has no Microsoft-Learn-documented path to the caller's inbound bearer
+/// token, and MSAL's on-behalf-of exchange needs that token as its user
+/// assertion. azure-docs-verifier confirmed this three ways on 2026-07-18
+/// (McpToolTrigger exposes no headers; a function cannot bind both
+/// McpToolTrigger and HttpTrigger; the ASP.NET Core integration hosting
+/// model does not expose its middleware pipeline to non-HttpTrigger
+/// bindings) -- see docs/decisions/ADR-006, "OBO exchange: the inbound-token
+/// gap", and COMPATIBILITY.md. The OBO exchange itself is fully implemented
+/// and unit-tested (<see cref="McpTools.Downstream.DownstreamOrdersClient"/>),
+/// ready to wire in here once the gap is resolved (e.g. a redesigned tool
+/// hosting model). Per CLAUDE.md ("if the ticket cannot be verified or
+/// completed as written, say so ... instead of improvising"), this is
+/// recorded rather than papered over with an unverifiable workaround.
 /// </summary>
 public sealed class GetOrderStatus
 {

@@ -144,7 +144,7 @@ version pinning instead (see COMPATIBILITY.md).
 | `storage_account_name` | string | Name of the deployment storage account (existing, or to create). |
 | `create_storage_account` | bool | Whether this module creates `storage_account_name`. Default `false` (expects an existing, out-of-band account). |
 | `entra_auth` | object | `{ tenant_id, server_app_client_id, allowed_audiences, unauthenticated_action = "Return401" }`. |
-| `prm_scope` | string | e.g. `api://<server-app-id>/user_impersonation`. Surfaced via `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES`. |
+| `prm_scope` | string | e.g. `api://<server-app-id>/user_impersonation`. Surfaced via `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES`. Optional, default `null`: unset for an instance that is not itself an MCP resource server (issue 10: the downstream Orders API instance), which skips the app setting entirely. |
 | `app_settings` | map(string) | Additional app settings, merged in alongside the module's own. |
 
 ## Outputs
@@ -154,8 +154,24 @@ version pinning instead (see COMPATIBILITY.md).
 | `function_app_id` | ARM resource ID of the Function App. |
 | `function_app_name` | Name of the Function App. |
 | `default_hostname` | Default hostname (e.g. `<name>.azurewebsites.net`). |
-| `mcp_backend_base_url` | Base URL the apim-mcp-server module points `serviceUrl` at. The exact MCP endpoint path is confirmed in ticket 3, not hard-coded here. |
-| `identity_principal_id` | Principal ID of the Function App's system-assigned managed identity. Unused in the tracer; present for the OBO issue. |
+| `mcp_backend_base_url` | Base URL the apim-mcp-server module points `serviceUrl` at. The exact MCP endpoint path is confirmed in ticket 3, not hard-coded here. Kept for that existing consumer. |
+| `base_url` | Same value as `mcp_backend_base_url`, generically named for non-MCP reuse of this module (issue 10). Prefer this output for new, non-MCP consumers. |
+| `identity_principal_id` | Principal ID of the Function App's system-assigned managed identity. Issue 10: the runbook step that federates this identity onto the server app registration as a client-assertion credential source (docs/runbooks/obo-app-registrations.md) needs this value; the MCP server's OBO exchange (McpTools.Downstream.ManagedIdentityOboTokenAcquirer) then authenticates with no stored secret. |
+
+## Issue 10: reused for the downstream Orders API instance
+
+The s1-entra-mcp-server composition instantiates this module a second time
+for the synthetic downstream Orders API (src/DownstreamOrdersApi), with its
+own `entra_auth` (a distinct out-of-band app registration, `allowed_audiences`
+scoped to just that app) and `prm_scope = null` (it is a plain REST backend,
+not an MCP resource server, so there is no RFC 9728 challenge to publish for
+it). This is the "and/or scenario variables" path the ticket names: no new
+module was needed, only the `prm_scope` generalization above. Reusing the
+module this way is what makes the negative test
+(tests/integration/obo-passthrough-negative.ps1) meaningful: the downstream
+instance's Easy Auth `allowed_audiences` does NOT include the MCP server
+app, so a token minted for the server app is rejected by the platform, not
+by any code this repo wrote.
 
 ## Out of scope (this ticket)
 

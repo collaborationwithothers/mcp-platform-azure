@@ -126,8 +126,11 @@ locals {
 
   # Preview capability (see COMPATIBILITY.md): serves the OAuth protected
   # resource metadata document backend-side so a caller reaching the
-  # Functions host directly still gets a spec-shaped 401 challenge.
-  prm_app_settings = {
+  # Functions host directly still gets a spec-shaped 401 challenge. Skipped
+  # entirely when prm_scope is unset (issue 10: the downstream Orders API
+  # instance is not itself an MCP resource server, so there is no scope to
+  # publish a PRM challenge for).
+  prm_app_settings = var.prm_scope == null ? {} : {
     WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES = var.prm_scope
   }
 
