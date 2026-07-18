@@ -27,13 +27,35 @@ locals {
 
   mcp_backend_base_url = data.terraform_remote_state.s1.outputs.mcp_backend_base_url
 
-  # The gateway-root PRM document's contents describe this server: resource
-  # is the server app's App ID URI (the same audience apim-mcp-server
-  # validates against), authorization_server is the Entra v2.0 issuer for
-  # entra_validation.tenant_id. docs/specs/v1-tracer-bullet.md, Gateway and
-  # authorization (S2).
+  # Streamable MCP transport. Hoisted to a local so the client-facing MCP URL
+  # constructed below (for the PRM resource) and the apim_mcp_server module use
+  # one definition of the endpoint uri_template.
+  mcp_transport = {
+    type      = "streamable"
+    endpoints = [{ name = "mcp", uri_template = "/runtime/webhooks/mcp" }]
+  }
+
+  # Client-facing MCP server URL, constructed from primitives rather than read
+  # from module.apim_mcp_server.mcp_server_url to avoid a dependency cycle: the
+  # PRM document below feeds module.apim_gateway, while mcp_server_url is an
+  # apim_mcp_server OUTPUT that itself depends on apim_gateway. This MUST equal
+  # module.apim_mcp_server.mcp_server_url (the s2 output the client connects to)
+  # byte-for-byte -- the gateway host is https://<apim name>.azure-api.net, and
+  # apim_name_unique below is that name. The discovery assertion cross-checks the
+  # PRM resource against the live mcp_server_url, so a divergence fails the gate.
+  server_mcp_url = "https://${local.apim_name_unique}.azure-api.net/${var.server_path}${local.mcp_transport.endpoints[0].uri_template}"
+
+  # The gateway-root PRM document's contents describe this server. RFC 9728:
+  # resource is the MCP SERVER URL the client connects to (what VS Code and other
+  # spec clients validate the document against), NOT the token audience. The
+  # token audience stays api://<server-app> because scopes_supported below drives
+  # the client's scope request and Entra sets the token aud from the scope's
+  # resource, independent of this field (Entra ignores the RFC 8707 resource
+  # parameter; see COMPATIBILITY.md). authorization_server is the Entra v2.0
+  # issuer for entra_validation.tenant_id. docs/specs/v1-tracer-bullet.md,
+  # Gateway and authorization (S2).
   prm = {
-    resource             = var.entra_validation.audience
+    resource             = local.server_mcp_url
     authorization_server = "https://login.microsoftonline.com/${var.entra_validation.tenant_id}/v2.0"
     scopes               = var.prm_scopes
   }
@@ -84,10 +106,16 @@ module "apim_gateway" {
 module "apim_mcp_server" {
   source = "../../modules/apim-mcp-server"
 
-  apim_id             = module.apim_gateway.apim_id
-  server_name         = var.server_name
-  server_path         = var.server_path
+  apim_id     = module.apim_gateway.apim_id
+  server_name = var.server_name
+  server_path = var.server_path
+  # Backend url is the base host; the Functions MCP webhook path is carried in
+  # the transport endpoint's uri_template and appended by the gateway. The
+  # endpoint is keyed "mcp" to match the portal-created reference server on this
+  # stamp. Client MCP endpoint becomes <gateway>/orders/runtime/webhooks/mcp.
   backend_service_url = local.mcp_backend_base_url
+
+  transport = local.mcp_transport
 
   # subscription_required and product_ids are left at their module defaults
   # (false, []): no products or subscriptions in the tracer

@@ -83,14 +83,23 @@ the shadow path is closed, per the spec (Compute and the tool (S1)).
 
 ## Storage authentication
 
-The Flex Consumption deployment package storage account authenticates via
-the Function App's system-assigned managed identity
-(`storage_uses_managed_identity = true`,
-`storage_authentication_type = "SystemAssignedIdentity"`), with a `Storage
-Blob Data Owner` role assignment granting that identity access, rather than
-an account key. This avoids a storage secret in app settings or state,
-consistent with the platform's no-access-keys posture for the Terraform
-backend. Since nothing in this module issues or needs an account key, the
+The Flex Consumption storage account authenticates via a dedicated
+user-assigned managed identity, rather than an account key. Both the
+deployment package path (`storage_uses_managed_identity = true`,
+`storage_authentication_type = "UserAssignedIdentity"`,
+`storage_user_assigned_identity_id`) and the runtime `AzureWebJobsStorage`
+path (`AzureWebJobsStorage__credential=managedidentity` + `__clientId`) use
+that same identity, which holds a `Storage Blob Data Owner` role assignment on
+the account. The system-assigned identity is enabled but is no longer used for
+storage. This matches the AVM avm-res-web-site Flex example, which uses a
+user-assigned identity for deployment storage; the earlier system-assigned
+configuration failed the live gate persistently with
+`MSITokenUnavailableException ... 400` on the Kudu one-deploy path.
+`Storage Blob Data Contributor` is the Learn-documented deployment-storage
+minimum; `Storage Blob Data Owner` is a superset that also covers the runtime
+host's `AzureWebJobsStorage` operations. This avoids a storage secret in app
+settings or state, consistent with the platform's no-access-keys posture for
+the Terraform backend. Since nothing in this module issues or needs an account key, the
 storage account this module creates also sets
 `shared_access_key_enabled = false` and `allow_nested_items_to_be_public =
 false`, and configures blob soft-delete and a SAS expiration policy as

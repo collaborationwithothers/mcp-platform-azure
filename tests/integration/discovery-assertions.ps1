@@ -17,10 +17,17 @@
   2026-07-15; see COMPATIBILITY.md), so these assertions are the proof it works.
 
   Checks:
-    1. No-token call            -> 401 with WWW-Authenticate: Bearer
-                                   resource_metadata="<PrmUrl>".
+    1. No-token call            -> 401 with WWW-Authenticate: Bearer. The
+                                   resource_metadata is asserted against the
+                                   OBSERVED platform-rewritten value (path-scoped
+                                   under the MCP API path), NOT the gateway-root
+                                   value the policy emits: the deployed type=mcp
+                                   runtime rewrites it downstream of the policy
+                                   (gateway trace, 2026-07-16; see the check [1]
+                                   note, COMPATIBILITY.md, ADR-006).
     2. PRM document content      -> 200 JSON with the RFC 9728 fields; resource
-                                   equals the expected server audience.
+                                   equals the MCP server URL (RFC 9728 s3.3
+                                   full-URL match), NOT the token audience.
     3. Wrong-audience token      -> 401 (validate-azure-ad-token rejects it).
     4. Shadow mcp_extension key  -> 401 with the key and no Entra token, against
                                    BOTH the gateway and the backend host
@@ -41,8 +48,11 @@ param(
     [Parameter(Mandatory)][string]$McpServerUrl,
     # Gateway-root protected resource metadata URL (s2 output prm_url).
     [Parameter(Mandatory)][string]$PrmUrl,
-    # The server app ID URI the PRM document's "resource" must equal, and the
-    # audience the gateway validates (entra_validation.audience).
+    # The value the PRM document's "resource" must equal. Per RFC 9728 s3.3 a
+    # client validates this against the MCP SERVER URL it connects to (a full-URL
+    # match incl. path), NOT the token audience, so the gate passes the s2
+    # mcp_server_url here. The token audience (entra_validation.audience) is a
+    # separate value the gateway/backend validate; scopes_supported carries it.
     [Parameter(Mandatory)][string]$ExpectedResource,
     # A bearer token whose audience is NOT the server app (e.g. a Graph
     # .default token), used for the wrong-audience rejection check.
@@ -116,9 +126,45 @@ Write-Host "Backend MCP  : $BackendMcpUrl"
 Write-Host ''
 
 # ---------------------------------------------------------------------------
-# 1. No-token call -> 401 + WWW-Authenticate pointing at the root PRM URL.
+# 1. No-token call -> 401 + WWW-Authenticate. The challenge is asserted against
+#    the OBSERVED platform behaviour, which is not what this repo's policy emits.
+#
+#    The apim-mcp-server policy sets resource_metadata to the gateway-ROOT PrmUrl
+#    (mcp-server.xml). An APIM gateway trace of the no-token request (2026-07-16,
+#    stamp apim-mcp-tracer-42fa1c27, trace f07bae7f) proves the policy pipeline
+#    emits that ROOT value and return-response/transfer-response send it "to the
+#    caller in full" -- yet the client receives a PATH-SCOPED value under the MCP
+#    API path: "<gateway>/<server_path>/.well-known/oauth-protected-resource".
+#    So the deployed type=mcp runtime REWRITES resource_metadata downstream of the
+#    policy, with no policy hook to prevent it. This shape matches neither the MCP
+#    auth spec (root) nor RFC 9728 s3.1 (insert-before-path), and Microsoft Learn
+#    documents no native APIM MCP challenge (azure-docs-verifier 2026-07-16; see
+#    COMPATIBILITY.md and ADR-006). We assert the observed shape ON PURPOSE: this
+#    check then flags it if a future APIM release changes the rewrite. The
+#    gateway-ROOT PRM document that this repo actually serves is validated in
+#    check [2]. The path-scoped location does NOT serve a document (the orders MCP
+#    API swallows it and 401s); interactive client discovery is confirmed
+#    separately in the demo (docs/demos), and the McpTestClient session/tool
+#    contracts pass regardless (they use client-credentials, not the discovery
+#    dance), proving the rewrite does not break the tokened auth flow.
+#
+#    Derive the observed path-scoped URL from the gateway base + server path.
 # ---------------------------------------------------------------------------
+$wellKnownSuffix = '/.well-known/oauth-protected-resource'
+$gatewayBase = if ($PrmUrl.EndsWith($wellKnownSuffix)) {
+    $PrmUrl.Substring(0, $PrmUrl.Length - $wellKnownSuffix.Length)
+}
+else {
+    ([System.Uri]$PrmUrl).GetLeftPart([System.UriPartial]::Authority)
+}
+$serverPath = ''
+if ($McpServerUrl.StartsWith($gatewayBase)) {
+    $serverPath = ($McpServerUrl.Substring($gatewayBase.Length).TrimStart('/') -split '/', 2)[0]
+}
+$observedChallengeUrl = "$gatewayBase/$serverPath$wellKnownSuffix"
+
 Write-Host "[1] No-token call returns 401 with the RFC 9728 challenge"
+Write-Host "    (asserting the OBSERVED platform-rewritten challenge URL; see the note above)"
 $r = Invoke-Raw -Uri $McpServerUrl -Body $initBody
 if ($r.StatusCode -ne 401) {
     Fail "expected HTTP 401 with no token, got $($r.StatusCode)."
@@ -132,11 +178,11 @@ else {
     elseif ($wwwAuth -notmatch 'Bearer') {
         Fail "WWW-Authenticate is not a Bearer challenge: '$wwwAuth'."
     }
-    elseif ($wwwAuth -notmatch [regex]::Escape("resource_metadata=`"$PrmUrl`"")) {
-        Fail "WWW-Authenticate resource_metadata does not point at '$PrmUrl'. Got: '$wwwAuth'."
+    elseif ($wwwAuth -notmatch [regex]::Escape("resource_metadata=`"$observedChallengeUrl`"")) {
+        Fail "WWW-Authenticate resource_metadata does not match the observed platform-rewritten URL '$observedChallengeUrl'. Got: '$wwwAuth'. If the platform stopped rewriting, the policy value is the gateway root '$PrmUrl' -- re-check the APIM release and update this assertion + COMPATIBILITY.md."
     }
     else {
-        Pass "WWW-Authenticate points at the root PRM URL."
+        Pass "WWW-Authenticate matches the observed platform-rewritten challenge URL ($observedChallengeUrl)."
     }
 }
 Write-Host ''
@@ -163,11 +209,16 @@ else {
         if ($doc.PSObject.Properties.Name -notcontains 'resource') {
             Fail "PRM document is missing the required 'resource' field (RFC 9728)."
         }
+        # RFC 9728 s3.3: resource must equal the MCP server URL the client
+        # connects to (VS Code rejected the doc when this was the api:// audience
+        # instead; see docs/demos and COMPATIBILITY.md). ExpectedResource is the
+        # s2 mcp_server_url. This also cross-checks that the composition's
+        # constructed server_mcp_url matches the live endpoint byte-for-byte.
         elseif ($doc.resource -ne $ExpectedResource) {
-            Fail "PRM 'resource' is '$($doc.resource)'; expected '$ExpectedResource'."
+            Fail "PRM 'resource' is '$($doc.resource)'; expected the MCP server URL '$ExpectedResource' (RFC 9728 s3.3 full-URL match, not the token audience)."
         }
         else {
-            Pass "PRM 'resource' equals the expected server audience."
+            Pass "PRM 'resource' equals the MCP server URL."
         }
         foreach ($field in @('authorization_servers', 'bearer_methods_supported', 'scopes_supported')) {
             if ($doc.PSObject.Properties.Name -notcontains $field) {
@@ -176,6 +227,47 @@ else {
             else {
                 Pass "PRM document carries '$field'."
             }
+        }
+    }
+}
+Write-Host ''
+
+# ---------------------------------------------------------------------------
+# 2b. RFC 9728 s3.1 path-inserted PRM location. A spec-conformant client (VS
+#     Code, verified 2026-07-18) validating the path-bearing server URL fetches
+#     the metadata at <gateway>/.well-known/oauth-protected-resource<server-path>
+#     and REJECTS the bare-root document when its resource carries a path. This
+#     asserts the apim-gateway path-inserted operation serves the same document
+#     there. URL derived from PrmUrl (root well-known) + the path of McpServerUrl.
+# ---------------------------------------------------------------------------
+Write-Host "[2b] RFC 9728 path-inserted PRM location serves the document"
+$wkSuffix = '/.well-known/oauth-protected-resource'
+$gwBase = if ($PrmUrl.EndsWith($wkSuffix)) {
+    $PrmUrl.Substring(0, $PrmUrl.Length - $wkSuffix.Length)
+}
+else {
+    ([System.Uri]$PrmUrl).GetLeftPart([System.UriPartial]::Authority)
+}
+$mcpPath = if ($McpServerUrl.StartsWith($gwBase)) {
+    $McpServerUrl.Substring($gwBase.Length)
+}
+else {
+    ([System.Uri]$McpServerUrl).AbsolutePath
+}
+$rfcUrl = "$PrmUrl$mcpPath"
+$pr = Invoke-Raw -Uri $rfcUrl -Method 'GET'
+if ($pr.StatusCode -ne 200) {
+    Fail "RFC 9728 path-inserted PRM ($rfcUrl) returned $($pr.StatusCode); expected 200 (spec clients fetch the metadata here for a path-bearing resource)."
+}
+else {
+    Pass "RFC 9728 path-inserted PRM returned 200."
+    try { $rdoc = $pr.Content | ConvertFrom-Json -ErrorAction Stop } catch { $rdoc = $null; Fail "path-inserted PRM was not valid JSON: $($_.Exception.Message)" }
+    if ($null -ne $rdoc) {
+        if ($rdoc.resource -ne $ExpectedResource) {
+            Fail "path-inserted PRM 'resource' is '$($rdoc.resource)'; expected the MCP server URL '$ExpectedResource'."
+        }
+        else {
+            Pass "path-inserted PRM 'resource' equals the MCP server URL."
         }
     }
 }

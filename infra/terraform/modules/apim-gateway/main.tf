@@ -51,6 +51,16 @@ locals {
     bearer_methods_supported = ["header"]
     scopes_supported         = var.prm.scopes
   })
+
+  # Path component of the PRM resource (the MCP server URL), e.g.
+  # /orders/runtime/webhooks/mcp. RFC 9728 s3.1 serves the metadata for a
+  # path-bearing resource at the well-known path with the resource path INSERTED
+  # after it, and a spec-conformant client (VS Code) fetches THAT url and rejects
+  # the bare-root document as inconsistent with a path-bearing resource (proven
+  # by VS Code's MCP discovery trace, 2026-07-18; see prm_well_known_operation_pathed
+  # and COMPATIBILITY.md). Empty when the resource has no path (then only the root
+  # operation is created).
+  prm_resource_path = try(regex("^https?://[^/]+(.*)$", var.prm.resource)[0], "")
 }
 
 # Gateway-root protected resource metadata (PRM), RFC 9728. This singleton
@@ -104,6 +114,34 @@ resource "azapi_resource" "prm_well_known_operation" {
   }
 }
 
+# RFC 9728 s3.1 path-inserted well-known operation. A spec-conformant MCP client
+# validating a PATH-BEARING resource (var.prm.resource = the MCP server URL)
+# fetches the document at /.well-known/oauth-protected-resource<resource-path>,
+# not the bare root, and rejects a root document whose resource carries a path
+# (VS Code MCP trace, 2026-07-18). This serves the SAME document there. The
+# API-level policy below return-responses the document for every operation of this
+# API, so this operation needs no policy of its own. count guards the degenerate
+# case where the resource has no path (the urlTemplate would collide with the root
+# operation). Multi-server on one gateway would need one such operation per server
+# path -- an ADR-006 growth path, out of v1 scope.
+resource "azapi_resource" "prm_well_known_operation_pathed" {
+  count = local.prm_resource_path != "" ? 1 : 0
+
+  type      = "Microsoft.ApiManagement/service/apis/operations@2025-09-01-preview"
+  name      = "get-oauth-protected-resource-metadata-pathed"
+  parent_id = azapi_resource.prm_well_known.id
+
+  schema_validation_enabled = local.azapi_schema_validation_enabled
+
+  body = {
+    properties = {
+      displayName = "Get OAuth protected resource metadata (RFC 9728 path-inserted)"
+      method      = "GET"
+      urlTemplate = "/.well-known/oauth-protected-resource${local.prm_resource_path}"
+    }
+  }
+}
+
 resource "azapi_resource" "prm_well_known_policy" {
   type      = "Microsoft.ApiManagement/service/apis/policies@2025-09-01-preview"
   name      = "policy"
@@ -120,5 +158,8 @@ resource "azapi_resource" "prm_well_known_policy" {
     }
   }
 
-  depends_on = [azapi_resource.prm_well_known_operation]
+  depends_on = [
+    azapi_resource.prm_well_known_operation,
+    azapi_resource.prm_well_known_operation_pathed,
+  ]
 }

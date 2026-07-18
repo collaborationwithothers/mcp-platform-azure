@@ -29,32 +29,26 @@ locals {
 
   apim_gateway_url = data.azapi_resource.apim.output.properties.gatewayUrl
 
-  mcp_message_endpoint = one([
-    for e in var.transport.endpoints : e.uri_template if e.name == "message"
-  ])
-
   # The root protected resource metadata (PRM) document itself is owned by
   # the apim-gateway module (one root well-known path per gateway); this
   # module only needs the URL so its 401 challenge can point callers at it.
-  prm_url        = "${local.apim_gateway_url}/.well-known/oauth-protected-resource"
-  mcp_server_url = "${local.apim_gateway_url}/${var.server_path}${local.mcp_message_endpoint}"
+  prm_url = "${local.apim_gateway_url}/.well-known/oauth-protected-resource"
+  # The client MCP endpoint is <gateway>/<path><uriTemplate>: the passthrough
+  # appends the endpoint's uriTemplate to both the client route and the backend
+  # url. A portal-created reference server on this same stamp exposed exactly
+  # <gateway>/<path>/runtime/webhooks/mcp (verified 2026-07-16). streamable has
+  # a single endpoint, so its uriTemplate is the suffix.
+  mcp_endpoint_uri_template = var.transport.endpoints[0].uri_template
+  mcp_server_url            = "${local.apim_gateway_url}/${var.server_path}${local.mcp_endpoint_uri_template}"
 }
 
-# EXPERIMENTAL / UNVERIFIED (2026-07-14): Microsoft.ApiManagement/service/apis
-# with properties.type = "mcp" has a Backend entity, referenced by
-# properties.backendId, wired below. This is NOT documented anywhere
-# Microsoft publishes: not manage-mcp-servers-rest-api, not the ARM template
-# reference for service/apis, and not the actual 2025-09-01-preview
-# openapi.json pulled from Azure/azure-rest-api-specs (all three describe only
-# `serviceUrl`, which a live PUT ignores for type=mcp: it returned 400
-# "Either BackendId or MCP tools must be set, but not both for MCP API." with
-# serviceUrl set and no backendId). The Backend resource shape itself (url,
-# protocol) IS verified against that same openapi.json's BackendContract
-# schema. What is NOT verified: whether properties.backendId on the api takes
-# this backend's bare resource name (assumed here, by analogy with every other
-# same-service child-entity cross-reference in this API family, e.g.
-# product-api links) versus a full ARM resource ID. Re-verify both facts at
-# the next live-test run and correct this comment/COMPATIBILITY.md either way.
+# Backend wiring for type=mcp is a separate Backend entity referenced by
+# properties.backendId, NOT properties.serviceUrl. The 2025-09-01-preview
+# swagger describes only serviceUrl, but the DEPLOYED service rejects it: run
+# 29509xxxxx returned 400 "Either BackendId or MCP tools must be set, but not
+# both for MCP API." with serviceUrl set. backendId is therefore required (the
+# swagger is ahead of the deployed service on this too). serviceUrl reads back
+# null in that mode -- expected, the backend url lives on this Backend entity.
 resource "azapi_resource" "mcp_backend" {
   type      = "Microsoft.ApiManagement/service/backends@2025-09-01-preview"
   name      = "${var.server_name}-backend"
@@ -66,8 +60,13 @@ resource "azapi_resource" "mcp_backend" {
     properties = {
       title       = "${var.server_name}-backend"
       description = "Backend for passthrough MCP server ${var.server_name}. Synthetic data; see mcp-function-host for the backend tool contract."
-      url         = var.backend_service_url
-      protocol    = "http"
+      # Backend url is the BASE host; the endpoint path lives in
+      # mcpProperties.endpoints[].uriTemplate and is appended at forward time
+      # (the gateway trace showed set-backend-service forwarding to
+      # base + uriTemplate). This matches the portal-created reference server on
+      # this stamp (its backend url was the bare base). Verified 2026-07-16.
+      url      = var.backend_service_url
+      protocol = "http"
     }
   }
 }
@@ -92,26 +91,23 @@ resource "azapi_resource" "mcp_server" {
       protocols            = ["https"]
       backendId            = azapi_resource.mcp_backend.name
       subscriptionRequired = var.subscription_required
+      # mcpProperties.endpoints is a MAP keyed by endpoint name, value
+      # { uriTemplate }. This is the shape a portal-created reference MCP server
+      # on this same stamp produced (endpoints = { "mcp" = { uriTemplate =
+      # "/runtime/webhooks/mcp" } }), verified by GET on 2026-07-16 -- NOT the
+      # serviceUrl+array swagger shape (rejected 400) and NOT transportType
+      # (this build drops it; the reference server has none). The endpoint name
+      # is the map key. Earlier map attempts appeared to fail, but that was the
+      # TLS 1.3/1.2 backend handshake (fixed in mcp-function-host), not this
+      # shape.
       mcpProperties = {
-        transportType = var.transport.type
-        # NOT the documented shape. Microsoft Learn (manage-mcp-servers-rest-api)
-        # and the ARM template reference both show endpoints as a JSON array of
-        # {name, uriTemplate} objects. A live PUT against this api-version
-        # returned 400: "Cannot deserialize the current JSON array ... into type
-        # 'Dictionary<string, McpEndpointContract>' ... requires a JSON object".
-        # That error is read directly off the live service, not a docs source,
-        # so it is stronger evidence than the (evidently stale, preview-API)
-        # docs, but the map-value shape below (endpoint name as key, uriTemplate
-        # as the only remaining value field) is inferred from that error
-        # message, not confirmed by any Microsoft Learn example. Re-verify at
-        # the next live-test run and correct this comment/COMPATIBILITY.md once
-        # confirmed either way.
         endpoints = {
           for e in var.transport.endpoints : e.name => {
             uriTemplate = e.uri_template
           }
         }
       }
+      isCurrent = true
     }
   }
 }

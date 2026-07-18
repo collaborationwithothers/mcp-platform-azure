@@ -42,6 +42,11 @@ on:
         description: "Type \"apply\" to confirm you understand this deploys billable Azure resources (APIM Basic v2, Flex Consumption, API Center) and accept them being destroyed at the end of this run."
         required: true
         type: string
+      skip_teardown:
+        description: "TEMPORARY debugging aid (issue 9): skip teardown so the deployed stamp stays up for INTERACTIVE investigation - e.g. the portal test console request trace of the no-token WWW-Authenticate/PRM mechanism (which policy or runtime step sets the path-scoped resource_metadata). WARNING: Basic v2 bills continuously until you delete the resource group by hand; the run summary prints the exact command. Destroy it the SAME day. Leave false for normal runs."
+        required: false
+        type: boolean
+        default: false
 
 # Only one live-test run at a time: prevents two runs racing on the same
 # state keys or doubling billable resources.
@@ -128,6 +133,19 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # Issue 9 (reopened) decision: the gate must run harness assertions against
+      # a live host, which requires deployed function code. Build and package the
+      # MCP server once here, up front, so the artifact is ready before the s1
+      # apply and the deploy step below. Flex Consumption one-deploy takes a zip
+      # whose root is the publish output (host.json at the zip root).
+      - name: Build and package the Functions MCP server (McpTools)
+        shell: bash
+        run: |
+          set -euo pipefail
+          publish_dir="${{ github.workspace }}/publish/mcptools"
+          dotnet publish src/McpTools/McpTools.csproj -c Release -o "${publish_dir}"
+          ( cd "${publish_dir}" && zip -r "${{ github.workspace }}/mcptools.zip" . )
+
       - name: Compute ephemeral resource group name and expiry tag
         id: rg
         shell: bash
@@ -179,6 +197,53 @@ jobs:
           terraform apply -input=false -auto-approve \
             -var-file="${{ github.workspace }}/s1.tfvars.json"
 
+      # Issue 9 (reopened) decision: deploy the built package to the s1 Flex
+      # Consumption app so the host specialises and the MCP extension registers
+      # its mcp_extension system key (which the call stage's shadow-key arm and
+      # the McpTestClient assertions require). Flex Consumption's supported
+      # deployment technology is "One deploy"; on a Flex app the config-zip CLI
+      # verb TRIGGERS One deploy -- upload to the module's managed-identity
+      # deploymentpackage container -- NOT the legacy Kudu WEBSITE_RUN_FROM_
+      # PACKAGE path the same verb uses on other plans (Microsoft Learn:
+      # flex-consumption-how-to#deploy-your-code-project). The decision comment
+      # named `az functionapp deploy`, but that command is Preview and not the
+      # Learn-documented Flex path; config-zip is (see PR description). The .NET
+      # isolated output is prebuilt by the publish step above, so no remote
+      # build. Runs after the s1 apply (the app must exist) and before the s2
+      # apply (APIM in s2 fronts the now-live s1 backend).
+      - name: Deploy the Functions MCP server to the s1 Flex Consumption app
+        working-directory: infra/terraform/scenarios/s1-entra-mcp-server
+        shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
+        run: |
+          set -euo pipefail
+          func_name="$(terraform output -raw function_app_name)"
+          # config-zip triggers Flex One deploy: Kudu fetches a managed-identity
+          # token to reach the deploymentpackage container. The s1 module pins
+          # deployment storage to a user-assigned identity (mcp-function-host):
+          # the system-assigned identity was not reliably usable on this path and
+          # failed persistently with "MSITokenUnavailableException ... 400". The
+          # user-assigned identity's Storage role assignment is created in the
+          # same apply moments earlier, so a bounded retry with fixed backoff
+          # remains as insurance against RBAC propagation (general Azure RBAC
+          # propagation is up to ~10 min, but a user-assigned grant typically
+          # settles fast). Exhaustion stays FATAL; no storage-account-key path.
+          deploy_deadline=$(( SECONDS + 300 ))
+          attempt=1
+          until az functionapp deployment source config-zip \
+                  --resource-group "${TF_VAR_resource_group_name}" \
+                  --name "${func_name}" \
+                  --src "${{ github.workspace }}/mcptools.zip"; do
+            if [ "${SECONDS}" -ge "${deploy_deadline}" ]; then
+              echo "::error::config-zip deploy did not succeed within 600s; the Flex deployment-storage identity/RBAC never became usable (see the MSITokenUnavailableException in this step's log)."
+              exit 1
+            fi
+            echo "Deploy attempt ${attempt} failed (likely deployment-storage identity/RBAC not yet propagated); retrying in 30s."
+            attempt=$(( attempt + 1 ))
+            sleep 30
+          done
+
       - name: terraform init and apply - s2-apim-mcp-gateway
         working-directory: infra/terraform/scenarios/s2-apim-mcp-gateway
         shell: bash
@@ -194,6 +259,37 @@ jobs:
           terraform apply -input=false -auto-approve \
             -var-file="${{ github.workspace }}/s2.tfvars.json" \
             -var="s1_remote_state={\"storage_account_name\":\"${TF_STATE_STORAGE_ACCOUNT}\",\"container_name\":\"${TF_STATE_CONTAINER}\",\"key\":\"${S1_STATE_KEY}\"}"
+
+      # Issue-9 instrumentation (temporary, non-fatal): capture the verbatim
+      # WWW-Authenticate challenges and every candidate PRM location in one shot,
+      # so a single live run settles which layer owns the RFC 9728 challenge and
+      # which PRM URL shape resolves (two emitters exist: the APIM policy's
+      # gateway-root challenge and the backend App Service Auth PRM feature). The
+      # probes are anonymous (no token), so this sits before the call stage and is
+      # decoupled from its token/key machinery. terraform output reads remote
+      # state via the providers' own OIDC, so it does not need a fresh az login.
+      # continue-on-error: a probe hiccup must never mask the real gate result.
+      # Paired with the "Upload PRM discovery evidence" step (if: always()).
+      # KEPT until the v1.1 interactive-auth work lands (ADR-006; issue-9 v1.1
+      # follow-up): a per-run detector of the PRM/challenge shape while that
+      # surface is in flux. Remove this step, the upload step, and
+      # scripts/gate/capture-prm-evidence.ps1 only when that work is done.
+      - name: Capture PRM discovery evidence (anonymous probes)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          s1_dir=infra/terraform/scenarios/s1-entra-mcp-server
+          s2_dir=infra/terraform/scenarios/s2-apim-mcp-gateway
+          mcp_server_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_url)"
+          prm_url="$(terraform -chdir="$s2_dir" output -raw prm_url)"
+          backend_base="$(terraform -chdir="$s1_dir" output -raw mcp_backend_base_url)"
+          backend_mcp_url="${backend_base%/}/runtime/webhooks/mcp"
+          pwsh scripts/gate/capture-prm-evidence.ps1 \
+            -McpServerUrl "$mcp_server_url" \
+            -PrmUrl "$prm_url" \
+            -BackendMcpUrl "$backend_mcp_url" \
+            -OutDir "${GITHUB_WORKSPACE}/gate-evidence"
 
       # Fresh OIDC login before the call stage. Same rationale as the teardown
       # and cleanup re-logins below: by this point the job has run past the
@@ -249,15 +345,52 @@ jobs:
           # The real mcp_extension system key is REQUIRED for the backend
           # shadow-key arm: presenting a VALID key that Easy Auth still 401s is
           # what proves the shadow path is closed (spec story 31); a placeholder
-          # would only prove an invalid key is rejected. The call-stage OIDC
-          # re-login above keeps the az session fresh, and the live-test principal
-          # holds listkeys on the ephemeral RG (Contributor), so this is reliable;
-          # fail loudly rather than silently weaken the proof if it is not.
-          mcp_ext_key="$(az functionapp keys list -g "${TF_VAR_resource_group_name}" -n "${func_name}" --query 'systemKeys.mcp_extension' -o tsv)"
+          # would only prove an invalid key is rejected. The key is registered by
+          # the MCP extension at host specialisation, which happens AFTER the code
+          # deploy completes (not at deploy return), so poll for it rather than
+          # reading it once: 15s interval, 300s (5 min) budget. Each attempt is
+          # guarded (2>/dev/null || true) so a transient listkeys non-zero does
+          # not trip set -e mid-loop; exhausting the budget stays FATAL (issue 9
+          # decision, preserving PR #39's fail-loudly intent -- no placeholder).
+          mcp_ext_key=""
+          key_poll_deadline=$(( SECONDS + 300 ))
+          while [ "${SECONDS}" -lt "${key_poll_deadline}" ]; do
+            mcp_ext_key="$(az functionapp keys list -g "${TF_VAR_resource_group_name}" -n "${func_name}" --query 'systemKeys.mcp_extension' -o tsv 2>/dev/null || true)"
+            if [ -n "${mcp_ext_key}" ]; then
+              break
+            fi
+            echo "mcp_extension system key not registered yet (awaiting host specialisation); retrying in 15s."
+            sleep 15
+          done
           if [ -z "${mcp_ext_key}" ]; then
             echo "::error::Could not retrieve the mcp_extension system key; the backend shadow-key assertion needs it (spec story 31)."
             exit 1
           fi
+          # --- Call-stage diagnostics (read-only, non-fatal): localise the MCP
+          # 500 between the APIM passthrough and the Functions backend before the
+          # assertions run. Probes the backend /runtime/webhooks/mcp directly with
+          # a valid Entra token vs the same call through APIM, and dumps the
+          # effective APIM MCP api config (backendId/serviceUrl/mcpProperties).
+          # Temporary, remove once the call stage is green (issue 9). ---
+          api_id="$(terraform -chdir="$s2_dir" output -raw mcp_server_api_id)"
+          set +e
+          diag_token="$(curl -sS --max-time 20 -X POST "https://login.microsoftonline.com/${tenant_id}/oauth2/v2.0/token" \
+            -d "client_id=${client_id}" -d "client_secret=${TEST_CLIENT_SECRET}" \
+            -d "grant_type=client_credentials" -d "scope=${audience}/.default" | jq -r '.access_token // empty')"
+          if [ -n "${diag_token}" ]; then
+            curl -sS --max-time 15 -o /dev/null -w "[diag] backend direct (${backend_mcp_url}) status: %{http_code}\n" \
+              -H "Authorization: Bearer ${diag_token}" "${backend_mcp_url}"
+            curl -sS --max-time 15 -o /dev/null -w "[diag] via APIM (${mcp_server_url}) status: %{http_code}\n" \
+              -H "Authorization: Bearer ${diag_token}" "${mcp_server_url}"
+          else
+            echo "[diag] could not acquire a diagnostic token; skipping HTTP probes."
+          fi
+          echo "[diag] effective APIM MCP api config:"
+          az rest --method GET --url "https://management.azure.com${api_id}?api-version=2025-09-01-preview" \
+            --query "properties.{type:type,path:path,backendId:backendId,serviceUrl:serviceUrl,mcpProperties:mcpProperties}" -o json 2>/dev/null \
+            || echo "[diag]   (az rest dump failed)"
+          set -e
+          # --- end diagnostics ---
           pwsh scripts/gate/invoke-and-assert.ps1 \
             -McpServerUrl "$mcp_server_url" \
             -PrmUrl "$prm_url" \
@@ -270,8 +403,22 @@ jobs:
             -ServerName "$server_name" \
             -McpExtensionKey "${mcp_ext_key:-}"
 
-      - name: terraform destroy - s2-apim-mcp-gateway
+      # Always upload whatever PRM evidence was captured above, even when the
+      # call stage failed its assertions (the failing assertion is the whole
+      # reason we want the evidence). Reads the runner's local filesystem, so it
+      # is unaffected by the destroy steps that follow. Temporary issue-9
+      # instrumentation; KEPT until the v1.1 interactive-auth work (remove with
+      # the capture step and script then).
+      - name: Upload PRM discovery evidence
         if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prm-discovery-evidence
+          path: gate-evidence/
+          if-no-files-found: warn
+
+      - name: terraform destroy - s2-apim-mcp-gateway
+        if: always() && !inputs.skip_teardown
         working-directory: infra/terraform/scenarios/s2-apim-mcp-gateway
         shell: bash
         env:
@@ -284,7 +431,7 @@ jobs:
             -var="s1_remote_state={\"storage_account_name\":\"${TF_STATE_STORAGE_ACCOUNT}\",\"container_name\":\"${TF_STATE_CONTAINER}\",\"key\":\"${S1_STATE_KEY}\"}"
 
       - name: terraform destroy - s1-entra-mcp-server
-        if: always()
+        if: always() && !inputs.skip_teardown
         working-directory: infra/terraform/scenarios/s1-entra-mcp-server
         shell: bash
         env:
@@ -303,7 +450,7 @@ jobs:
       # re-login explicitly. if: always() so cleanup authenticates even when an
       # earlier step failed.
       - name: Azure re-login for cleanup (OIDC)
-        if: always()
+        if: always() && !inputs.skip_teardown
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -311,7 +458,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Delete ephemeral resource group and verify it is gone
-        if: always()
+        if: always() && !inputs.skip_teardown
         shell: bash
         run: |
           az group delete --name "${{ steps.rg.outputs.name }}" --yes
@@ -320,3 +467,35 @@ jobs:
             exit 1
           fi
           echo "Confirmed: ${{ steps.rg.outputs.name }} no longer exists."
+
+      # Loud, unmissable notice when skip_teardown kept the stamp alive. The last
+      # several issue-9 debug rounds were strangled by the environment evaporating
+      # between runs; keeping it up is deliberate here (interactive portal/curl
+      # trace of the no-token WWW-Authenticate mechanism), but a kept-alive Basic
+      # v2 stamp bills continuously, so the RG name and the exact teardown command
+      # go into the run summary AND a ::warning:: annotation. Runs whether the gate
+      # passed or failed. YOU destroy it the same day; the 4-hour expiry tag is
+      # only a backstop sweep, not a guarantee.
+      - name: Kept-alive environment notice (skip_teardown)
+        if: always() && inputs.skip_teardown
+        shell: bash
+        run: |
+          rg="${{ steps.rg.outputs.name }}"
+          expiry="${{ steps.rg.outputs.expiry }}"
+          echo "::warning title=Live environment kept ALIVE::${rg} was NOT destroyed (skip_teardown=true) and bills continuously. Destroy it today: az group delete -n ${rg} --yes"
+          {
+            echo "## :warning: Live environment kept ALIVE (skip_teardown=true)"
+            echo ""
+            echo "Teardown was **skipped on purpose** so you can trace the no-token"
+            echo "\`WWW-Authenticate\`/PRM mechanism interactively against the running stamp."
+            echo "**A Basic v2 stamp bills continuously.**"
+            echo ""
+            echo "- Resource group: \`${rg}\`"
+            echo "- Backstop expiry tag: \`${expiry}\` (a sweep, not a guarantee)"
+            echo ""
+            echo "### Destroy it yourself, the SAME day"
+            echo ""
+            echo '```bash'
+            echo "az group delete -n ${rg} --yes"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

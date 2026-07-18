@@ -31,9 +31,9 @@ variable "transport" {
     endpoints = optional(list(object({
       name         = string
       uri_template = string
-    })), [{ name = "message", uri_template = "/mcp" }])
+    })), [{ name = "mcp", uri_template = "/mcp" }])
   })
-  description = "MCP transport exposed to clients. \"streamable\" (the tracer's default) requires exactly one \"message\" endpoint; \"sse\" requires exactly two endpoints named \"sse\" and \"message\" (Microsoft Learn, manage-mcp-servers-rest-api)."
+  description = "MCP transport exposed to clients. \"streamable\" (the tracer's default) has a single endpoint; \"sse\" has two. The endpoint name is the mcpProperties.endpoints map key. The deployed 2025-09-01-preview stamp keys the streamable endpoint \"mcp\" (verified against a portal-created reference server 2026-07-16), not \"message\" as the published swagger shows."
   default     = {}
 
   validation {
@@ -43,10 +43,10 @@ variable "transport" {
 
   validation {
     condition = (
-      (var.transport.type == "streamable" && length(var.transport.endpoints) == 1 && var.transport.endpoints[0].name == "message") ||
-      (var.transport.type == "sse" && length(var.transport.endpoints) == 2 && contains([for e in var.transport.endpoints : e.name], "sse") && contains([for e in var.transport.endpoints : e.name], "message"))
+      (var.transport.type == "streamable" && length(var.transport.endpoints) == 1) ||
+      (var.transport.type == "sse" && length(var.transport.endpoints) == 2)
     )
-    error_message = "streamable transport requires exactly one endpoint named \"message\"; sse transport requires exactly two endpoints named \"sse\" and \"message\"."
+    error_message = "streamable transport requires exactly one endpoint; sse transport requires exactly two."
   }
 }
 

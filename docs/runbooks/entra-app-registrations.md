@@ -72,6 +72,37 @@ user identity because the SDK's interactive auth-code flow cannot run in CI
    `entra_validation.allowed_client_application_ids[0]` and the identity the
    gate's non-interactive token acquisition (client credentials) uses.
 
+## 3. Interactive client app (the demo's interactive caller)
+
+A dedicated public client for the interactive discovery walkthrough
+(`docs/demos/README.md`): a human signing in through the VS Code MCP client or
+MCP Inspector via OAuth 2.1 auth-code + PKCE. Kept separate from the
+client-credentials test app in section 2 (that app is confidential and holds an
+application permission, not a delegated one). Entra does not support Dynamic
+Client Registration, so this client is pre-registered here and its id is supplied
+to the interactive host manually (ADR-006).
+
+1. **App registrations > New registration.** Single tenant. Name e.g.
+   `mcp-tracer-vscode-client`.
+2. **Authentication > Add a platform > Mobile and desktop applications**, and add
+   the redirect URIs the interactive host asks for. VS Code's MCP client uses a
+   loopback URI plus the hosted redirect, e.g. `http://127.0.0.1:33418` and
+   `https://vscode.dev/redirect` (VS Code prints the exact URIs to register in its
+   sign-in prompt; the loopback port can vary by client/version, so copy them from
+   the prompt). Set **Allow public client flows = Yes** (PKCE, no secret).
+   ([Redirect URI restrictions](https://learn.microsoft.com/entra/identity-platform/reply-url))
+3. **API permissions > Add a permission > My APIs**, select the server resource
+   app from section 1, choose **Delegated permissions**, select
+   `user_impersonation`, **Add permissions**, then **Grant admin consent for
+   `<tenant>`** (or let each user consent at first sign-in if the scope allows it).
+4. Record the **Application (client) ID**. This id MUST be added to
+   `entra_validation.allowed_client_application_ids` (the `S2_TFVARS_JSON`
+   live-test secret): the APIM `validate-azure-ad-token` policy checks the token's
+   client app id (`azp`) against that list, so a token acquired by this client is
+   rejected at the gateway until its id is present and the gate is re-applied. The
+   id is what you paste into the interactive host's manual client-registration
+   prompt.
+
 ## Values this runbook produces, and where they are consumed
 
 | Value | Consumed by |
@@ -79,8 +110,9 @@ user identity because the SDK's interactive auth-code flow cannot run in CI
 | Server app's App ID URI (`api://<server-app-id>`) | `entra_auth.allowed_audiences`, `entra_validation.audience`, `prm_scope`/`prm_scopes` prefix |
 | Server app's client id | `entra_auth.server_app_client_id` |
 | Server/test client shared tenant id | `entra_auth.tenant_id`, `entra_validation.tenant_id` |
-| Test client app's client id | `entra_validation.allowed_client_application_ids` |
+| Test client app's client id | `entra_validation.allowed_client_application_ids` (one entry in the list; the gate's non-interactive caller) |
 | Test client app's client secret | The gate's non-interactive token acquisition (client credentials), stored as the GitHub Environment secret `TEST_CLIENT_SECRET` on `live-test`, never in Terraform state or this repo |
+| Interactive client app's client id | `entra_validation.allowed_client_application_ids` (a SECOND entry in the same list, so APIM accepts interactive-user tokens acquired by it); also pasted into the interactive host's manual client-registration prompt. The list already loops in the APIM policy, so adding it is a value change in `S2_TFVARS_JSON`, not a code change |
 
 None of these values have a default in the s1/s2 composition variables; the
 live-test workflow supplies them all as `TF_VAR_*` environment variables
