@@ -1,4 +1,5 @@
 using McpTools.Downstream;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -19,20 +20,16 @@ var host = new HostBuilder()
         services.AddSingleton<IOboTokenAcquirer>(_ =>
         {
             var configuration = context.Configuration;
-            var serverAppClientId = configuration["MicrosoftEntra:ServerAppClientId"]
-                ?? throw new InvalidOperationException("MicrosoftEntra__ServerAppClientId app setting is required.");
-            var tenantId = configuration["MicrosoftEntra:TenantId"]
-                ?? throw new InvalidOperationException("MicrosoftEntra__TenantId app setting is required.");
-            return new ManagedIdentityOboTokenAcquirer(serverAppClientId, tenantId);
+            return new ManagedIdentityOboTokenAcquirer(
+                RequireSetting(configuration, "MicrosoftEntra:ServerAppClientId", "MicrosoftEntra__ServerAppClientId"),
+                RequireSetting(configuration, "MicrosoftEntra:TenantId", "MicrosoftEntra__TenantId"));
         });
 
         services.AddSingleton<IDownstreamOrdersClient>(sp =>
         {
             var configuration = context.Configuration;
-            var baseUrl = configuration["DownstreamOrdersApi:BaseUrl"]
-                ?? throw new InvalidOperationException("DownstreamOrdersApi__BaseUrl app setting is required.");
-            var scope = configuration["DownstreamOrdersApi:Scope"]
-                ?? throw new InvalidOperationException("DownstreamOrdersApi__Scope app setting is required.");
+            var baseUrl = RequireSetting(configuration, "DownstreamOrdersApi:BaseUrl", "DownstreamOrdersApi__BaseUrl");
+            var scope = RequireSetting(configuration, "DownstreamOrdersApi:Scope", "DownstreamOrdersApi__Scope");
             var tokenAcquirer = sp.GetRequiredService<IOboTokenAcquirer>();
             var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient();
             return new DownstreamOrdersClient(tokenAcquirer, httpClient, new Uri(baseUrl), scope);
@@ -41,3 +38,10 @@ var host = new HostBuilder()
     .Build();
 
 host.Run();
+
+// key is the IConfiguration lookup key (colon-separated); appSettingName is
+// the same value's actual Function App setting name (double-underscore-
+// separated) for the error message, since that is what the runbook/README
+// document and what an operator would search for.
+static string RequireSetting(IConfiguration configuration, string key, string appSettingName) =>
+    configuration[key] ?? throw new InvalidOperationException($"{appSettingName} app setting is required.");
