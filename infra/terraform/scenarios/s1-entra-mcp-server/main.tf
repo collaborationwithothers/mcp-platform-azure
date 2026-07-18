@@ -118,6 +118,7 @@ data "azuread_service_principal" "downstream" {
 }
 
 resource "azuread_application_federated_identity_credential" "obo_managed_identity" {
+  #checkov:skip=CKV_AZURE_249:False positive -- this check (checkov source, GithubActionsOIDCTrustPolicy.py) inspects ONLY subject for GitHub Actions' colon-delimited claimtype:value format and never reads issuer, so it fires on every azuread_application_federated_identity_credential regardless of federation type. issuer here is Entra managed-identity federation (login.microsoftonline.com/<tenant>/v2.0), NOT GitHub Actions (token.actions.githubusercontent.com); subject is correctly a bare GUID (the Function App's managed identity principal id, per Microsoft's documented shape for this trust type), which has no colon and can never satisfy this check's GitHub-Actions-shaped logic.
   application_id = data.azuread_application.server.id
   # Unique per run (see the block comment above): a fixed name risks
   # colliding with a leftover credential from a prior run whose destroy
