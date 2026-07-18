@@ -132,7 +132,7 @@ Write-Host "[3] Raw-HTTP discovery assertions"
 & $discoveryScript `
     -McpServerUrl $McpServerUrl `
     -PrmUrl $PrmUrl `
-    -ExpectedResource $Audience `
+    -ExpectedResource $McpServerUrl `
     -WrongAudienceToken $wrongToken `
     -BackendMcpUrl $BackendMcpUrl `
     -McpExtensionKey $McpExtensionKey

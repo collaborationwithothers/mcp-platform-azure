@@ -26,7 +26,8 @@
                                    (gateway trace, 2026-07-16; see the check [1]
                                    note, COMPATIBILITY.md, ADR-006).
     2. PRM document content      -> 200 JSON with the RFC 9728 fields; resource
-                                   equals the expected server audience.
+                                   equals the MCP server URL (RFC 9728 s3.3
+                                   full-URL match), NOT the token audience.
     3. Wrong-audience token      -> 401 (validate-azure-ad-token rejects it).
     4. Shadow mcp_extension key  -> 401 with the key and no Entra token, against
                                    BOTH the gateway and the backend host
@@ -47,8 +48,11 @@ param(
     [Parameter(Mandatory)][string]$McpServerUrl,
     # Gateway-root protected resource metadata URL (s2 output prm_url).
     [Parameter(Mandatory)][string]$PrmUrl,
-    # The server app ID URI the PRM document's "resource" must equal, and the
-    # audience the gateway validates (entra_validation.audience).
+    # The value the PRM document's "resource" must equal. Per RFC 9728 s3.3 a
+    # client validates this against the MCP SERVER URL it connects to (a full-URL
+    # match incl. path), NOT the token audience, so the gate passes the s2
+    # mcp_server_url here. The token audience (entra_validation.audience) is a
+    # separate value the gateway/backend validate; scopes_supported carries it.
     [Parameter(Mandatory)][string]$ExpectedResource,
     # A bearer token whose audience is NOT the server app (e.g. a Graph
     # .default token), used for the wrong-audience rejection check.
@@ -205,11 +209,16 @@ else {
         if ($doc.PSObject.Properties.Name -notcontains 'resource') {
             Fail "PRM document is missing the required 'resource' field (RFC 9728)."
         }
+        # RFC 9728 s3.3: resource must equal the MCP server URL the client
+        # connects to (VS Code rejected the doc when this was the api:// audience
+        # instead; see docs/demos and COMPATIBILITY.md). ExpectedResource is the
+        # s2 mcp_server_url. This also cross-checks that the composition's
+        # constructed server_mcp_url matches the live endpoint byte-for-byte.
         elseif ($doc.resource -ne $ExpectedResource) {
-            Fail "PRM 'resource' is '$($doc.resource)'; expected '$ExpectedResource'."
+            Fail "PRM 'resource' is '$($doc.resource)'; expected the MCP server URL '$ExpectedResource' (RFC 9728 s3.3 full-URL match, not the token audience)."
         }
         else {
-            Pass "PRM 'resource' equals the expected server audience."
+            Pass "PRM 'resource' equals the MCP server URL."
         }
         foreach ($field in @('authorization_servers', 'bearer_methods_supported', 'scopes_supported')) {
             if ($doc.PSObject.Properties.Name -notcontains $field) {
