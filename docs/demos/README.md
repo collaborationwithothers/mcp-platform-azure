@@ -54,7 +54,7 @@ this build and lands with the v1.1 auth work: on the ephemeral `azure-api.net`
 hostname the client's RFC 8707 token request is rejected by Entra with
 `AADSTS9010010` (the server URL cannot be an Entra Application ID URI, and this
 design points the client directly at Entra rather than through an OAuth-mediation
-layer). See ADR-006 "What the live interactive trace showed" and the v1.1 issue.
+layer). See ADR-006 "What the live interactive trace showed" and issue #42.
 A trace-log capture of the discovery chain succeeding is the recommended README
 artifact here -- a spec-conformant client walking RFC 9728 discovery against your
 own gateway is a more informative thing to show than a sign-in dialog.
@@ -112,4 +112,4 @@ outcome). Left empty until the first live deploy is walked through by a human.
 
 | Date | Client | Deploy | Outcome |
 |---|---|---|---|
-| 2026-07-18 | VS Code 1.128.1 (MCP client) | s2 stamp apim-mcp-tracer-081fbc7c | Discovery chain SUCCEEDS: client walked the candidate well-known URLs (path-scoped-suffix 401, RFC 9728 path-inserted 200), accepted the PRM (resource = server URL), discovered Entra and its OpenID config. Interactive SIGN-IN blocked at Entra token step with AADSTS9010010 (RFC 8707 resource != scope; azure-api.net not a registerable App ID URI). Expected for v1; interactive sign-in deferred to v1.1 auth work (ADR-006, v1.1 issue). |
+| 2026-07-18 | VS Code 1.128.1 (MCP client) | s2 stamp apim-mcp-tracer-081fbc7c | Discovery chain SUCCEEDS: client walked the candidate well-known URLs (path-scoped-suffix 401, RFC 9728 path-inserted 200), accepted the PRM (resource = server URL), discovered Entra and its OpenID config. Interactive SIGN-IN blocked at Entra token step with AADSTS9010010 (RFC 8707 resource != scope; azure-api.net not a registerable App ID URI). Expected for v1; interactive sign-in deferred to v1.1 auth work (ADR-006, issue #42). |

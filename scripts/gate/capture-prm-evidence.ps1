@@ -42,7 +42,7 @@
 .NOTES
   Temporary issue-9 instrumentation, KEPT until the v1.1 interactive-auth work
   (the OAuth-mediation-layer-vs-custom-domain resolution; see ADR-006 and the
-  issue-9 v1.1 follow-up): it stays useful as a per-run detector of the PRM /
+  issue #42): it stays useful as a per-run detector of the PRM /
   challenge shape while that surface is still in flux. Remove (script + its
   workflow step + the artifact upload) only when that work lands.
 #>
