@@ -57,13 +57,23 @@ deploy):
 
 1. In VS Code, open the MCP servers view and add an MCP server pointing at the
    gateway MCP endpoint (`mcp_server_url`). Do not paste a token.
-2. The host makes an unauthenticated request, receives the 401 with the
-   `WWW-Authenticate: Bearer resource_metadata="..."` challenge, resolves the
-   protected resource metadata document at the gateway root, and starts the
-   interactive OAuth 2.1 sign-in against Microsoft Entra.
-3. Complete the sign-in. Confirm the host then lists `get_order_status` and can
-   call it for a known id (CONTOSO-1003 -> Processing) and an unknown id (typed
-   not-found).
+2. The host makes an unauthenticated request and receives the 401 with the
+   `WWW-Authenticate: Bearer resource_metadata="..."` challenge. IMPORTANT (issue
+   9): the deployed APIM `type=mcp` runtime rewrites `resource_metadata` to a
+   PATH-SCOPED URL under the MCP API path
+   (`https://<gateway>/<server_path>/.well-known/oauth-protected-resource`),
+   NOT the gateway root, and that path-scoped URL does not serve a document (the
+   MCP API 401s it); the valid RFC 9728 document is served at the gateway ROOT.
+   This step is the whole point of the walkthrough: OBSERVE whether the host
+   resolves the metadata and proceeds to the interactive OAuth 2.1 sign-in
+   against Microsoft Entra, or fails at metadata resolution. Record which. See
+   COMPATIBILITY.md (type=mcp resource_metadata rewrite) and ADR-006 (Observed
+   platform deviation); if resolution fails, ADR-006's placement decision must be
+   revisited.
+3. If sign-in proceeds, complete it and confirm the host then lists
+   `get_order_status` and can call it for a known id (CONTOSO-1003 -> Processing)
+   and an unknown id (typed not-found). Record the full outcome in the last-run
+   log below, including whether metadata resolution at step 2 succeeded.
 
 ### MCP Inspector
 
