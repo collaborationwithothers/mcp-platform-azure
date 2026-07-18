@@ -270,8 +270,10 @@ jobs:
       # state via the providers' own OIDC, so it does not need a fresh az login.
       # continue-on-error: a probe hiccup must never mask the real gate result.
       # Paired with the "Upload PRM discovery evidence" step (if: always()).
-      # Remove this step, the upload step, and scripts/gate/capture-prm-evidence.ps1
-      # once the PRM ownership is settled and the gate is green.
+      # KEPT until the v1.1 interactive-auth work lands (ADR-006; issue-9 v1.1
+      # follow-up): a per-run detector of the PRM/challenge shape while that
+      # surface is in flux. Remove this step, the upload step, and
+      # scripts/gate/capture-prm-evidence.ps1 only when that work is done.
       - name: Capture PRM discovery evidence (anonymous probes)
         continue-on-error: true
         shell: bash
@@ -405,7 +407,8 @@ jobs:
       # call stage failed its assertions (the failing assertion is the whole
       # reason we want the evidence). Reads the runner's local filesystem, so it
       # is unaffected by the destroy steps that follow. Temporary issue-9
-      # instrumentation; remove with the capture step and script.
+      # instrumentation; KEPT until the v1.1 interactive-auth work (remove with
+      # the capture step and script then).
       - name: Upload PRM discovery evidence
         if: always()
         uses: actions/upload-artifact@v4
