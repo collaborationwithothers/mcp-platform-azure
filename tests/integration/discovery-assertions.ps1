@@ -233,6 +233,47 @@ else {
 Write-Host ''
 
 # ---------------------------------------------------------------------------
+# 2b. RFC 9728 s3.1 path-inserted PRM location. A spec-conformant client (VS
+#     Code, verified 2026-07-18) validating the path-bearing server URL fetches
+#     the metadata at <gateway>/.well-known/oauth-protected-resource<server-path>
+#     and REJECTS the bare-root document when its resource carries a path. This
+#     asserts the apim-gateway path-inserted operation serves the same document
+#     there. URL derived from PrmUrl (root well-known) + the path of McpServerUrl.
+# ---------------------------------------------------------------------------
+Write-Host "[2b] RFC 9728 path-inserted PRM location serves the document"
+$wkSuffix = '/.well-known/oauth-protected-resource'
+$gwBase = if ($PrmUrl.EndsWith($wkSuffix)) {
+    $PrmUrl.Substring(0, $PrmUrl.Length - $wkSuffix.Length)
+}
+else {
+    ([System.Uri]$PrmUrl).GetLeftPart([System.UriPartial]::Authority)
+}
+$mcpPath = if ($McpServerUrl.StartsWith($gwBase)) {
+    $McpServerUrl.Substring($gwBase.Length)
+}
+else {
+    ([System.Uri]$McpServerUrl).AbsolutePath
+}
+$rfcUrl = "$PrmUrl$mcpPath"
+$pr = Invoke-Raw -Uri $rfcUrl -Method 'GET'
+if ($pr.StatusCode -ne 200) {
+    Fail "RFC 9728 path-inserted PRM ($rfcUrl) returned $($pr.StatusCode); expected 200 (spec clients fetch the metadata here for a path-bearing resource)."
+}
+else {
+    Pass "RFC 9728 path-inserted PRM returned 200."
+    try { $rdoc = $pr.Content | ConvertFrom-Json -ErrorAction Stop } catch { $rdoc = $null; Fail "path-inserted PRM was not valid JSON: $($_.Exception.Message)" }
+    if ($null -ne $rdoc) {
+        if ($rdoc.resource -ne $ExpectedResource) {
+            Fail "path-inserted PRM 'resource' is '$($rdoc.resource)'; expected the MCP server URL '$ExpectedResource'."
+        }
+        else {
+            Pass "path-inserted PRM 'resource' equals the MCP server URL."
+        }
+    }
+}
+Write-Host ''
+
+# ---------------------------------------------------------------------------
 # 3. Wrong-audience token -> 401 (validate-azure-ad-token rejects it).
 # ---------------------------------------------------------------------------
 Write-Host "[3] Wrong-audience token is rejected"

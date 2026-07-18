@@ -18,9 +18,13 @@
   honesty rules, no performance number is written that was not measured under a
   defined method, and a demo warm-up is not that.
 
-  This script does not automate interactive, client-driven discovery. That path
-  (a host like VS Code resolving the PRM, running the OAuth flow, and listing
-  tools) is validated manually and recorded in docs/demos/README.md.
+  This script does not automate interactive, client-driven discovery. In v1 that
+  path goes exactly this far: a spec-conformant host (VS Code) resolves the PRM
+  and discovers the Entra authorization server, which its trace log demonstrates;
+  interactive OAuth SIGN-IN does not complete on this build (the ephemeral
+  azure-api.net hostname hits Entra AADSTS9010010) and lands with the v1.1 auth
+  work. See docs/demos/README.md and ADR-006 "What the live interactive trace
+  showed".
 #>
 
 [CmdletBinding()]

@@ -44,13 +44,28 @@ gate uses, so the scripted demo shows exactly what the gate asserts.
 
 ## Manual walkthrough: interactive discovery in VS Code
 
+**v1 demo scope (honest statement, issue 9):** the v1 demo is the McpTestClient
+session (initialize, tools/list, a tool call through the gateway with an Entra
+token) plus the RFC 9728 discovery chain, which a spec-conformant client (VS Code
+1.128.1) walks all the way to acceptance -- its own trace log shows the client
+trying the candidate well-known URLs and accepting the document, then discovering
+Entra as the authorization server. Interactive OAuth SIGN-IN does not complete on
+this build and lands with the v1.1 auth work: on the ephemeral `azure-api.net`
+hostname the client's RFC 8707 token request is rejected by Entra with
+`AADSTS9010010` (the server URL cannot be an Entra Application ID URI, and this
+design points the client directly at Entra rather than through an OAuth-mediation
+layer). See ADR-006 "What the live interactive trace showed" and the v1.1 issue.
+A trace-log capture of the discovery chain succeeding is the recommended README
+artifact here -- a spec-conformant client walking RFC 9728 discovery against your
+own gateway is a more informative thing to show than a sign-in dialog.
+
 The live gate validates non-interactive session and discovery artifacts
-(`scripts/gate/invoke-and-assert.ps1`). It deliberately does NOT auto-exercise
-client-driven interactive discovery -- a host resolving the challenge, running
-the interactive OAuth flow, and listing tools -- because that path needs an
-interactive redirect the CI gate cannot perform (spec: Testing Decisions). That
-path is validated manually here and recorded so the human path is shown even
-though the gate does not automate it.
+(`scripts/gate/invoke-and-assert.ps1`), including that the PRM document is served
+at both the root and the RFC 9728 path-inserted well-known location with
+`resource` set to the MCP server URL. It deliberately does NOT auto-exercise
+client-driven interactive OAuth -- the interactive redirect a CI gate cannot
+perform (spec: Testing Decisions). The steps below are the manual walkthrough;
+record the outcome each run.
 
 Steps (record the outcome and the date each time you run it against a fresh
 deploy):
@@ -97,4 +112,4 @@ outcome). Left empty until the first live deploy is walked through by a human.
 
 | Date | Client | Deploy | Outcome |
 |---|---|---|---|
-| _pending first live run_ | | | |
+| 2026-07-18 | VS Code 1.128.1 (MCP client) | s2 stamp apim-mcp-tracer-081fbc7c | Discovery chain SUCCEEDS: client walked the candidate well-known URLs (path-scoped-suffix 401, RFC 9728 path-inserted 200), accepted the PRM (resource = server URL), discovered Entra and its OpenID config. Interactive SIGN-IN blocked at Entra token step with AADSTS9010010 (RFC 8707 resource != scope; azure-api.net not a registerable App ID URI). Expected for v1; interactive sign-in deferred to v1.1 auth work (ADR-006, v1.1 issue). |
