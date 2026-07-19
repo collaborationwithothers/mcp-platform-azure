@@ -146,9 +146,8 @@ jobs:
           dotnet publish src/McpTools/McpTools.csproj -c Release -o "${publish_dir}"
           ( cd "${publish_dir}" && zip -r "${{ github.workspace }}/mcptools.zip" . )
 
-      # Issue 10 (OBO thickening): the synthetic downstream Orders API needs
-      # deployed code for the negative test to have anything to reject a
-      # request against. Same pattern as the McpTools package above.
+      # The synthetic downstream Orders API is called by both delegated OBO
+      # and app-only trusted-subsystem paths. Same package pattern as above.
       - name: Build and package the downstream Orders API (DownstreamOrdersApi)
         shell: bash
         run: |
@@ -349,7 +348,7 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # Call stage (issue 9 slice 2): McpTestClient session/tool assertions, the
+      # Call stage: positive and role-less-negative McpTestClient assertions, the
       # raw-HTTP discovery assertions (401/WWW-Authenticate/PRM/wrong-audience/
       # shadow-key), and the bounded registry poll. Runs only on a successful
       # apply (no if: always()), between apply and the destroy steps below. The
@@ -360,12 +359,14 @@ jobs:
       # tfvars (audience/tenant/test-client-id/server-name); the test client's
       # SECRET is a live-test Environment secret (TEST_CLIENT_SECRET), never in
       # the repo or in Terraform state (docs/runbooks/entra-app-registrations.md).
-      - name: Call stage - McpTestClient, discovery assertions, registry poll
+      - name: Call stage - authorization, discovery, registry poll
         shell: bash
         env:
           TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
           TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
           TEST_CLIENT_SECRET: ${{ secrets.TEST_CLIENT_SECRET }}
+          TEST_CLIENT_WITHOUT_ROLE_ID: ${{ secrets.TEST_CLIENT_WITHOUT_ROLE_ID }}
+          TEST_CLIENT_WITHOUT_ROLE_SECRET: ${{ secrets.TEST_CLIENT_WITHOUT_ROLE_SECRET }}
         run: |
           set -euo pipefail
           s1_dir=infra/terraform/scenarios/s1-entra-mcp-server
@@ -443,6 +444,8 @@ jobs:
             -TenantId "$tenant_id" \
             -ClientId "$client_id" \
             -ClientSecret "$TEST_CLIENT_SECRET" \
+            -ClientWithoutRoleId "$TEST_CLIENT_WITHOUT_ROLE_ID" \
+            -ClientWithoutRoleSecret "$TEST_CLIENT_WITHOUT_ROLE_SECRET" \
             -ServerName "$server_name" \
             -DownstreamOrderStatusUrl "$downstream_order_status_url" \
             -McpExtensionKey "${mcp_ext_key:-}"

@@ -18,11 +18,10 @@ public enum IdentityMode
 
     /// <summary>
     /// An app-context (client-credentials, app-only) caller: the principal
-    /// carries a roles (app-role) claim and no scp claim. Served from the
-    /// in-memory fixture as a documented interim until the workload-identity
-    /// hardening issue -- an app-only token has no user to act on behalf of,
-    /// so it cannot drive an OBO exchange. The live gate's client-credentials
-    /// happy path exercises exactly this branch.
+    /// carries a roles (app-role) claim and no scp claim. The MCP boundary
+    /// requires Orders.Read, then the server calls the downstream with its own
+    /// application identity. An app-only token has no user to act on behalf of,
+    /// so it cannot drive an OBO exchange.
     /// </summary>
     AppContext,
 
@@ -67,31 +66,37 @@ public static class IdentityModeResolver
     private static readonly string[] RoleClaimTypes =
         ["roles", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
 
-    public static IdentityMode Resolve(IReadOnlyDictionary<string, string> headers)
+    public static IdentityMode Resolve(IReadOnlyDictionary<string, string> headers) =>
+        ResolveWithPrincipal(headers).Mode;
+
+    public static IdentityResolution ResolveWithPrincipal(IReadOnlyDictionary<string, string> headers)
     {
         if (!HeaderLookup.TryGet(headers, ClientPrincipal.HeaderName, out var raw) || string.IsNullOrWhiteSpace(raw))
         {
-            return IdentityMode.MissingPrincipal;
+            return new(IdentityMode.MissingPrincipal, null);
         }
 
         if (!ClientPrincipal.TryParse(raw, out var principal))
         {
-            return IdentityMode.MalformedPrincipal;
+            return new(IdentityMode.MalformedPrincipal, null);
         }
 
         if (principal!.Claims.Any(c => IsAny(c.Typ, ScopeClaimTypes)))
         {
-            return IdentityMode.Delegated;
+            return new(IdentityMode.Delegated, principal);
         }
 
         if (principal.Claims.Any(c => IsAny(c.Typ, RoleClaimTypes)))
         {
-            return IdentityMode.AppContext;
+            return new(IdentityMode.AppContext, principal);
         }
 
-        return IdentityMode.Unsupported;
+        return new(IdentityMode.Unsupported, principal);
     }
 
     private static bool IsAny(string claimType, string[] candidates) =>
         candidates.Any(candidate => string.Equals(claimType, candidate, StringComparison.OrdinalIgnoreCase));
 }
+
+/// <summary>The resolved mode plus the already-decoded Easy Auth principal.</summary>
+public sealed record IdentityResolution(IdentityMode Mode, ClientPrincipal? Principal);

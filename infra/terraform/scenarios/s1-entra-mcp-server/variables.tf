@@ -73,10 +73,16 @@ variable "app_settings" {
 
 variable "downstream_app" {
   type = object({
-    client_id = string
-    api_scope = string
+    client_id         = string
+    api_scope         = string
+    application_scope = string
   })
-  description = "The out-of-band downstream (Orders API) app registration, referenced by id: client_id is its application (client) id (also used by the azuread_service_principal_delegated_permission_grant and data \"azuread_service_principal\" \"downstream\" in main.tf), api_scope is the delegated scope the OBO exchange requests (api://<downstream-app-id>/user_impersonation -- the same scope main.tf's azuread_service_principal_delegated_permission_grant admin-consents for the server app; OBO's AcquireTokenOnBehalfOf needs the specific consented delegated scope, not a .default app-only scope). api_scope is wired into the MCP server's DownstreamOrdersApi__Scope app setting, read by McpTools.Downstream.ManagedIdentityOboTokenAcquirer via GetOrderStatus.Run."
+  description = "The out-of-band downstream Orders API app registration. client_id identifies its service principal; api_scope is the delegated user_impersonation scope used by OBO; application_scope is the api://<downstream-app-id>/.default scope used when the MCP server calls as its own trusted-subsystem identity."
+
+  validation {
+    condition     = endswith(var.downstream_app.application_scope, "/.default")
+    error_message = "downstream_app.application_scope must be the downstream resource's .default scope for app-only token acquisition."
+  }
 }
 
 variable "downstream_entra_auth" {

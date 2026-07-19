@@ -30,7 +30,7 @@ revision (which described the federated credential as a manual step) was
 wrong.
 
 None of the values this runbook produces are committed to this repo. The
-downstream app's client id and scope become the `downstream_app` Terraform
+downstream app's client id and scopes become the `downstream_app` Terraform
 variable (via the `S1_TFVARS_JSON` live-test secret, same pattern as
 `entra_auth`); the downstream app's own Easy Auth values become
 `downstream_entra_auth`.
@@ -59,7 +59,11 @@ as the wrong audience on the other.
    (`api://<downstream-app-id>/user_impersonation`), the scope the
    Terraform-managed OBO consent grant (section 2 below) authorizes and the
    scope the OBO exchange requests.
-4. Record the **Application (client) ID** and confirm the **Directory
+4. **App roles > Create app role**: display name and value both
+   `Orders.Read`, **Allowed member types = Applications**. The s1 composition
+   assigns this role to the MCP server service principal through
+   `azuread_app_role_assignment`; do not assign it manually.
+5. Record the **Application (client) ID** and confirm the **Directory
    (tenant) ID** matches the server app's tenant (both apps must be in the
    same tenant for OBO). These become `downstream_app.client_id` and
    `downstream_entra_auth.server_app_client_id` /
@@ -248,7 +252,8 @@ OBO path is secretless via the federated credential; the gate's separate
 
   "downstream_app": {
     "client_id": "<DOWNSTREAM Orders API app client id>",
-    "api_scope": "api://<downstream-app-id>/user_impersonation"
+    "api_scope": "api://<downstream-app-id>/user_impersonation",
+    "application_scope": "api://<downstream-app-id>/.default"
   },
   "downstream_entra_auth": {
     "tenant_id": "<same tenant GUID>",
@@ -270,9 +275,17 @@ Watch-outs:
 - **`downstream_app.api_scope` must be the specific delegated scope**
   (`.../user_impersonation`), never a `.default` app-only scope, or OBO's
   `AcquireTokenOnBehalfOf` cannot request the consented delegated permission.
+- **`downstream_app.application_scope` must be the downstream `/.default`
+  scope.** The app-only branch uses it with `AcquireTokenForClient`; Entra
+  includes the Terraform-assigned `Orders.Read` application role in that
+  downstream token.
 - **`downstream_entra_auth.allowed_audiences` is scoped to ONLY the downstream
   app** (`api://<downstream-app-id>`) -- that disjointness from the MCP server's
   audience is what makes the passthrough negative test meaningful.
+- The composition also sets the downstream Easy Auth authorization policy's
+  `allowedApplications` to the MCP server app client id. The downstream API
+  therefore trusts only the server identity, while the original caller's
+  `azp`/`appid` and `oid` are carried only as audit correlation headers.
 - Optional keys that default if omitted: `deployment_profile` (`"public-demo"`),
   `app_settings` (`{}` -- the OBO app settings are injected by `main.tf`, not
   here), and `unauthenticated_action` inside each auth object (`"Return401"`).

@@ -1,7 +1,10 @@
+using McpTools.Identity;
+
 namespace McpTools.Downstream;
 
 /// <summary>
-/// Fetches order status from the synthetic downstream Orders API via OBO.
+/// Fetches order status from the synthetic downstream Orders API through
+/// either delegated OBO or the server's trusted-subsystem application identity.
 /// Abstracted so <see cref="McpTools.Tools.GetOrderStatus"/> is unit-testable
 /// with a fake implementation (see tests/McpTools.Tests/GetOrderStatusTests.cs);
 /// <see cref="DownstreamOrdersClient"/> is the real implementation.
@@ -13,6 +16,20 @@ public interface IDownstreamOrdersClient
     /// (contract unchanged): an <c>OrderStatus</c> for a known id, an
     /// <c>OrderNotFound</c> for any other id.
     /// </summary>
-    Task<object> GetOrderStatusAsync(
-        string orderId, string inboundUserAssertion, CancellationToken cancellationToken);
+    Task<object> GetOrderStatusOnBehalfOfAsync(
+        string orderId,
+        string inboundUserAssertion,
+        CallerIdentityCorrelation caller,
+        CancellationToken cancellationToken);
+
+    Task<object> GetOrderStatusAsApplicationAsync(
+        string orderId,
+        CallerIdentityCorrelation caller,
+        CancellationToken cancellationToken);
+}
+
+public enum DownstreamAccessMode
+{
+    OnBehalfOf,
+    Application,
 }

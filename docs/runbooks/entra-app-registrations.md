@@ -1,6 +1,6 @@
 # Runbook: Entra app registrations for the v1 tracer
 
-Out-of-band procedure for the two Entra app registrations the s1/s2
+Out-of-band procedure for the Entra app registrations the s1/s2
 compositions reference by client id (`entra_auth`/`entra_validation`
 variables), per
 [Identity provisioning](../specs/v1-tracer-bullet.md#implementation-decisions):
@@ -37,8 +37,8 @@ the APIM gateway (`entra_validation.audience`) both validate tokens against.
    consent" = Admins and users (or Admins only, if you want to force admin
    consent for every caller). This is the scope `prm_scope` and `prm_scopes`
    both reference (`api://<server-app-id>/user_impersonation`).
-4. **App roles > Create app role**: display name and value both e.g.
-   `McpTestClient`, **Allowed member types = Applications** (this is what
+4. **App roles > Create app role**: display name and value both
+   `Orders.Read`, **Allowed member types = Applications** (this is what
    makes it usable by a non-interactive client-credentials caller, not a
    signed-in user). ([Add app roles to your
    app](https://learn.microsoft.com/entra/identity-platform/howto-add-app-roles-in-apps))
@@ -63,7 +63,7 @@ user identity because the SDK's interactive auth-code flow cannot run in CI
    Secret](https://learn.microsoft.com/entra/identity-platform/quickstart-configure-app-access-web-apis))
 3. **API permissions > Add a permission > My APIs**, select the server
    resource app from step 1, choose **Application permissions**, select the
-   `McpTestClient` app role, **Add permissions**.
+   `Orders.Read` app role, **Add permissions**.
 4. **Grant admin consent for `<tenant>`.** Required: application permissions
    (app roles) cannot be self-consented; a tenant administrator must grant
    consent once before the client-credentials flow can obtain a token
@@ -72,7 +72,27 @@ user identity because the SDK's interactive auth-code flow cannot run in CI
    `entra_validation.allowed_client_application_ids[0]` and the identity the
    gate's non-interactive token acquisition (client credentials) uses.
 
-## 3. Interactive client app (the demo's interactive caller)
+## 3. Negative-test client app (valid caller without Orders.Read)
+
+A second confidential client proves that a valid server-audience token without
+the required application role reaches the MCP tool and receives the
+deterministic 403 error. This client must not receive any application
+permission on the server resource app.
+
+1. **App registrations > New registration.** Single tenant. No redirect URI.
+2. **Certificates & secrets > Client secrets > New client secret.** Store the
+   client id as the GitHub Environment secret
+   **`TEST_CLIENT_WITHOUT_ROLE_ID`** and the secret value as
+   **`TEST_CLIENT_WITHOUT_ROLE_SECRET`** on `live-test`.
+3. Do not add an API permission or app-role assignment for `Orders.Read`.
+   The server resource service principal must allow role-less app tokens to be
+   issued; authorization is enforced by the MCP application after Easy Auth
+   authenticates the token.
+4. Add this client id to `entra_validation.allowed_client_application_ids` so
+   the APIM policy admits it to the backend. The positive test client remains
+   the first entry because the workflow reads index 0 for its ordinary call.
+
+## 4. Interactive client app (the demo's interactive caller)
 
 A dedicated public client for the interactive discovery walkthrough
 (`docs/demos/README.md`): a human signing in through the VS Code MCP client or
@@ -112,7 +132,9 @@ to the interactive host manually (ADR-006).
 | Server/test client shared tenant id | `entra_auth.tenant_id`, `entra_validation.tenant_id` |
 | Test client app's client id | `entra_validation.allowed_client_application_ids` (one entry in the list; the gate's non-interactive caller) |
 | Test client app's client secret | The gate's non-interactive token acquisition (client credentials), stored as the GitHub Environment secret `TEST_CLIENT_SECRET` on `live-test`, never in Terraform state or this repo |
-| Interactive client app's client id | `entra_validation.allowed_client_application_ids` (a SECOND entry in the same list, so APIM accepts interactive-user tokens acquired by it); also pasted into the interactive host's manual client-registration prompt. The list already loops in the APIM policy, so adding it is a value change in `S2_TFVARS_JSON`, not a code change |
+| Negative-test client app's client id | `entra_validation.allowed_client_application_ids` after the positive client; also stored as `TEST_CLIENT_WITHOUT_ROLE_ID` for its separate token acquisition |
+| Negative-test client app's client secret | Stored as the GitHub Environment secret `TEST_CLIENT_WITHOUT_ROLE_SECRET` on `live-test`, never in Terraform state or this repo |
+| Interactive client app's client id | `entra_validation.allowed_client_application_ids` (an additional entry in the same list, so APIM accepts interactive-user tokens acquired by it); also pasted into the interactive host's manual client-registration prompt. The list already loops in the APIM policy, so adding it is a value change in `S2_TFVARS_JSON`, not a code change |
 
 None of these values have a default in the s1/s2 composition variables; the
 live-test workflow supplies them all as `TF_VAR_*` environment variables

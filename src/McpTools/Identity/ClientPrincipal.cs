@@ -38,6 +38,17 @@ public sealed class ClientPrincipal
     /// </summary>
     public IReadOnlyList<ClientPrincipalClaim> Claims { get; }
 
+    /// <summary>Returns all values whose claim type matches any supplied alias.</summary>
+    public IEnumerable<string> ValuesFor(params string[] claimTypeAliases) =>
+        Claims
+            .Where(claim => claimTypeAliases.Any(alias =>
+                string.Equals(claim.Typ, alias, StringComparison.OrdinalIgnoreCase)))
+            .Select(claim => claim.Val);
+
+    /// <summary>Returns the first non-empty value matching any supplied alias.</summary>
+    public string? FirstValueFor(params string[] claimTypeAliases) =>
+        ValuesFor(claimTypeAliases).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
     /// <summary>
     /// Decodes and parses the Base64 JSON header value. Returns false (and a
     /// null principal) for a missing, non-Base64, or non-JSON-object value:

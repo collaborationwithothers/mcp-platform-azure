@@ -30,6 +30,7 @@ string endpoint =
 // via client credentials on the dedicated test app registration. When absent
 // (local skeleton runs against the emulator), no Authorization header is sent.
 string? accessToken = Environment.GetEnvironmentVariable("MCP_ACCESS_TOKEN");
+string? expectedForbiddenRole = Environment.GetEnvironmentVariable("MCP_EXPECT_FORBIDDEN_ROLE");
 
 Console.WriteLine($"[McpTestClient] Target MCP endpoint: {endpoint}");
 Console.WriteLine($"[McpTestClient] Authorization header: {(string.IsNullOrEmpty(accessToken) ? "absent (unauthenticated)" : "present (Bearer)")}");
@@ -62,6 +63,24 @@ foreach (var tool in tools)
     Console.WriteLine($"  - {tool.Name}");
 }
 AssertToolListed(tools);
+
+if (!string.IsNullOrEmpty(expectedForbiddenRole))
+{
+    var forbidden = await client.CallToolAsync(
+        ToolName,
+        new Dictionary<string, object?> { ["orderId"] = KnownOrderId });
+    var rendered = Render(forbidden);
+    var expected = $"403 Forbidden: get_order_status requires the application role '{expectedForbiddenRole}'.";
+    if (forbidden.IsError != true || !rendered.Contains(expected, StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            $"Expected the deterministic missing-role error '{expected}', got IsError={forbidden.IsError}, "
+            + $"content={rendered}");
+    }
+
+    Console.WriteLine($"[McpTestClient] Missing-role assertion passed: {expected}");
+    return;
+}
 
 // Step 4 - tools/call for a known id and an unknown id (the two tool contracts).
 var known = await client.CallToolAsync(

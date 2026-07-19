@@ -1,11 +1,9 @@
 namespace McpTools.Fixtures;
 
 /// <summary>
-/// The fixed, in-memory order fixture the app-context branch of get_order_status
-/// serves from (issue 10: delegated callers are sourced from the downstream via
-/// OBO, app-context callers from this fixture as a documented interim until the
-/// workload-identity hardening issue; see src/README.md and
-/// McpTools.Tools.GetOrderStatus).
+/// The fixed, in-memory order fixture retained for pure contract tests. Live
+/// delegated and app-only calls are both sourced from the downstream Orders API;
+/// this copy keeps the typed tool contract independently testable without a host.
 ///
 /// The data is SYNTHETIC demo data. It is not derived from any real system.
 /// Ids run CONTOSO-1001 to CONTOSO-1005; every other id is a deterministic

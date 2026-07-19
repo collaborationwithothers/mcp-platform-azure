@@ -73,9 +73,10 @@ variable "entra_auth" {
     tenant_id              = string
     server_app_client_id   = string
     allowed_audiences      = list(string)
+    allowed_applications   = optional(list(string), [])
     unauthenticated_action = optional(string, "Return401")
   })
-  description = "Entra built-in auth (Easy Auth) settings. allowed_audiences must include the server app's App ID URI. unauthenticated_action is fixed at \"Return401\" (see validation): the acceptance criterion is that unauthenticated requests are rejected, not redirected to a login page."
+  description = "Entra built-in auth (Easy Auth) settings. allowed_audiences must include the server app's App ID URI. allowed_applications optionally restricts access to the listed caller application client ids through auth_settings_v2.defaultAuthorizationPolicy. unauthenticated_action is fixed at \"Return401\" (see validation): the acceptance criterion is that unauthenticated requests are rejected, not redirected to a login page."
 
   validation {
     condition     = var.entra_auth.unauthenticated_action == "Return401"

@@ -5,6 +5,7 @@ using McpTools.Fixtures;
 using McpTools.Identity;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
+using Microsoft.Extensions.Logging;
 
 namespace McpTools.Tools;
 
@@ -22,13 +23,10 @@ namespace McpTools.Tools;
 ///   (<see cref="IDownstreamOrdersClient"/>). The caller's inbound token is the
 ///   OBO user assertion.</item>
 ///   <item><b>App-context</b> (the principal carries a <c>roles</c> claim and
-///   no <c>scp</c>): a client-credentials, app-only caller with no user to act
-///   on behalf of, so it CANNOT drive an OBO exchange. Served from the
-///   in-memory <see cref="SyntheticOrders"/> fixture. This is a DOCUMENTED
-///   INTERIM until the workload-identity hardening issue (see src/README.md);
-///   the live gate's client-credentials happy path exercises exactly this
-///   branch, which is why it keeps passing against the fixture-served contract
-///   without a user-context token.</item>
+///   no <c>scp</c>): requires the <c>Orders.Read</c> application role, then
+///   calls the downstream as the MCP server's own application identity. The
+///   original caller's azp/appid and oid are logged and propagated only as
+///   audit correlation; the downstream authorizes the server identity.</item>
 /// </list>
 ///
 /// The mode decision itself lives in <see cref="IdentityModeResolver"/>, not
@@ -73,10 +71,14 @@ public sealed class GetOrderStatus
         ["X-MS-TOKEN-AAD-ACCESS-TOKEN", "Authorization"];
 
     private readonly IDownstreamOrdersClient _downstreamOrdersClient;
+    private readonly ILogger<GetOrderStatus> _logger;
 
-    public GetOrderStatus(IDownstreamOrdersClient downstreamOrdersClient)
+    public GetOrderStatus(
+        IDownstreamOrdersClient downstreamOrdersClient,
+        ILogger<GetOrderStatus> logger)
     {
         _downstreamOrdersClient = downstreamOrdersClient;
+        _logger = logger;
     }
 
     [Function(nameof(GetOrderStatus))]
@@ -109,11 +111,13 @@ public sealed class GetOrderStatus
         // because the startup BuiltInAuthGuard asserts Easy Auth is enabled,
         // and enabled Easy Auth strips client-supplied X-MS-* headers before
         // injecting its own (docs/security.md, "trust chain").
-        var mode = IdentityModeResolver.Resolve(headers);
-        return mode switch
+        var resolution = IdentityModeResolver.ResolveWithPrincipal(headers);
+        return resolution.Mode switch
         {
-            IdentityMode.Delegated => await ServeFromDownstreamViaObo(orderId, headers, cancellationToken),
-            IdentityMode.AppContext => ServeFromFixture(orderId),
+            IdentityMode.Delegated => await ServeFromDownstreamViaObo(
+                orderId, headers, resolution.Principal!, cancellationToken),
+            IdentityMode.AppContext => await ServeFromDownstreamAsApplication(
+                orderId, resolution.Principal!, cancellationToken),
             IdentityMode.MissingPrincipal => throw new InvalidOperationException(
                 $"get_order_status: the {ClientPrincipal.HeaderName} header is missing. In production "
                 + "this is a fail-closed rejection: Easy Auth injects that header on every request it "
@@ -129,7 +133,10 @@ public sealed class GetOrderStatus
     }
 
     private async Task<object> ServeFromDownstreamViaObo(
-        string orderId, IReadOnlyDictionary<string, string> headers, CancellationToken cancellationToken)
+        string orderId,
+        IReadOnlyDictionary<string, string> headers,
+        ClientPrincipal principal,
+        CancellationToken cancellationToken)
     {
         if (!TryExtractInboundAccessToken(headers, out var inboundToken))
         {
@@ -140,12 +147,36 @@ public sealed class GetOrderStatus
                 + "absence indicates an unverified transport or a token-store misconfiguration.");
         }
 
-        return await _downstreamOrdersClient.GetOrderStatusAsync(orderId, inboundToken, cancellationToken);
+        var caller = CallerIdentityCorrelation.FromPrincipal(principal);
+        LogCaller(caller, IdentityMode.Delegated);
+        return await _downstreamOrdersClient.GetOrderStatusOnBehalfOfAsync(
+            orderId, inboundToken, caller, cancellationToken);
     }
 
+    private async Task<object> ServeFromDownstreamAsApplication(
+        string orderId,
+        ClientPrincipal principal,
+        CancellationToken cancellationToken)
+    {
+        AppRoleAuthorization.RequireOrdersRead(principal);
+        var caller = CallerIdentityCorrelation.FromPrincipal(principal);
+        LogCaller(caller, IdentityMode.AppContext);
+        return await _downstreamOrdersClient.GetOrderStatusAsApplicationAsync(
+            orderId, caller, cancellationToken);
+    }
+
+    private void LogCaller(CallerIdentityCorrelation caller, IdentityMode mode) =>
+        _logger.LogInformation(
+            "get_order_status authorized caller. CallerApplicationId={CallerApplicationId} "
+            + "CallerObjectId={CallerObjectId} IdentityMode={IdentityMode}",
+            caller.ApplicationId,
+            caller.ObjectId,
+            mode);
+
     /// <summary>
-    /// The app-context data source: the fixed in-memory <see cref="SyntheticOrders"/>
-    /// fixture, mapped onto get_order_status's frozen contract. Pure and
+    /// Maps the fixed in-memory <see cref="SyntheticOrders"/> fixture onto
+    /// get_order_status's frozen contract. This is a pure test seam, not a live
+    /// request path. Pure and
     /// host-independent (spec: Testing Decisions, "unit seam"). Returns the
     /// typed success shape for a known id and the typed not-found shape
     /// (found:false) for any other id; the not-found case is a typed RESULT,

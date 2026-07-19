@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DownstreamOrdersApi.Fixtures;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Logging;
 
 namespace DownstreamOrdersApi.Functions;
 
@@ -15,26 +16,51 @@ namespace DownstreamOrdersApi.Functions;
 ///
 /// Authorization is Anonymous at the function level: this endpoint relies
 /// entirely on the Function App's Entra built-in auth (Easy Auth,
-/// entra_auth.allowed_audiences = [downstream app id URI] only), the same
+/// entra_auth.allowed_audiences = [downstream app id URI] and
+/// allowed_applications = [MCP server app client id]), the same
 /// posture McpTools takes for the mcp_extension system key (see
 /// mcp-function-host's README, "mcp_extension key posture"). A caller
 /// presenting a token minted for the MCP server app (a different audience)
 /// is rejected by Easy Auth before this code runs; that rejection is the
-/// negative test in tests/integration/obo-passthrough-negative.ps1.
+/// negative test in tests/integration/obo-passthrough-negative.ps1. The
+/// correlation headers this endpoint logs identify the original caller for
+/// audit only; they are not authorization inputs.
 /// </summary>
 public sealed class OrderStatusEndpoint
 {
+    private const string CallerApplicationIdHeader = "X-Mcp-Caller-Azp";
+    private const string CallerObjectIdHeader = "X-Mcp-Caller-Oid";
+    private readonly ILogger<OrderStatusEndpoint> _logger;
+
+    public OrderStatusEndpoint(ILogger<OrderStatusEndpoint> logger)
+    {
+        _logger = logger;
+    }
+
     [Function(nameof(OrderStatusEndpoint))]
     public async Task<HttpResponseData> Run(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "orders/{orderId}")]
             HttpRequestData request,
         string orderId)
     {
+        var callerApplicationId = FirstHeaderValue(request, CallerApplicationIdHeader);
+        var callerObjectId = FirstHeaderValue(request, CallerObjectIdHeader);
+        _logger.LogInformation(
+            "Downstream order lookup correlation. CallerApplicationId={CallerApplicationId} "
+            + "CallerObjectId={CallerObjectId}",
+            callerApplicationId ?? "missing",
+            callerObjectId ?? "missing");
+
         var (statusCode, body) = Resolve(orderId);
         var response = request.CreateResponse(statusCode);
         await response.WriteAsJsonAsync(body);
         return response;
     }
+
+    private static string? FirstHeaderValue(HttpRequestData request, string headerName) =>
+        request.Headers.TryGetValues(headerName, out var values)
+            ? values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
+            : null;
 
     /// <summary>
     /// Pure lookup logic, unit-tested in process with no Functions host (spec:
