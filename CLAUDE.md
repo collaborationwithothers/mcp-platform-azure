@@ -1,132 +1,57 @@
+@AGENTS.md
+
 # CLAUDE.md
 
-Rules for AI agents working in this repository. The GOVERNANCE section is
-maintained by Hari only; do not edit it. Append discovered mechanics
-(commands, conventions) under PROJECT MECHANICS at the bottom.
+This file is the Claude Code entry point. Its first line imports AGENTS.md, the
+single source of truth for all tool-neutral rules (governance, scope, safety,
+verification, ticket workflow, dual-agent operation). Claude Code expands that
+import at session start, so a Claude session loads the same effective
+instructions it did before AGENTS.md was split out; the sections below add only
+the Claude-Code-specific bindings that AGENTS.md deliberately leaves to each
+tool. Do not duplicate any AGENTS.md rule here.
 
-## GOVERNANCE (do not edit)
+## Claude Code bindings
 
-### What this repo is
+### Model bindings for the tier split
 
-Public portfolio reference implementation: enterprise hosting and governance
-of MCP servers on Azure. The spec seed is docs/blueprint.md. Read it before
-planning any work. Everything here is public and carries Hari's name.
+AGENTS.md ("Implementation and governance review are separate") defines two
+tiers tool-neutrally. Claude Code binds them:
 
-### Scope
+- Implementation tier: Sonnet 5 (effort high). Implementation sessions run on
+  this model. The /code-review self-check that runs before opening a PR is part
+  of implementation and runs on the implementation model.
+- Review tier: Opus 4.8 (effort high). Governance review runs on this model, in
+  a separate session, with Hari, and never by the session or agent that authored
+  the change. If Hari starts a governance review session that is not on
+  Opus 4.8, the session should say so before reviewing.
 
-- Active scope is v1 only: scenarios S1 (Entra-secured .NET Functions MCP
-  server), S2 (multi-tenant APIM MCP gateway, public-demo profile), S3
-  (Terraform modules incl azapi modules for APIM MCP server and API Center),
-  plus their docs and demo.
-- Never create issues, branches, or code for gated or later-phase scenarios
-  (private platform, Foundry, Python variant, evals, EMA). If work seems to
-  require them, stop and comment on the issue instead.
-- One issue at a time. Finish or park the current issue before starting
-  another. Branch per issue, PR references the issue.
-- Implementation sessions authenticate to GitHub as haripraghash-bot, never as haripraghash
+The rule that governance review is Claude/Opus-only for all bot PRs and does not
+fail over to Codex lives in AGENTS.md ("Dual-agent operation"); this binding is
+why the review tier is Opus 4.8.
 
-### Hard safety rules
+### Agent identity for the handoff protocol
 
-- NEVER run terraform apply or terraform destroy, locally or in any workflow
-  you author outside the gated live-test environment. You may run fmt,
-  validate, plan, and lint.
-- NEVER add secrets, keys, connection strings, or tenant/subscription IDs to
-  the repo. Cloud credentials exist only as OIDC via the live-test
-  environment. If a task appears to need a secret, stop and ask.
-- Workflows you author run on runs-on: ubuntu-latest only. Never reference
-  the org VNet runner group; those runners bill per minute and reach private
-  networks. Only Hari adds jobs targeting that group.
-- Never use pull_request_target with a checkout of PR head code.
+When Claude Code acts as the loop agent it is the "claude" agent in AGENTS.md's
+handoff protocol: branch prefix claude/, in-progress label in-progress:claude,
+attribution label agent:claude.
 
-### Merge classes
+### Commands
 
-- You may merge a PR only if ALL of: it carries the auto-merge-ok label
-  applied by Hari, CI is green, and it touches only docs formatting, typos,
-  or lockfiles.
-- Everything else, including anything under /infra, /src, /.github,
-  /docs/decisions, README.md, COMPATIBILITY.md: open the PR, post a review
-  summary (what changed, why, links to the Microsoft docs that justify any
-  azapi payload, ARM API version, or APIM policy), request review from Hari,
-  and stop. Never merge these. Never ask to have the gate relaxed.
-- Infra PRs that change deployed behaviour also get the needs-live-test
-  label.
+- /work-frontier (.claude/commands/work-frontier.md, Sonnet): runs the frontier
+  workflow defined in AGENTS.md as the claude agent.
+- /governance-review (.claude/commands/governance-review.md, Opus): runs the
+  governance review workflow defined in AGENTS.md.
 
-### Truth and verification rules
+### Subagents
 
-- Before writing any Azure capability claim, SKU, API version, or policy
-  behaviour into code or docs, verify it against current Microsoft Learn
-  documentation. Do not rely on training data for Azure MCP features; they
-  are newer than you think and change monthly.
-- azapi resources pin explicit ARM API versions. When you pin or change one,
-  update COMPATIBILITY.md with the date and doc link.
-- Never write benchmark numbers, latency figures, or cost figures that were
-  not actually measured. Estimates must say "estimate", their basis, and the
-  date. Demo data is synthetic and must be labelled synthetic.
-- If you do not know, say so in the PR rather than guessing. A stalled issue
-  is recoverable; a confident wrong public doc is not.
-- Verification of Azure claims is performed with the azure-docs-verifier
-  subagent, not by recalling training data. If the verifier returns
-  UNVERIFIABLE, the claim does not go into code or docs.
-
-### Style
-
-- ASCII punctuation only everywhere: no em dashes, no en dashes, no smart
-  quotes. Metric units.
-- Docs land in the same PR as the code they describe. No code-only PRs.
-- ADRs record real reasoning and rejected alternatives, not generic
-  explanations.
-
-### Models
-
-- Implementation sessions run on Sonnet 5 (effort high). The /code-review
-  self-check that /implement performs before opening a PR is part of
-  implementation and runs on the implementation model.
-- Governance review is separate: the review that decides whether a PR is
-  approved runs in a session on Opus 4.8 (effort high), with Hari. An implementation
-  session never approves or merges its own PR regardless of model; it
-  requests review from Hari and stops.
-- If Hari starts a governance review session that is not on Opus 4.8, the
-  session should say so before reviewing.
+- azure-docs-verifier is Claude Code's binding for the documentation-
+  verification role in AGENTS.md's truth and verification rules. Use it for
+  every Azure capability claim, ARM API version, azapi shape, AVM input, policy,
+  or auth setting before it goes into code or docs. If it returns UNVERIFIABLE,
+  the claim does not ship.
 
 ## PROJECT MECHANICS (Claude Code: append below as you learn the codebase)
 
-## Agent skills
-
-Config for the Matt Pocock engineering skills. Full details under docs/agents/.
-
-### Issue tracker
-
-Issues live as GitHub issues in collaborationwithothers/mcp-platform-azure via
-the gh CLI. External PRs are NOT a triage surface (Issues only). See
-docs/agents/issue-tracker.md.
-
-### Triage labels
-
-Five canonical roles use their default label strings: needs-triage, needs-info,
-ready-for-agent, ready-for-human, wontfix. See docs/agents/triage-labels.md.
-
-### Domain docs
-
-Multi-context: root CONTEXT-MAP.md points at infra/CONTEXT.md and src/CONTEXT.md.
-ADRs live under docs/decisions/ (per governance), not docs/adr/. See
-docs/agents/domain.md.
-
-### Continuous integration
-
-.github/workflows/ci.yml runs on every pull_request and on push to main. It has
-two jobs whose names are required status checks and must stay stable:
-terraform-checks (fmt, per-directory init -backend=false + validate, tflint with
-the root .tflint.hcl, checkov) and dotnet-build (build + test). There are no
-trigger-level path filters, so both jobs always run; instead each step guards
-itself with find and prints SKIPPED until real .tf / .csproj files land. Pinned
-toolchain, verified 2026-07-11: Terraform 1.15.8 (checkpoint-api.hashicorp.com),
-.NET 10 LTS (Functions 4.x isolated worker per Microsoft Learn), tflint-ruleset-
-azurerm 0.32.0. When infra adds a required_version, keep it in step with the
-setup-terraform pin here.
-
-## Terraform version
-- Terraform version: the repo pins the toolchain in .terraform-version.
-  If local terraform does not satisfy the compositions' required_version,
-  run `tfswitch` (reads .terraform-version) before validate/plan, then
-  proceed; do not skip validation and do not report version drift as a
-  blocker. CI remains the merge authority.
+Tool-neutral mechanics (issue tracker, triage labels, domain docs, CI, skills,
+Terraform version, MCP parity) live in AGENTS.md under PROJECT MECHANICS. Append
+only Claude-Code-specific mechanics here.

@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Fail if .mcp.json (Claude Code) and .codex/config.toml (Codex) disagree on
+their MCP servers.
+
+The two files declare the same three MCP servers in two different formats
+because neither tool reads the other's config (see AGENTS.md, "MCP servers and
+config parity", and COMPATIBILITY.md, "MCP config parity"). This script is the
+mechanical guard on that parity rule: it reduces each file to a canonical
+per-server descriptor and fails on any difference in the server set, in a stdio
+server's command/args (which is where the Terraform Docker tag pin lives), or in
+an http server's url.
+
+The Claude-only structural key `type` (e.g. "http") is intentionally ignored:
+Codex signals a streamable-HTTP server by the presence of `url` alone, so the
+formats differ by design. Everything load-bearing (names, commands, args, urls,
+pins) must match exactly.
+
+No dependencies beyond the standard library (tomllib, Python >= 3.11).
+
+Exit 0 on parity, 1 on any mismatch, 2 on a usage/parse error.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import tomllib
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+MCP_JSON = REPO_ROOT / ".mcp.json"
+CODEX_TOML = REPO_ROOT / ".codex" / "config.toml"
+
+
+def canonical(name: str, spec: dict) -> tuple:
+    """Reduce one server spec to a format-independent descriptor.
+
+    stdio server -> ("stdio", command, tuple(args))
+    http  server -> ("http", url)
+    The Claude-only `type` key is ignored on purpose.
+    """
+    if "url" in spec:
+        return ("http", spec["url"])
+    if "command" in spec:
+        return ("stdio", spec["command"], tuple(spec.get("args", [])))
+    raise ValueError(f"server {name!r} has neither `command` (stdio) nor `url` (http)")
+
+
+def load_claude(path: Path) -> dict[str, tuple]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    servers = data.get("mcpServers", {})
+    return {name: canonical(name, spec) for name, spec in servers.items()}
+
+
+def load_codex(path: Path) -> dict[str, tuple]:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    servers = data.get("mcp_servers", {})
+    return {name: canonical(name, spec) for name, spec in servers.items()}
+
+
+def describe(desc: tuple) -> str:
+    if desc[0] == "http":
+        return f"http url={desc[1]}"
+    return f"stdio command={desc[1]} args={list(desc[2])}"
+
+
+def main() -> int:
+    for p in (MCP_JSON, CODEX_TOML):
+        if not p.exists():
+            print(f"check-mcp-parity: missing file: {p}", file=sys.stderr)
+            return 2
+
+    try:
+        claude = load_claude(MCP_JSON)
+        codex = load_codex(CODEX_TOML)
+    except (ValueError, json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
+        print(f"check-mcp-parity: parse error: {exc}", file=sys.stderr)
+        return 2
+
+    problems: list[str] = []
+
+    only_claude = sorted(set(claude) - set(codex))
+    only_codex = sorted(set(codex) - set(claude))
+    for name in only_claude:
+        problems.append(f"server {name!r} is in .mcp.json but not .codex/config.toml")
+    for name in only_codex:
+        problems.append(f"server {name!r} is in .codex/config.toml but not .mcp.json")
+
+    for name in sorted(set(claude) & set(codex)):
+        if claude[name] != codex[name]:
+            problems.append(
+                f"server {name!r} differs:\n"
+                f"    .mcp.json         : {describe(claude[name])}\n"
+                f"    .codex/config.toml: {describe(codex[name])}"
+            )
+
+    if problems:
+        print("check-mcp-parity: FAIL (.mcp.json vs .codex/config.toml)", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        print(
+            "\nFix: bring the two files back into lockstep, same servers at the "
+            "same pins (AGENTS.md > MCP servers and config parity).",
+            file=sys.stderr,
+        )
+        return 1
+
+    names = ", ".join(sorted(claude))
+    print(f"check-mcp-parity: OK. {len(claude)} MCP servers match ({names}).")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

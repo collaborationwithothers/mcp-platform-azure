@@ -45,3 +45,7 @@ terraform.rc
 
 **/bin
 **/obj
+
+# Python bytecode cache (scripts/check-mcp-parity and any future python tooling)
+__pycache__/
+*.pyc
