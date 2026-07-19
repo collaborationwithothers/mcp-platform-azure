@@ -95,9 +95,12 @@ different confidence levels -- keep them distinct:**
   (`tests/integration/obo-passthrough-negative.ps1`, invoked from
   `scripts/gate/invoke-and-assert.ps1`'s step [5]) uses **the app-context
   client-credentials token the gate already holds** (audience = the MCP server
-  app), so it needs no user context. This is the measured claim -- **not yet
-  run against a live deployment as of this PR** (docs/runbooks/live-test-gate.md);
-  the measured result lands with the first live-test run that includes it.
+  app), so it needs no user context. **Measured 2026-07-19**: passed live in
+  `ephemeral-env.yml` run
+  [29681694550](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/29681694550)
+  (call stage green, which runs step [5]). That run used `skip_teardown=true`,
+  so the destroy half of apply-call-destroy is not yet proven; a clean full run
+  still validates teardown.
 - **Manually evidenced (delegated token).** A *delegated* (user-context)
   inbound token, presented directly to the downstream, is **also** rejected on
   the same audience check. Exercising this needs a real user token, which the
@@ -205,7 +208,10 @@ the inbound-token question above: no GA, non-interactive,
 CLAUDE.md-compliant mechanism exists to acquire a genuine delegated user
 token in CI (client-credentials tokens are app-only, ROPC is discouraged
 and would need a stored password, device code needs a human) -- ADR-006,
-"Testing strategy: the user-context token problem." The happy path is
-validated manually in the live-test environment by a human with a real
-interactive sign-in, not automated. The automated live gate covers the
-negative test only.
+"Testing strategy: the user-context token problem." The automated live gate
+covers the negative test only. The happy path is validated manually:
+**done 2026-07-19** -- a device-code delegated token drove the delegated
+branch -> OBO -> downstream, returning both frozen contract shapes; captured
+evidence in docs/demos/obo-happy-path.md (which also confirms the delegated
+`scp` branch fires live, though the exact claim-type string form remains
+inferred, not directly observed).
