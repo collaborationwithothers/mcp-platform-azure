@@ -247,7 +247,7 @@ jobs:
                   --name "${func_name}" \
                   --src "${{ github.workspace }}/mcptools.zip"; do
             if [ "${SECONDS}" -ge "${deploy_deadline}" ]; then
-              echo "::error::config-zip deploy did not succeed within 600s; the Flex deployment-storage identity/RBAC never became usable (see the MSITokenUnavailableException in this step's log)."
+              echo "::error::config-zip deploy did not succeed within 300s; the Flex deployment-storage identity/RBAC never became usable (see the MSITokenUnavailableException in this step's log)."
               exit 1
             fi
             echo "Deploy attempt ${attempt} failed (likely deployment-storage identity/RBAC not yet propagated); retrying in 30s."
@@ -275,7 +275,7 @@ jobs:
                   --name "${downstream_func_name}" \
                   --src "${{ github.workspace }}/downstreamordersapi.zip"; do
             if [ "${SECONDS}" -ge "${deploy_deadline}" ]; then
-              echo "::error::config-zip deploy did not succeed within 600s for the downstream Orders API (see the McpTools deploy step's MSITokenUnavailableException note; same mechanism applies here)."
+              echo "::error::config-zip deploy did not succeed within 300s for the downstream Orders API (see the McpTools deploy step's MSITokenUnavailableException note; same mechanism applies here)."
               exit 1
             fi
             echo "Deploy attempt ${attempt} failed (likely deployment-storage identity/RBAC not yet propagated); retrying in 30s."

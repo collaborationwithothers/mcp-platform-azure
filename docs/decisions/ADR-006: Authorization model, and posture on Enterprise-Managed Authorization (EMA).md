@@ -220,6 +220,17 @@ federated credential correctly identifies the server as the confidential
 client it claims to be. The downstream never sees the client's original
 token at all.
 
+That delegated grant in (b) does not have to come from admin consent
+specifically: Microsoft's OBO consent model documents three valid ways it
+can exist -- admin consent, per-user combined consent (via
+`knownClientApplications` + the `.default` scope), or the downstream
+preauthorizing the middle-tier app -- and OBO succeeds as long as SOME
+valid grant is present, not an admin-consent event in particular. This repo
+does not depend on which: it creates the grant DIRECTLY and idempotently
+via `azuread_service_principal_delegated_permission_grant` (all users,
+`user_object_id` omitted), which is functionally an admin-consent grant, so
+no separate consent step or user prompt is needed at all.
+
 **Audience validation at two layers**, both enforced by Easy Auth
 (`auth_settings_v2`), not application code: the server's Function App
 validates the inbound token's audience is the server app

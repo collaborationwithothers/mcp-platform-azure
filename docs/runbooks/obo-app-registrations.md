@@ -139,6 +139,17 @@ path is **not** gated. It is covered at two levels instead:
    acquires a genuine delegated token and exercises the delegated branch end to
    end, capturing the evidence below.
 
+**Coverage split, stated plainly (issue-10 governance finding).** The automated
+live gate authenticates with a client-credentials (app-only) token, so it
+exercises ONLY the **app-context** branch and, with it, the resolver's
+detection of the `roles` claim form inside `X-MS-CLIENT-PRINCIPAL`. The
+**delegated `scp`** claim-type detection -- and whether that claim appears as
+the short `scp` name or a mapped schema URI (UNVERIFIABLE on Learn;
+COMPATIBILITY.md) -- is confirmed ONLY by this manual demo, never by the
+automated gate. The resolver already matches both forms, so it is robust either
+way, but the delegated form is a live-observed fact this manual run is the only
+thing that closes. Capture the observed claim form in the evidence below.
+
 ### Manual demo procedure (device-code flow)
 
 Use the **device-code flow** with a dedicated **sandbox test user** (a

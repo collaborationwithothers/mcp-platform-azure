@@ -23,6 +23,15 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/McpTools/McpTools.csproj" />
+    <!--
+      Test-only reference to the downstream app, purely so FixtureParityTests can
+      compare the two deliberately-duplicated synthetic fixtures and fail on
+      drift. This does NOT breach the production "downstream owns its own
+      fixture, no shared project reference" boundary (see both SyntheticOrders
+      files): it is a test asserting the boundary's data stays in step, not
+      production code sharing it.
+    -->
+    <ProjectReference Include="../../src/DownstreamOrdersApi/DownstreamOrdersApi.csproj" />
   </ItemGroup>
 
 </Project>
