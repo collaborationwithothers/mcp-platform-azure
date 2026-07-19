@@ -168,3 +168,20 @@ jobs:
           if [ "$test_found" = "false" ]; then
             echo "No test projects found under src/**/tests; nothing to test."
           fi
+
+  # NOT a required status check (the two required checks are terraform-checks and
+  # dotnet-build; their names must stay stable). This job enforces the MCP config
+  # parity rule between .mcp.json and .codex/config.toml (AGENTS.md > MCP servers
+  # and config parity). Hari may promote it to a required check in branch
+  # protection if desired. Dependency-free: uses the runner's Python 3 stdlib
+  # (tomllib needs >= 3.11; ubuntu-latest ships >= 3.12).
+  mcp-parity:
+    name: mcp-parity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: check-mcp-parity
+        shell: bash
+        run: python3 scripts/check-mcp-parity
