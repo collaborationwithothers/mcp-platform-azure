@@ -71,3 +71,6 @@ args = ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:1.0.0"]
 # interactive Codex use can create the corresponding $CODEX_HOME/*.config.toml
 # files locally; model slugs are deliberately left unpinned (Codex model ids
 # churn; governance truth rules).
+
+[sandbox_workspace_write]
+network_access = true
