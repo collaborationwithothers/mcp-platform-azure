@@ -15,6 +15,16 @@
 #                                   use "never" for non-interactive runs)
 #   -c sandbox_workspace_write.network_access=true ... gh needs network egress
 #
+# Model: intentionally NOT pinned here (no -m/-c model). The implementation
+# model resolves to the operator's ~/.codex/config.toml default, else Codex's
+# built-in default (the latest frontier coding model). This is deliberate: Codex
+# model slugs churn (governance truth rules), so an unpinned loop auto-tracks the
+# best available coding model with no rot to maintain, and Codex's only automated
+# role is this implementation loop (governance review is Claude/Opus-only). An
+# operator who wants a fixed model can add `-m <slug>` to the exec line below or
+# set `model` in ~/.codex/config.toml. See COMPATIBILITY.md (Codex/Claude interop
+# freshness) for the quarterly re-verify.
+#
 # Usage: .codex/loop.sh
 set -euo pipefail
 
