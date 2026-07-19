@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Azure Functions .NET isolated-worker synthetic downstream Orders API
+    (issue 10: OBO thickening). A plain HTTP-triggered service, independent
+    of McpTools: its own Entra app registration and audience, no MCP
+    extension. Hosted by a second instantiation of the mcp-function-host
+    module (infra/terraform/scenarios/s1-entra-mcp-server), Easy Auth-gated
+    with allowed_audiences = [downstream app id URI] only, so a token minted
+    for the MCP server app is rejected here (the negative test in
+    tests/integration/obo-passthrough-negative.ps1).
+    Package pins verified 2026-07-18 (see COMPATIBILITY.md):
+      - Microsoft.Azure.Functions.Worker.Extensions.Http 3.3.0 (GA)
+    Worker/Worker.Sdk pinned to the same versions as McpTools.csproj
+    (verified 2026-07-12) for toolchain consistency within one solution.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DownstreamOrdersApi</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http" Version="3.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="host.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

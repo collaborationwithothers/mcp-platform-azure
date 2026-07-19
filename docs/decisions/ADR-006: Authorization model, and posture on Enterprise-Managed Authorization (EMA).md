@@ -191,6 +191,250 @@ only against the root authority, a second server needs hostname-per-server
 (or stays on its own gateway); if clients have gained path-suffix support,
 the path-suffixed router becomes available.
 
+## OBO exchange: confused deputy, audience validation, and the inbound-token gap (issue 10)
+
+Added 2026-07-18 recording the reasoning from the OBO thickening ticket
+(ticket 6, issue 10). This section refines the "OBO (never token
+passthrough)" line in the Decision above; it does not change the decision.
+
+### OBO vs token passthrough: the confused-deputy mechanic
+
+Token passthrough (the server forwarding the client's own inbound token,
+unchanged, to a downstream API) is forbidden because it creates a confused
+deputy: the downstream cannot tell "the server acting on behalf of THIS
+specific user, with THIS specific consent" from "the server reusing
+whatever token it happened to receive." The inbound token's audience is the
+MCP server app, not the downstream; if the downstream trusted it anyway
+(no audience check, or a shared audience across services), any caller
+holding a valid server-audience token could reach the downstream, without
+the downstream ever being party to a consent decision about that caller.
+
+OBO closes this by minting a NEW token: the server presents the inbound
+token as a `user_assertion` to Entra's token endpoint, along with its own
+credential (docs/runbooks/obo-app-registrations.md, step 3) and a scope on
+the downstream (step 2's consent grant), and receives back a token whose
+audience is the downstream app, issued only because Entra checked (a) the
+inbound token is valid, (b) the server has been granted delegated
+permission to call the downstream on this user's behalf, and (c) the
+federated credential correctly identifies the server as the confidential
+client it claims to be. The downstream never sees the client's original
+token at all.
+
+That delegated grant in (b) does not have to come from admin consent
+specifically: Microsoft's OBO consent model documents three valid ways it
+can exist -- admin consent, per-user combined consent (via
+`knownClientApplications` + the `.default` scope), or the downstream
+preauthorizing the middle-tier app -- and OBO succeeds as long as SOME
+valid grant is present, not an admin-consent event in particular. This repo
+does not depend on which: it creates the grant DIRECTLY and idempotently
+via `azuread_service_principal_delegated_permission_grant` (all users,
+`user_object_id` omitted), which is functionally an admin-consent grant, so
+no separate consent step or user prompt is needed at all.
+
+**Audience validation at two layers**, both enforced by Easy Auth
+(`auth_settings_v2`), not application code: the server's Function App
+validates the inbound token's audience is the server app
+(`entra_auth.allowed_audiences`, unchanged since the tracer); the downstream
+Orders API's Function App independently validates the OBO-exchanged token's
+audience is the downstream app (`downstream_entra_auth.allowed_audiences`,
+scoped to ONLY that app). These are two separate Easy Auth configurations on
+two separate Function App instances (infra/terraform/scenarios/
+s1-entra-mcp-server reuses `mcp-function-host` for both), not one shared
+audience list -- which is what makes token passthrough a MEASURED failure
+mode rather than an assumed one: a server-audience token presented directly
+to the downstream is rejected by the platform's own audience check, before
+any of this repo's code runs (the negative test,
+tests/integration/obo-passthrough-negative.ps1).
+
+### Testing strategy: the user-context token problem (spec: Testing Decisions knock-on)
+
+The ticket's own "Verified facts" flagged this at issue start: the live
+gate's existing non-interactive caller acquires a client-credentials token,
+which is app-only (no user), so it cannot drive a real OBO exchange (OBO's
+`user_assertion` parameter needs a delegated, user-context token).
+azure-docs-verifier confirmed on 2026-07-18 that no GA, non-interactive,
+CLAUDE.md-compliant mechanism exists to acquire one in unattended CI:
+
+- ROPC (resource-owner password) is still technically supported but
+  Microsoft Learn documents it as discouraged, incompatible with MFA and
+  Conditional Access, and it would require storing a real user's password
+  as a CI credential -- itself the kind of secret CLAUDE.md forbids.
+- Device code flow requires a human to complete an interactive sign-in on a
+  second device; it is not headless-automatable by design.
+- Every fully non-interactive, GA mechanism (client credentials, managed
+  identity, workload identity federation) produces an app-only token, never
+  a delegated one.
+
+**Decision and posture:** the OBO happy path (a real delegated token
+successfully round-tripping through the downstream) is validated MANUALLY
+in the live-test environment -- a human acquires a genuine user token (e.g.
+interactive sign-in via VS Code, or `az login` plus `az account
+get-access-token` against the server app's scope) and exercises
+get_order_status, with the result recorded in docs/demos. This mirrors the
+precedent issue 9 already set for interactive discovery (see "What the live
+interactive trace showed" above: full interactive validation deferred to a
+human-run trace, not force-fitted into the automated gate). The AUTOMATED
+live gate covers only the negative test (audience-mismatch rejection),
+which needs no user context at all -- the existing client-credentials token
+is sufficient to prove passthrough is closed.
+
+### OBO exchange: the inbound-token gap and its correction
+
+Ticket 10 was designed on the assumption that `GetOrderStatus.Run` (an
+Azure Functions MCP extension `McpToolTrigger`-bound function) could read
+the caller's inbound bearer token and use it as OBO's `user_assertion`.
+The sequence below matters and is recorded AS a sequence, per this ADR's
+own established convention (see "What the live interactive trace showed,
+issue 9" above): the order of evidence is the argument, and a wrong
+intermediate step is not flattened out of the record just because a later
+step corrected it.
+
+1. **First verification pass concluded REFUTED, three independent ways.**
+   azure-docs-verifier's first 2026-07-18 pass checked `ToolInvocationContext`
+   (the type `[McpToolTrigger]`-bound functions receive) against the
+   extension's own GitHub source and Microsoft Learn, and reported: the
+   type's documented surface exposes only `Name`, `Arguments`, `SessionId`,
+   `Transport`; a single Azure Functions method may declare exactly one
+   trigger attribute, so `McpToolTrigger` cannot be paired with `HttpTrigger`
+   to reach `HttpRequestData`; and the isolated-worker ASP.NET Core
+   integration hosting model does not expose its middleware pipeline to
+   non-HttpTrigger bindings. This shipped in an earlier revision of this
+   PR: `GetOrderStatus.Run` served the in-memory fixture unchanged, with the
+   gap documented here, in security.md, and in COMPATIBILITY.md.
+
+2. **The REFUTED conclusion was wrong -- a reviewer caught it.** The
+   `Transport` property that step 1 noted but did not further inspect
+   is not a dead end: `Microsoft.Azure.Functions.Worker.Extensions.Mcp`
+   ships a separate static class, `ToolInvocationContextExtensions`
+   (a sibling file to `ToolInvocationContext.cs`, not nested inside it --
+   the reason step 1's browse missed it), with
+   `TryGetHttpTransport(ToolInvocationContext, out HttpTransport)`, and
+   `HttpTransport` (a `Transport` subtype) exposes a `Headers` dictionary.
+   This was confirmed directly by reflecting the installed 1.5.1 assembly
+   (not a doc page, not training data -- the literal DLL in the NuGet
+   cache), then independently re-verified against Microsoft Learn and the
+   official `Azure-Samples/remote-mcp-functions-dotnet` sample
+   (`HelloToolWithAuth.cs`), which does exactly this for exactly an OBO
+   downstream call: reads `X-MS-TOKEN-AAD-ACCESS-TOKEN` first, falls back
+   to the raw `Authorization` header, and exchanges it via
+   `OnBehalfOfCredential`.
+
+3. **Two caveats the correction carries, both recorded rather than
+   asserted as platform guarantees.** First, whether the client's original
+   `Authorization` header reaches the app unmodified through Easy Auth is
+   sample-derived behaviour (the official sample's fallback path implies
+   it), not a stated Microsoft Learn platform contract -- `X-MS-TOKEN-AAD-
+   ACCESS-TOKEN` is the documented mechanism, and it requires the token
+   store explicitly enabled (COMPATIBILITY.md). Second, `TryGetHttpTransport`
+   returns `bool` because the transport can be something other than HTTP:
+   the extension exposes two transports (Streamable HTTP at
+   `/runtime/webhooks/mcp`, and the deprecated SSE at
+   `/runtime/webhooks/mcp/sse`, which relies on an Azure Queue Storage-backed
+   session backplane), and there is no host.json setting to pin the
+   transport -- it is purely a function of which endpoint URL the client
+   connects to, per session. The extension's own type model represents SSE
+   invocations as `HttpTransport` too (tagged `Type =
+   HttpTransportType.ServerSentEvents`, not a separate non-HTTP class), so
+   the specific failure mode "SSE routes through a queue and `Transport`
+   becomes non-HTTP" is not supported by the source -- but header
+   availability for SSE specifically was not confirmed at runtime either.
+   This repo's tracer targets Streamable HTTP only (matching
+   apim-mcp-server's `mcpProperties.transportType = streamable` on the
+   gateway side); `GetOrderStatus.Run` throws if no token-bearing header is
+   found, so an SSE-routed request that lacked headers would fail loudly,
+   not silently.
+
+**Decision and posture (issue 10, corrected):** `GetOrderStatus.Run` DOES
+call the OBO exchange in its live path. The caller's inbound token is
+extracted via `TryGetHttpTransport` -> `HttpTransport.Headers`
+(token-store header first, `Authorization` fallback), exchanged via
+`McpTools.Downstream.DownstreamOrdersClient` /
+`ManagedIdentityOboTokenAcquirer` (the certificateless federated-credential
+confidential client), and the downstream's typed response is mapped onto
+get_order_status's frozen contract. The federated identity credential and
+the OBO consent grant are Terraform-managed
+(`infra/terraform/scenarios/s1-entra-mcp-server/main.tf`, the `azuread`
+provider), re-created every ephemeral run rather than a one-time manual
+step, because the Function App's system-assigned identity's principal id
+differs every apply.
+
+This does NOT resolve the separate "Testing strategy" problem above: CI
+still cannot acquire a genuine delegated user token, so the OBO HAPPY PATH
+still cannot be exercised by the automated live gate -- that is a different
+constraint (no non-interactive delegated-token mechanism exists in Entra)
+from the one this section corrects (whether the header is reachable at
+all). The automated gate continues to cover only the negative test.
+
+### Trigger
+
+Re-verify header availability for the SSE transport specifically (step 3's
+open caveat) if a future issue needs SSE support, or if Microsoft Learn or
+the Functions MCP extension's samples publish guidance either way. Re-verify
+the `Authorization`-header-passthrough behaviour (also step 3) against
+Microsoft Learn if a documented statement appears, since it is currently
+sample-derived, not a stated platform contract.
+
+## Identity-mode branching and fail-closed header trust (issue 10, amended)
+
+Added 2026-07-18 (same day, amending the correction above). The "inbound-token
+gap" section concluded `GetOrderStatus.Run` calls the OBO exchange in its live
+path. That is now refined: `Run` calls OBO **only for delegated callers**, and
+the decision is recorded here AS the next step in the chronology, not flattened
+into the prior section.
+
+### Why branch at all
+
+The live gate's non-interactive caller holds a **client-credentials** token,
+which is app-only (a `roles` app-role claim, no `scp` scope claim, no user).
+That token cannot drive an OBO exchange -- OBO's `user_assertion` needs a
+delegated, user-context token. An always-OBO `Run` would therefore FAIL the
+gate's own happy path the first time it ran live (it never had, per the PR).
+So the tool must distinguish the two caller shapes:
+
+- **Delegated (`scp` present):** a real user context -> source from the
+  downstream via OBO (the sanctioned path above).
+- **App-context (`roles` present, no `scp`):** an app-only caller with no user
+  to act for -> serve from the in-memory fixture, a **documented interim**
+  until the workload-identity hardening issue. This is honestly a weaker
+  posture (see the backstop asymmetry below), chosen because the alternative
+  (an app-only token forced through a user-context flow) does not exist.
+
+The mode decision lives in one testable component
+(`McpTools.Identity.IdentityModeResolver`), decided from the Easy-Auth-injected
+`X-MS-CLIENT-PRINCIPAL` claims, not inline in the tool.
+
+### The header trust chain, and why the code does not validate signatures
+
+The server deliberately does **not** perform full in-code JWT signature
+validation. It relies on a layered chain and asserts (rather than re-checks)
+the upstream parts: APIM validates the token at the gateway; Easy Auth
+validates it again on the Function App and, when enabled, **strips
+client-supplied `X-MS-*` headers before injecting its own** decoded
+`X-MS-CLIENT-PRINCIPAL`; the code then does claims-based authorization on that
+trusted header. Two fail-closed checks make this sound:
+
+- **Startup (`BuiltInAuthGuard`):** in any non-`Development` environment, refuse
+  to start unless a built-in-auth signal is present (`WEBSITE_AUTH_ENABLED`, or
+  the documented v2 `WEBSITE_AUTH_V2_CONFIG_JSON`). Without this, a host with
+  Easy Auth accidentally off would trust a header a caller could forge.
+- **Per-request:** reject any request whose `X-MS-CLIENT-PRINCIPAL` is missing
+  or malformed. This is **only sound in combination with the startup check** --
+  the header is trustworthy only because enabled Easy Auth strips forged
+  copies, which the startup check guarantees.
+
+**Backstop asymmetry, stated plainly.** The delegated branch has an
+Entra-exchange backstop: a forged/invalid assertion is rejected at the OBO
+token endpoint, so a bad delegated request fails at the exchange. The
+app-context branch has **no** such backstop -- it serves the fixture on the
+strength of the `roles` claim alone, resting entirely on the trust chain. That
+asymmetry is a further reason the app-context/fixture path is an interim.
+
+Note on the delegated-token strings: the exact `scp`/`roles` claim-type strings
+inside `X-MS-CLIENT-PRINCIPAL` are UNVERIFIABLE on Microsoft Learn (Easy Auth
+applies a claims mapping), so the resolver matches both the short and the
+schema-URI forms and the actual form is confirmed by a live trace, not asserted
+(COMPATIBILITY.md; docs/security.md).
+
 ## Alternatives considered
 
 - Implement EMA now against Okta: rejected for v1; adds a non-Azure IdP

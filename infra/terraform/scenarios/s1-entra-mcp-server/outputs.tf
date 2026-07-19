@@ -21,6 +21,16 @@ output "mcp_backend_base_url" {
 
 output "identity_principal_id" {
   value       = module.mcp_function_host.identity_principal_id
-  description = "Principal ID of the Function App's system-assigned managed identity. Unused in the tracer (no downstream call); present for the OBO issue."
+  description = "Principal ID of the Function App's system-assigned managed identity. Issue 10: the out-of-band runbook step (docs/runbooks/obo-app-registrations.md) federates this identity onto the server app registration as a client-assertion credential source, so the OBO exchange authenticates with no stored secret."
   sensitive   = true
+}
+
+output "downstream_function_app_name" {
+  value       = module.downstream_orders_api.function_app_name
+  description = "Name of the downstream Orders API's Function App. Issue 10: the live-test gate deploys src/DownstreamOrdersApi here, the same config-zip pattern used for the MCP server."
+}
+
+output "downstream_base_url" {
+  value       = module.downstream_orders_api.base_url
+  description = "Base URL of the downstream Orders API. Issue 10: tests/integration/obo-passthrough-negative.ps1 calls <downstream_base_url>/api/orders/<id> directly with the MCP server's token to prove passthrough is rejected."
 }

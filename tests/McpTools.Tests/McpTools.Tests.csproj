@@ -2,8 +2,10 @@
 
   <!--
     In-process unit tests for the tool logic (spec: Testing Decisions, "unit
-    seam"). These test GetOrderStatus.Resolve directly, with no Azure Functions
-    host and no Azure dependency. Package pins verified 2026-07-12.
+    seam"), with no Azure Functions host and no Azure dependency: the
+    identity-mode decision, the tool's mode branching, the app-context fixture
+    path, the OBO exchange client, and the startup auth guard. Package pins
+    verified 2026-07-12.
   -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -21,6 +23,15 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/McpTools/McpTools.csproj" />
+    <!--
+      Test-only reference to the downstream app, purely so FixtureParityTests can
+      compare the two deliberately-duplicated synthetic fixtures and fail on
+      drift. This does NOT breach the production "downstream owns its own
+      fixture, no shared project reference" boundary (see both SyntheticOrders
+      files): it is a test asserting the boundary's data stays in step, not
+      production code sharing it.
+    -->
+    <ProjectReference Include="../../src/DownstreamOrdersApi/DownstreamOrdersApi.csproj" />
   </ItemGroup>
 
 </Project>

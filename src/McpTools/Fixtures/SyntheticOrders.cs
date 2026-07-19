@@ -1,16 +1,21 @@
 namespace McpTools.Fixtures;
 
 /// <summary>
-/// The fixed, in-memory order fixture the tracer's single tool serves from.
+/// The fixed, in-memory order fixture the app-context branch of get_order_status
+/// serves from (issue 10: delegated callers are sourced from the downstream via
+/// OBO, app-context callers from this fixture as a documented interim until the
+/// workload-identity hardening issue; see src/README.md and
+/// McpTools.Tools.GetOrderStatus).
 ///
-/// The data is SYNTHETIC demo data. It is not derived from any real system and
-/// the tool never calls anything downstream to obtain it (see the v1 spec:
-/// "Compute and the tool (S1)"). Ids run CONTOSO-1001 to CONTOSO-1005; every
-/// other id is a deterministic not-found.
+/// The data is SYNTHETIC demo data. It is not derived from any real system.
+/// Ids run CONTOSO-1001 to CONTOSO-1005; every other id is a deterministic
+/// not-found.
 ///
 /// Timestamps are hard-coded ISO 8601 UTC strings so the tool result is
 /// reproducible: unit tests assert exact values and must not depend on the
-/// wall clock.
+/// wall clock. These values are kept in step with the downstream Orders API's
+/// own fixture (src/DownstreamOrdersApi/Fixtures/SyntheticOrders.cs) so the two
+/// data sources present the same synthetic orders.
 /// </summary>
 public static class SyntheticOrders
 {

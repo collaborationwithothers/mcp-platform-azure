@@ -146,6 +146,17 @@ jobs:
           dotnet publish src/McpTools/McpTools.csproj -c Release -o "${publish_dir}"
           ( cd "${publish_dir}" && zip -r "${{ github.workspace }}/mcptools.zip" . )
 
+      # Issue 10 (OBO thickening): the synthetic downstream Orders API needs
+      # deployed code for the negative test to have anything to reject a
+      # request against. Same pattern as the McpTools package above.
+      - name: Build and package the downstream Orders API (DownstreamOrdersApi)
+        shell: bash
+        run: |
+          set -euo pipefail
+          publish_dir="${{ github.workspace }}/publish/downstreamordersapi"
+          dotnet publish src/DownstreamOrdersApi/DownstreamOrdersApi.csproj -c Release -o "${publish_dir}"
+          ( cd "${publish_dir}" && zip -r "${{ github.workspace }}/downstreamordersapi.zip" . )
+
       - name: Compute ephemeral resource group name and expiry tag
         id: rg
         shell: bash
@@ -236,7 +247,35 @@ jobs:
                   --name "${func_name}" \
                   --src "${{ github.workspace }}/mcptools.zip"; do
             if [ "${SECONDS}" -ge "${deploy_deadline}" ]; then
-              echo "::error::config-zip deploy did not succeed within 600s; the Flex deployment-storage identity/RBAC never became usable (see the MSITokenUnavailableException in this step's log)."
+              echo "::error::config-zip deploy did not succeed within 300s; the Flex deployment-storage identity/RBAC never became usable (see the MSITokenUnavailableException in this step's log)."
+              exit 1
+            fi
+            echo "Deploy attempt ${attempt} failed (likely deployment-storage identity/RBAC not yet propagated); retrying in 30s."
+            attempt=$(( attempt + 1 ))
+            sleep 30
+          done
+
+      # Issue 10 (OBO thickening): deploy the downstream Orders API to its
+      # own Flex Consumption app (a second mcp-function-host instance in the
+      # same s1 apply above). Identical config-zip / retry rationale as the
+      # McpTools deploy step: this instance also pins deployment storage to
+      # its own user-assigned identity.
+      - name: Deploy the downstream Orders API to its Flex Consumption app
+        working-directory: infra/terraform/scenarios/s1-entra-mcp-server
+        shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
+        run: |
+          set -euo pipefail
+          downstream_func_name="$(terraform output -raw downstream_function_app_name)"
+          deploy_deadline=$(( SECONDS + 300 ))
+          attempt=1
+          until az functionapp deployment source config-zip \
+                  --resource-group "${TF_VAR_resource_group_name}" \
+                  --name "${downstream_func_name}" \
+                  --src "${{ github.workspace }}/downstreamordersapi.zip"; do
+            if [ "${SECONDS}" -ge "${deploy_deadline}" ]; then
+              echo "::error::config-zip deploy did not succeed within 300s for the downstream Orders API (see the McpTools deploy step's MSITokenUnavailableException note; same mechanism applies here)."
               exit 1
             fi
             echo "Deploy attempt ${attempt} failed (likely deployment-storage identity/RBAC not yet propagated); retrying in 30s."
@@ -337,6 +376,10 @@ jobs:
           backend_base="$(terraform -chdir="$s1_dir" output -raw mcp_backend_base_url)"
           backend_mcp_url="${backend_base%/}/runtime/webhooks/mcp"
           func_name="$(terraform -chdir="$s1_dir" output -raw function_app_name)"
+          # Issue 10 (OBO thickening): the downstream Orders API's order-status
+          # URL for the passthrough negative test.
+          downstream_base="$(terraform -chdir="$s1_dir" output -raw downstream_base_url)"
+          downstream_order_status_url="${downstream_base%/}/api/orders/CONTOSO-1001"
           # entra_validation identity values (non-secret ids) from the s2 tfvars.
           audience="$(jq -r '.entra_validation.audience' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
           tenant_id="$(jq -r '.entra_validation.tenant_id' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
@@ -401,6 +444,7 @@ jobs:
             -ClientId "$client_id" \
             -ClientSecret "$TEST_CLIENT_SECRET" \
             -ServerName "$server_name" \
+            -DownstreamOrderStatusUrl "$downstream_order_status_url" \
             -McpExtensionKey "${mcp_ext_key:-}"
 
       # Always upload whatever PRM evidence was captured above, even when the

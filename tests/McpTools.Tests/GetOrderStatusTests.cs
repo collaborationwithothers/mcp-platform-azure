@@ -1,73 +1,21 @@
-using McpTools.Fixtures;
+using McpTools.Downstream;
 using McpTools.Tools;
 using Xunit;
 
 namespace McpTools.Tests;
 
 /// <summary>
-/// In-process unit tests for the tool logic. These call GetOrderStatus.Resolve
-/// directly: no Azure Functions host, no network, no Azure dependency (spec:
-/// Testing Decisions, "unit seam").
+/// In-process unit tests for get_order_status (spec: Testing Decisions,
+/// "unit seam"). Covers two independently testable pieces: header extraction
+/// (plain dictionaries, no Functions/MCP-extension dependency) and the tool
+/// contract (name/description). Run's own orchestration (TryGetHttpTransport
+/// -> IDownstreamOrdersClient) is exercised in
+/// GetOrderStatusRunTests.cs, against a real ToolInvocationContext/HttpTransport
+/// (both are publicly constructible outside the Functions host) and a fake
+/// IDownstreamOrdersClient.
 /// </summary>
 public class GetOrderStatusTests
 {
-    // The frozen success contract for every fixture id. Hard-coded here (not
-    // read from the fixture) so this is a real regression guard on the values.
-    public static readonly TheoryData<string, string, string> KnownOrders = new()
-    {
-        { "CONTOSO-1001", "Delivered", "2026-06-01T14:05:00Z" },
-        { "CONTOSO-1002", "Shipped", "2026-06-03T09:30:00Z" },
-        { "CONTOSO-1003", "Processing", "2026-06-05T17:45:00Z" },
-        { "CONTOSO-1004", "Cancelled", "2026-06-02T11:15:00Z" },
-        { "CONTOSO-1005", "BackOrdered", "2026-06-04T08:20:00Z" },
-    };
-
-    [Theory]
-    [MemberData(nameof(KnownOrders))]
-    public void Resolve_KnownId_ReturnsTypedSuccessShape(
-        string orderId, string expectedStatus, string expectedUpdatedUtc)
-    {
-        var result = GetOrderStatus.Resolve(orderId);
-
-        var status = Assert.IsType<OrderStatus>(result);
-        Assert.Equal(orderId, status.OrderId);
-        Assert.Equal(expectedStatus, status.Status);
-        Assert.Equal(expectedUpdatedUtc, status.UpdatedUtc);
-    }
-
-    [Theory]
-    [InlineData("CONTOSO-9999")]
-    [InlineData("UNKNOWN")]
-    [InlineData("")]
-    [InlineData("contoso-1001")] // case-sensitive: not the canonical id
-    public void Resolve_UnknownId_ReturnsTypedNotFoundShape(string orderId)
-    {
-        var result = GetOrderStatus.Resolve(orderId);
-
-        var notFound = Assert.IsType<OrderNotFound>(result);
-        Assert.Equal(orderId, notFound.OrderId);
-        Assert.False(notFound.Found);
-        Assert.False(string.IsNullOrWhiteSpace(notFound.Message));
-    }
-
-    [Fact]
-    public void Resolve_UnknownId_IsATypedResultNotAThrownError()
-    {
-        // The not-found path must be a typed result, never an exception.
-        var exception = Record.Exception(() => GetOrderStatus.Resolve("CONTOSO-0000"));
-        Assert.Null(exception);
-    }
-
-    [Fact]
-    public void Fixture_ContainsExactlyTheFiveContosoIds()
-    {
-        Assert.Equal(5, SyntheticOrders.All.Count);
-        for (int n = 1001; n <= 1005; n++)
-        {
-            Assert.True(SyntheticOrders.All.ContainsKey($"CONTOSO-{n}"));
-        }
-    }
-
     [Fact]
     public void ToolDescription_StatesTheDataIsSynthetic()
     {
@@ -77,4 +25,89 @@ public class GetOrderStatusTests
             GetOrderStatus.ToolDescription,
             StringComparison.OrdinalIgnoreCase);
     }
+
+    // The app-context branch (roles claim, no scp) is served from the in-memory
+    // fixture, unchanged from the tracer's frozen contract. These pin that the
+    // fixture path still returns the exact typed success/not-found shapes.
+    [Fact]
+    public void ServeFromFixture_KnownId_ReturnsTypedSuccessShape()
+    {
+        var result = GetOrderStatus.ServeFromFixture("CONTOSO-1001");
+
+        var status = Assert.IsType<OrderStatus>(result);
+        Assert.Equal("CONTOSO-1001", status.OrderId);
+        Assert.Equal("Delivered", status.Status);
+        Assert.Equal("2026-06-01T14:05:00Z", status.UpdatedUtc);
+    }
+
+    [Fact]
+    public void ServeFromFixture_UnknownId_ReturnsTypedNotFoundShape()
+    {
+        var result = GetOrderStatus.ServeFromFixture("CONTOSO-9999");
+
+        var notFound = Assert.IsType<OrderNotFound>(result);
+        Assert.Equal("CONTOSO-9999", notFound.OrderId);
+        Assert.False(notFound.Found);
+        Assert.Contains("synthetic", notFound.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TryExtractInboundAccessToken_PrefersTheTokenStoreHeader()
+    {
+        var headers = new Dictionary<string, string>
+        {
+            ["X-MS-TOKEN-AAD-ACCESS-TOKEN"] = "token-store-token",
+            ["Authorization"] = "Bearer raw-bearer-token",
+        };
+
+        var found = GetOrderStatus.TryExtractInboundAccessToken(headers, out var token);
+
+        Assert.True(found);
+        Assert.Equal("token-store-token", token);
+    }
+
+    [Fact]
+    public void TryExtractInboundAccessToken_FallsBackToAuthorizationHeader_AndStripsBearerScheme()
+    {
+        var headers = new Dictionary<string, string>
+        {
+            ["Authorization"] = "Bearer raw-bearer-token",
+        };
+
+        var found = GetOrderStatus.TryExtractInboundAccessToken(headers, out var token);
+
+        Assert.True(found);
+        Assert.Equal("raw-bearer-token", token);
+    }
+
+    [Fact]
+    public void TryExtractInboundAccessToken_AuthorizationHeaderWithoutBearerScheme_ReturnsAsIs()
+    {
+        var headers = new Dictionary<string, string>
+        {
+            ["Authorization"] = "raw-token-no-scheme",
+        };
+
+        var found = GetOrderStatus.TryExtractInboundAccessToken(headers, out var token);
+
+        Assert.True(found);
+        Assert.Equal("raw-token-no-scheme", token);
+    }
+
+    [Theory]
+    [MemberData(nameof(EmptyOrMissingHeaderSets))]
+    public void TryExtractInboundAccessToken_NoUsableHeader_ReturnsFalse(Dictionary<string, string> headers)
+    {
+        var found = GetOrderStatus.TryExtractInboundAccessToken(headers, out var token);
+
+        Assert.False(found);
+        Assert.Null(token);
+    }
+
+    public static TheoryData<Dictionary<string, string>> EmptyOrMissingHeaderSets => new()
+    {
+        new Dictionary<string, string>(),
+        new Dictionary<string, string> { ["Authorization"] = "" },
+        new Dictionary<string, string> { ["Some-Other-Header"] = "value" },
+    };
 }

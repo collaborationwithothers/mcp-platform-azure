@@ -18,23 +18,54 @@ The Azure Functions .NET isolated-worker MCP server (ADR-002). It exposes a
 single synthetic tool, `get_order_status`, using the Azure Functions MCP
 extension tool trigger.
 
-- `Tools/GetOrderStatus.cs` - the tool. The `[McpToolTrigger]` method delegates
-  immediately to a pure, host-independent `Resolve(string orderId)` method so
-  the tool logic is unit-testable with no Functions host. Two typed result
-  shapes:
-  - known id  -> `{ orderId, status, updatedUtc }`
-  - unknown id -> `{ orderId, found: false, message }` (a typed result, never a
-    thrown error)
+The tool contract is frozen at v1; only its data source varies, and it varies
+by caller identity mode (issue 10, OBO thickening). The two typed result shapes
+are unchanged:
+- known id  -> `{ orderId, status, updatedUtc }`
+- unknown id -> `{ orderId, found: false, message }` (a typed result, never a
+  thrown error)
+
+- `Identity/` - the identity-mode decision, kept out of the tool so it is
+  unit-testable in isolation:
+  - `ClientPrincipal.cs` - parses the Base64 JSON `X-MS-CLIENT-PRINCIPAL`
+    header Easy Auth injects on every request it validates.
+  - `IdentityModeResolver.cs` - decides the mode from that header's claims:
+    - an `scp` claim -> **Delegated** (a user-context caller): sourced from the
+      synthetic downstream Orders API via the Entra On-Behalf-Of exchange.
+    - a `roles` claim and no `scp` -> **App-context** (a client-credentials,
+      app-only caller): served from the in-memory fixture.
+    - missing / malformed / neither-claim -> a fail-closed rejection.
+- `Tools/GetOrderStatus.cs` - the tool. `Run` resolves the mode, then branches
+  to the OBO downstream (`Downstream/`) or `ServeFromFixture`. The pure,
+  host-independent pieces (`ServeFromFixture`, `TryExtractInboundAccessToken`)
+  are unit-tested with no Functions host.
+- `Downstream/` - the OBO exchange and the downstream Orders API client (the
+  Delegated path). The server never forwards the inbound token; it exchanges
+  it for a downstream-audience token (docs/decisions/ADR-006).
 - `Fixtures/SyntheticOrders.cs` - the fixed in-memory fixture, ids CONTOSO-1001
   to CONTOSO-1005. The data is SYNTHETIC and the tool description says so.
-- `Program.cs` - standard isolated-worker host. The attribute-based tool model
-  needs no MCP-specific host-builder call.
+- `Hosting/BuiltInAuthGuard.cs` - the startup fail-closed check (below).
+- `Program.cs` - isolated-worker host. Runs `BuiltInAuthGuard` before serving,
+  and wires the OBO exchange via DI.
 
-The tool is self-contained in the tracer: it calls nothing downstream (no HTTP
-client, no outbound call, no downstream TODO). Downstream access arrives only
-with the OBO issue, which reimplements `Resolve` without changing the contract.
+**App-context is a documented interim.** Serving app-context (client-
+credentials) callers from the in-memory fixture rather than through a
+downstream call is a deliberate interim until the workload-identity hardening
+issue: an app-only token has no user to act on behalf of, so it cannot drive an
+OBO exchange (OBO needs a delegated user assertion). The live apply-call-destroy
+gate authenticates with a client-credentials token, so **the gate's
+happy-path exercises exactly this app-context/fixture branch** -- which is why
+it passes against the frozen fixture-served contract without any user-context
+token. The delegated (OBO) path is validated manually; see
+`docs/runbooks/obo-app-registrations.md`, "User-context token strategy."
 
-The tool contract is frozen at v1; only the implementation may change later.
+**Fail-closed header trust.** The server does not re-validate the inbound
+token's signature in code (Easy Auth does). It instead asserts the trust chain
+holds: `BuiltInAuthGuard` refuses to start in any non-`Development` environment
+unless a built-in-auth signal is present, and `Run` rejects any request whose
+`X-MS-CLIENT-PRINCIPAL` header is missing/malformed. See `docs/security.md`,
+"OBO and downstream auth" > "Header trust chain," for why the per-request check
+is only sound in combination with the startup check.
 
 ### McpTestClient (`src/McpTestClient`)
 
@@ -51,10 +82,13 @@ apply-call-destroy gate) fills them in. It reads the target endpoint from the
 
 ### McpTools.Tests (`tests/McpTools.Tests`)
 
-The unit seam: in-process xUnit tests that call `GetOrderStatus.Resolve`
-directly, with no Azure Functions host and no Azure dependency. They cover the
-success path for all five ids, the typed not-found path, and that the tool
-description marks the data synthetic.
+The unit seam: in-process xUnit tests with no Azure Functions host and no Azure
+dependency. They cover the identity-mode decision (`IdentityModeResolverTests`,
+`ClientPrincipalTests`), the tool's mode branching (`GetOrderStatusRunTests`),
+the app-context fixture path and the frozen contract shapes
+(`GetOrderStatusTests`), the OBO exchange never forwarding the inbound token
+(`DownstreamOrdersClientTests`), and the startup fail-closed auth guard
+(`BuiltInAuthGuardTests`).
 
 ## Build and test locally
 

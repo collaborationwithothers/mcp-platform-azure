@@ -65,3 +65,37 @@ variable "app_settings" {
   description = "Additional app settings merged in alongside mcp-function-host's own. Empty by default; the tracer needs none beyond what the module sets."
   default     = {}
 }
+
+# --- Issue 10 (OBO thickening): downstream Orders API, referenced inputs ---
+# The downstream app registration is provisioned out of band, the same
+# pattern as entra_auth above (docs/runbooks/obo-app-registrations.md); no
+# app id or scope value is committed or given a default.
+
+variable "downstream_app" {
+  type = object({
+    client_id = string
+    api_scope = string
+  })
+  description = "The out-of-band downstream (Orders API) app registration, referenced by id: client_id is its application (client) id (also used by the azuread_service_principal_delegated_permission_grant and data \"azuread_service_principal\" \"downstream\" in main.tf), api_scope is the delegated scope the OBO exchange requests (api://<downstream-app-id>/user_impersonation -- the same scope main.tf's azuread_service_principal_delegated_permission_grant admin-consents for the server app; OBO's AcquireTokenOnBehalfOf needs the specific consented delegated scope, not a .default app-only scope). api_scope is wired into the MCP server's DownstreamOrdersApi__Scope app setting, read by McpTools.Downstream.ManagedIdentityOboTokenAcquirer via GetOrderStatus.Run."
+}
+
+variable "downstream_entra_auth" {
+  type = object({
+    tenant_id              = string
+    server_app_client_id   = string
+    allowed_audiences      = list(string)
+    unauthenticated_action = optional(string, "Return401")
+  })
+  description = "Entra built-in auth (Easy Auth) settings for the downstream Orders API's own Function App instance, passed straight through to its mcp-function-host instantiation. allowed_audiences is scoped to ONLY the downstream app (docs/runbooks/obo-app-registrations.md): this is what makes the negative test meaningful (a token minted for the MCP server app has a different audience and is rejected by the platform)."
+}
+
+variable "downstream_storage_account_name" {
+  type        = string
+  description = "Name of the downstream Orders API instance's Flex Consumption deployment storage account. Passed straight through to its mcp-function-host instantiation (existing account by default; see downstream_create_storage_account)."
+}
+
+variable "downstream_create_storage_account" {
+  type        = bool
+  description = "Whether this composition has the downstream instantiation create downstream_storage_account_name (true) or expects it to already exist (false, the default)."
+  default     = false
+}

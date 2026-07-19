@@ -26,6 +26,13 @@
        failure), then poll it authenticated (Azure API Center Data Reader, via
        the workflow's OIDC principal) with a bounded timeout and assert the
        synced server appears.
+    5. Issue 10 (OBO thickening): run the OBO passthrough negative test,
+       reusing the step-1 server-audience token as the inbound token
+       presented directly to the downstream Orders API (tests/integration/
+       obo-passthrough-negative.ps1). This does not exercise the OBO happy
+       path -- see docs/decisions/ADR-006, "OBO exchange: the inbound-token
+       gap" and "Testing strategy: the user-context token problem" for why
+       that is validated manually, not here.
 
   Exits non-zero if the MCP client, the discovery assertions, or the
   authenticated poll fail. The anonymous probe never fails the run; it only
@@ -57,6 +64,9 @@ param(
     # Resource name of the synced MCP server (s2 var server_name); the token the
     # authenticated registry poll asserts is present in the servers list.
     [Parameter(Mandatory)][string]$ServerName,
+    # Issue 10: the downstream Orders API's GET /api/orders/{orderId} URL
+    # (s1 output downstream_base_url + "/api/orders/CONTOSO-1001").
+    [Parameter(Mandatory)][string]$DownstreamOrderStatusUrl,
     [string]$McpExtensionKey = '',
     [string]$McpTestClientProject,
     [string]$RegistryResource = 'https://azure-apicenter.net',
@@ -73,6 +83,7 @@ if ([string]::IsNullOrEmpty($McpTestClientProject)) {
     $McpTestClientProject = Join-Path $repoRoot 'src/McpTestClient/McpTestClient.csproj'
 }
 $discoveryScript = Join-Path $repoRoot 'tests/integration/discovery-assertions.ps1'
+$oboNegativeScript = Join-Path $repoRoot 'tests/integration/obo-passthrough-negative.ps1'
 
 $tokenEndpoint = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
 
@@ -223,5 +234,21 @@ if (-not $found) {
 }
 Write-Host "[4] Registry poll: server '$ServerName' present (authenticated)."
 Write-Host ''
+
+# ---------------------------------------------------------------------------
+# 5. Issue 10: OBO passthrough negative test. Reuses the step-1
+#    server-audience token ($mcpToken) as the inbound token presented
+#    directly to the downstream Orders API. Does not need a delegated/user
+#    token (ADR-006, "Testing strategy: the user-context token problem").
+# ---------------------------------------------------------------------------
+Write-Host "[5] OBO passthrough negative test"
+& $oboNegativeScript `
+    -DownstreamOrderStatusUrl $DownstreamOrderStatusUrl `
+    -InboundServerAudienceToken $mcpToken
+if ($LASTEXITCODE -ne 0) {
+    throw "OBO passthrough negative test failed (exit $LASTEXITCODE)."
+}
+Write-Host ''
+
 Write-Host "== Call stage passed =="
 exit 0

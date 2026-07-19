@@ -105,6 +105,15 @@ npx @modelcontextprotocol/inspector@<pinned-version>
 Point it at `mcp_server_url` and confirm the same challenge -> sign-in ->
 tools/list -> tool-call sequence. Record the version you used and the date.
 
+## Manual walkthrough: OBO happy path (delegated user token)
+
+The delegated OBO round trip the automated gate cannot exercise (a real
+user-context token -> OBO -> downstream) is a separate manual walkthrough with
+its own captured evidence: [`obo-happy-path.md`](obo-happy-path.md). It covers
+the device-code token acquisition (and the `AADSTS7000218` / `AADSTS90023`
+gotchas), the `McpTestClient` call, and the delegated passthrough-closed check.
+First captured 2026-07-19 (see that file).
+
 ## Last-run log
 
 Record each manual interactive-discovery run here (date, tracer deploy, client,

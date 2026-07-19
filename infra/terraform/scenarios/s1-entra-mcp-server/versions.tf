@@ -20,6 +20,10 @@ terraform {
       source  = "azure/azapi"
       version = "~> 2.10"
     }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 3.9"
+    }
   }
 }
 
@@ -49,5 +53,20 @@ provider "azurerm" {
 # block (that is azurerm-specific; verified 2026-07-12 against the azapi
 # provider's own schema reference, not assumed from its OIDC guide example).
 provider "azapi" {
+  use_oidc = true
+}
+
+# Issue 10 (OBO thickening): manages the OBO federated identity credential
+# and delegated-permission consent grant (main.tf). Same OIDC identity as
+# azurerm/azapi above (ARM_CLIENT_ID/ARM_TENANT_ID/ARM_USE_OIDC). The
+# provider's own OIDC guide example shows an empty features block, but that
+# is stale for this pin: azuread 3.9.0 has no features block at all (removed
+# since the v3.0 upgrade; `terraform validate` rejects it as an unsupported
+# block type). This principal needs Microsoft Graph application permissions
+# beyond the ARM roleAssignments/write already documented in
+# docs/runbooks/live-test-gate.md: Application.ReadWrite.All (federated
+# identity credential) and Directory.ReadWrite.All (delegated permission
+# grant), both admin-consented -- see docs/runbooks/obo-app-registrations.md.
+provider "azuread" {
   use_oidc = true
 }

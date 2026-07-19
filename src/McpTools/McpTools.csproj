@@ -5,6 +5,25 @@
     Package pins verified 2026-07-12 (see COMPATIBILITY.md):
       - Microsoft.Azure.Functions.Worker.Extensions.Mcp 1.5.1 (GA/stable)
         requires Worker >= 2.1.0 and Worker.Sdk >= 2.0.2.
+    Package pins verified 2026-07-18 (issue 10, OBO thickening; see
+    COMPATIBILITY.md):
+      - Microsoft.Identity.Client 4.86.1 (GA): AcquireTokenOnBehalfOf.
+      - Microsoft.Identity.Web.Certificateless 4.13.2 (GA):
+        ManagedIdentityClientAssertion, the certificateless federated-
+        credential client assertion (McpTools.Downstream.
+        ManagedIdentityOboTokenAcquirer).
+      - Microsoft.Extensions.Http 10.0.10 (GA): IHttpClientFactory, used by
+        Program.cs to build the HttpClient DownstreamOrdersClient calls the
+        downstream Orders API with.
+      - ToolInvocationContextExtensions.TryGetHttpTransport (part of
+        Microsoft.Azure.Functions.Worker.Extensions.Mcp above, present
+        since 1.0.0 GA): confirmed via assembly reflection AND Microsoft
+        Learn / Azure-Samples/remote-mcp-functions-dotnet re-verification
+        that GetOrderStatus.Run can reach the caller's inbound bearer
+        token. See GetOrderStatus.cs's doc comment and ADR-006, "OBO
+        exchange: confused deputy, audience validation, and the
+        inbound-token gap," for the full chronology (an earlier pass of
+        this ticket wrongly concluded this was unreachable).
   -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -19,6 +38,9 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp" Version="1.5.1" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.86.1" />
+    <PackageReference Include="Microsoft.Identity.Web.Certificateless" Version="4.13.2" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
   </ItemGroup>
 
   <ItemGroup>
