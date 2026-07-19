@@ -215,6 +215,68 @@ an unverified success.
 | Shared tenant id | `downstream_entra_auth.tenant_id` |
 | Live-test OIDC principal's Graph permissions (section 2) | Prerequisite for `s1-entra-mcp-server/main.tf`'s `azuread_application_federated_identity_credential` and `azuread_service_principal_delegated_permission_grant` to apply successfully; no Terraform variable, a Graph-side grant on the deploying principal itself |
 
+## Assembling the `S1_TFVARS_JSON` live-test Environment secret
+
+The s1 composition's tfvars are stored as the `S1_TFVARS_JSON` GitHub
+**Environment** secret (live-test), written to `s1.tfvars.json` and passed to
+`terraform apply -var-file` by `.github/workflows/ephemeral-env.yml`. GitHub
+secrets are replace-only (no patching), so the WHOLE object below is what you
+set. Issue 10 adds the `downstream_*` block to the pre-existing top block.
+
+`resource_group_name` and `location` are NOT in this secret: the workflow
+injects them per run via `TF_VAR_resource_group_name` / `TF_VAR_location`
+(and a `-var-file` entry would override the per-run resource group, which is
+wrong). All ids below are the out-of-band app registrations from sections 1-2
+and `entra-app-registrations.md`; no client secret goes in this object (the
+OBO path is secretless via the federated credential; the gate's separate
+`TEST_CLIENT_SECRET` is its own Environment secret).
+
+```json
+{
+  "name_prefix": "mcp-tracer",
+  "tags": { "expiry": "<ephemeral-expiry-tag-value>" },
+
+  "storage_account_name": "<primary Flex deploy storage acct: 3-24 lowercase alnum>",
+  "create_storage_account": false,
+
+  "entra_auth": {
+    "tenant_id": "<tenant GUID>",
+    "server_app_client_id": "<MCP SERVER app client id>",
+    "allowed_audiences": ["api://<server-app-id>"]
+  },
+  "prm_scope": "api://<server-app-id>/user_impersonation",
+
+  "downstream_app": {
+    "client_id": "<DOWNSTREAM Orders API app client id>",
+    "api_scope": "api://<downstream-app-id>/user_impersonation"
+  },
+  "downstream_entra_auth": {
+    "tenant_id": "<same tenant GUID>",
+    "server_app_client_id": "<DOWNSTREAM app client id>",
+    "allowed_audiences": ["api://<downstream-app-id>"]
+  },
+  "downstream_storage_account_name": "<SECOND Flex deploy storage acct: distinct, 3-24 lowercase alnum>",
+  "downstream_create_storage_account": false
+}
+```
+
+Watch-outs:
+
+- **Two distinct storage accounts.** `storage_account_name` and
+  `downstream_storage_account_name` back two separate Function App instances and
+  cannot be the same account. Set both `create_*` flags to match your existing
+  convention (`false` = must pre-exist; `true` = Terraform creates it).
+- **Same tenant** for both apps (OBO requires it).
+- **`downstream_app.api_scope` must be the specific delegated scope**
+  (`.../user_impersonation`), never a `.default` app-only scope, or OBO's
+  `AcquireTokenOnBehalfOf` cannot request the consented delegated permission.
+- **`downstream_entra_auth.allowed_audiences` is scoped to ONLY the downstream
+  app** (`api://<downstream-app-id>`) -- that disjointness from the MCP server's
+  audience is what makes the passthrough negative test meaningful.
+- Optional keys that default if omitted: `deployment_profile` (`"public-demo"`),
+  `app_settings` (`{}` -- the OBO app settings are injected by `main.tf`, not
+  here), and `unauthenticated_action` inside each auth object (`"Return401"`).
+
 ## What this runbook does NOT need to resolve (already resolved)
 
 An earlier revision of this PR treated the federated identity credential as
