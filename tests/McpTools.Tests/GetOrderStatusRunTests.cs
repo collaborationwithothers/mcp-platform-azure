@@ -5,6 +5,7 @@ using McpTools.Identity;
 using McpTools.Tools;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
 using Microsoft.Extensions.Logging.Abstractions;
+using ModelContextProtocol.Protocol;
 using Xunit;
 
 namespace McpTools.Tests;
@@ -109,20 +110,44 @@ public class GetOrderStatusRunTests
     }
 
     [Fact]
-    public async Task Run_AppContext_WithoutOrdersRead_ThrowsDeterministic403_AndNeverCallsDownstream()
+    public async Task Run_AppContext_WithoutOrdersRead_ReturnsDeterministic403_AndNeverCallsDownstream()
     {
         var fakeClient = new FakeDownstreamOrdersClient(SampleDownstreamStatus);
         var tool = CreateTool(fakeClient);
 
-        var error = await Assert.ThrowsAsync<McpAuthorizationException>(() => tool.Run(
+        var result = await tool.Run(
             ContextWithHeaders(AppContext("Orders.Write")),
             "CONTOSO-1001",
-            CancellationToken.None));
+            CancellationToken.None);
 
-        Assert.Equal(403, error.StatusCode);
+        var error = Assert.IsType<CallToolResult>(result);
+        Assert.True(error.IsError);
+        var content = Assert.IsType<TextContentBlock>(Assert.Single(error.Content));
         Assert.Equal(
             "403 Forbidden: get_order_status requires the application role 'Orders.Read'.",
-            error.Message);
+            content.Text);
+        Assert.Null(fakeClient.LastOrderId);
+    }
+
+    [Fact]
+    public async Task Run_AppContext_WithNoRolesClaim_ReturnsDeterministic403_AndNeverCallsDownstream()
+    {
+        var fakeClient = new FakeDownstreamOrdersClient(SampleDownstreamStatus);
+        var tool = CreateTool(fakeClient);
+
+        var result = await tool.Run(
+            ContextWithHeaders(PrincipalHeaders(
+                ("azp", "role-less-client-app-id"),
+                ("oid", "role-less-client-object-id"))),
+            "CONTOSO-1001",
+            CancellationToken.None);
+
+        var error = Assert.IsType<CallToolResult>(result);
+        Assert.True(error.IsError);
+        var content = Assert.IsType<TextContentBlock>(Assert.Single(error.Content));
+        Assert.Equal(
+            "403 Forbidden: get_order_status requires the application role 'Orders.Read'.",
+            content.Text);
         Assert.Null(fakeClient.LastOrderId);
     }
 

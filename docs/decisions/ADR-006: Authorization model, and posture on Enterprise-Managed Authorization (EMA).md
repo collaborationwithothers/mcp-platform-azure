@@ -468,6 +468,11 @@ inbound Entra-exchange backstop. This is why the fail-closed chain is explicit:
 APIM and built-in auth validate the inbound token, tool code requires
 `Orders.Read`, and downstream built-in auth accepts only the MCP server app.
 
+Multi-tenancy remains a seam, not an implementation in v1. APIM product and
+subscription membership is not bound to Entra application-role assignment by
+this decision. A future tenant-aware design must align those two control planes
+explicitly; it must not infer tenancy from the audit-only caller headers.
+
 ### Entra Agent ID freshness note, checked 2026-07-19
 
 The broad question "does Entra Agent ID support delegated OBO" is now answered:

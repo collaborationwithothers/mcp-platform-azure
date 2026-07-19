@@ -18,10 +18,11 @@ public enum IdentityMode
 
     /// <summary>
     /// An app-context (client-credentials, app-only) caller: the principal
-    /// carries a roles (app-role) claim and no scp claim. The MCP boundary
-    /// requires Orders.Read, then the server calls the downstream with its own
-    /// application identity. An app-only token has no user to act on behalf of,
-    /// so it cannot drive an OBO exchange.
+    /// carries no scp claim and has either a roles claim or an azp/appid claim.
+    /// The latter includes the deliberate role-less negative case. The MCP
+    /// boundary requires Orders.Read, then the server calls the downstream with
+    /// its own application identity. An app-only token has no user to act on
+    /// behalf of, so it cannot drive an OBO exchange.
     /// </summary>
     AppContext,
 
@@ -62,9 +63,21 @@ public static class IdentityModeResolver
     private static readonly string[] ScopeClaimTypes =
         ["scp", "http://schemas.microsoft.com/identity/claims/scope"];
 
-    // Client-credentials (app-only) tokens carry app-role claims in place of scopes.
+    // Authorized client-credentials tokens carry app-role claims in place of
+    // scopes. Entra can also issue a role-less app token when assignment is not
+    // required; its azp/appid identifies it as an app caller so the tool can
+    // route it to the role check and return the deterministic authorization
+    // error instead of the generic unsupported-principal error.
     private static readonly string[] RoleClaimTypes =
         ["roles", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"];
+
+    private static readonly string[] ApplicationIdClaimTypes =
+    [
+        "azp",
+        "appid",
+        "http://schemas.microsoft.com/identity/claims/azp",
+        "http://schemas.microsoft.com/identity/claims/appid",
+    ];
 
     public static IdentityMode Resolve(IReadOnlyDictionary<string, string> headers) =>
         ResolveWithPrincipal(headers).Mode;
@@ -86,7 +99,8 @@ public static class IdentityModeResolver
             return new(IdentityMode.Delegated, principal);
         }
 
-        if (principal.Claims.Any(c => IsAny(c.Typ, RoleClaimTypes)))
+        if (principal.Claims.Any(c => IsAny(c.Typ, RoleClaimTypes))
+            || principal.FirstValueFor(ApplicationIdClaimTypes) is not null)
         {
             return new(IdentityMode.AppContext, principal);
         }

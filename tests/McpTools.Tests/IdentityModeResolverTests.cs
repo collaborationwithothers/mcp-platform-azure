@@ -10,8 +10,9 @@ namespace McpTools.Tests;
 /// Decisions, "unit seam"). This is the single, testable identity-mode
 /// decision component the tool delegates to (issue 10 amended acceptance:
 /// delegated callers with an scp claim are sourced from the downstream via
-/// OBO; app-context callers with a roles claim and no scp are served from the
-/// in-memory fixture). The four required cases -- scp, roles, both absent,
+/// OBO; app-context callers with a roles claim or an app id and no scp are
+/// routed to application-role authorization). The required cases -- scp,
+/// roles, a role-less app, both absent,
 /// malformed principal -- plus a missing header and the schema-URI claim-type
 /// forms are covered here.
 /// </summary>
@@ -49,6 +50,16 @@ public class IdentityModeResolverTests
         var headers = PrincipalHeaders(("aud", "api://server-app"), ("tid", "contoso"));
 
         Assert.Equal(IdentityMode.Unsupported, IdentityModeResolver.Resolve(headers));
+    }
+
+    [Fact]
+    public void Resolve_RoleLessApplicationPrincipal_IsAppContext()
+    {
+        var headers = PrincipalHeaders(
+            ("azp", "role-less-client"),
+            ("oid", "service-principal"));
+
+        Assert.Equal(IdentityMode.AppContext, IdentityModeResolver.Resolve(headers));
     }
 
     [Fact]

@@ -49,6 +49,7 @@ Populated as code lands. One row per pin.
 | Microsoft.Azure.Functions.Worker | 2.52.0 | src/McpTools/McpTools.csproj | Isolated worker runtime; latest stable, satisfies the extension floor >= 2.1.0 | 2026-07-12 | https://www.nuget.org/packages/Microsoft.Azure.Functions.Worker |
 | Microsoft.Azure.Functions.Worker.Sdk | 2.0.7 | src/McpTools/McpTools.csproj | Isolated worker build SDK; latest stable, satisfies the extension floor >= 2.0.2 | 2026-07-12 | https://www.nuget.org/packages/Microsoft.Azure.Functions.Worker.Sdk |
 | ModelContextProtocol | 1.4.1 | src/McpTestClient/McpTestClient.csproj | Official MCP C# SDK for the hand-written test client; latest stable (2.0.0 line is preview). API confirmed against the sample at the v1.4.1 tag (McpClient.CreateAsync, HttpClientTransport) | 2026-07-12 | https://www.nuget.org/packages/ModelContextProtocol/1.4.1 |
+| ModelContextProtocol | 1.2.0 | src/McpTools/McpTools.csproj | Matches the direct dependency of Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk at the pinned worker-1.5.1 tag. GetOrderStatus returns expected authorization failures as CallToolResult with IsError=true and TextContentBlock, which the pinned Functions MCP middleware explicitly serializes as-is. This avoids a thrown non-McpException being reduced to a generic invocation error. | 2026-07-19 (Context7 plus official extension source at worker-1.5.1) | https://github.com/Azure/azure-functions-mcp-extension/blob/worker-1.5.1/src/Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk/FunctionsMiddleware/FunctionsMcpToolResultMiddleware.cs |
 | avm-res-apimanagement-service | 0.9.0 (exact) | infra/terraform/modules/apim-gateway/main.tf | Issue-3 AVM capability check (below): expresses Basic v2 via the plain pass-through `sku_name` string, no fallback needed | 2026-07-12 | https://registry.terraform.io/modules/Azure/avm-res-apimanagement-service/azurerm/0.9.0 |
 | azurerm_api_management sku_name | BasicV2_1 (format "<tier>_<capacity>") | infra/terraform/modules/apim-gateway/variables.tf (sku_name default) | Public-demo tracer profile; tier name is "BasicV2" (no underscore before "V2"), confirmed against the azurerm 4.80.0 resource docs | 2026-07-12 | https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0/docs/resources/api_management |
 | Microsoft.ApiManagement/service/apis (MCP passthrough), .../apis/policies, .../products/apis | 2025-09-01-preview | infra/terraform/modules/apim-mcp-server/main.tf | Passthrough MCP server, its server-scope policy, and product bindings. No azurerm resource exists for any of these (confirmed 2026-07-12) | 2026-07-12 | https://learn.microsoft.com/azure/api-management/manage-mcp-servers-rest-api |
@@ -369,5 +370,6 @@ Full detail and doc citations: infra/terraform/modules/apim-gateway/README.md.
   `allowedApplications` to that server app id. The original caller's
   `azp`/`appid` and `oid` are logged and propagated only as audit correlation.
   The live gate now has positive full-path and valid-role-less negative arms.
-  No ARM API or package pin changed; the issue-45 live arms remain unmeasured
-  until the gated workflow runs.
+  No ARM API changed. The direct ModelContextProtocol 1.2.0 pin matches the
+  pinned Functions MCP worker SDK and provides the typed tool-error result.
+  The issue-45 live arms remain unmeasured until the gated workflow runs.

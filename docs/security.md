@@ -135,8 +135,8 @@ The downstream access path depends on the caller identity mode.
   (`McpTools.Downstream.DownstreamOrdersClient`, `ManagedIdentityOboTokenAcquirer`)
   is unit-tested, including an explicit test asserting the downstream call
   never carries the inbound assertion.
-- **App-context (a `roles` claim, no `scp`):** the MCP layer requires the
-  `Orders.Read` application role. Missing role returns the deterministic tool
+- **App-context (an `azp`/`appid` application identity, no `scp`):** the MCP
+  layer requires `Orders.Read` in the `roles` claim. A missing role returns the deterministic tool
   error `403 Forbidden: get_order_status requires the application role
   'Orders.Read'.` The server then uses the same managed-identity-backed
   confidential client to acquire a downstream `/.default` token for its own
@@ -200,6 +200,14 @@ OBO-exchange backstop for the inbound caller, so its fail-closed controls are
 critical: APIM and built-in auth validate the inbound token, code requires
 `Orders.Read`, and downstream built-in auth accepts only the server app. This is
 the intentional trusted-subsystem trade-off, not token passthrough.
+
+**Multi-tenant seam, documented but not wired in v1.** APIM product or
+subscription membership and Entra application-role grants are independent
+authorization systems in this tracer. A future multi-tenant design must align
+the tenant-facing APIM product boundary with the principals granted
+`Orders.Read`; issue 45 deliberately does not implement that binding. The
+`X-Mcp-Caller-Azp` and `X-Mcp-Caller-Oid` audit headers must never be used to
+infer tenant membership or replace that explicit authorization wiring.
 
 **Trust-chain caveat flagged for live confirmation.** Whether Easy Auth fully
 populates `X-MS-CLIENT-PRINCIPAL`'s claims mapping **without a token store

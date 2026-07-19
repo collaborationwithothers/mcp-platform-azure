@@ -32,9 +32,9 @@ are unchanged:
   - `IdentityModeResolver.cs` - decides the mode from that header's claims:
     - an `scp` claim -> **Delegated** (a user-context caller): sourced from the
       synthetic downstream Orders API via the Entra On-Behalf-Of exchange.
-    - a `roles` claim and no `scp` -> **App-context** (a client-credentials,
-      app-only caller): requires `Orders.Read`, then calls the downstream as
-      the MCP server's own application identity.
+    - an `azp`/`appid` application identity and no `scp` -> **App-context** (a
+      client-credentials, app-only caller): requires `Orders.Read` in `roles`,
+      then calls the downstream as the MCP server's own application identity.
     - missing / malformed / neither-claim -> a fail-closed rejection.
 - `Tools/GetOrderStatus.cs` - the tool. `Run` resolves the mode, then branches
   to delegated OBO or the app-only trusted-subsystem downstream
@@ -102,11 +102,12 @@ Restore is pinned to the public nuget.org feed by the repo-root `NuGet.config`.
 
 ## Pinned packages
 
-Verified 2026-07-12; recorded with doc links in `COMPATIBILITY.md`.
+Verified through 2026-07-19; recorded with doc links in `COMPATIBILITY.md`.
 
 | Package | Version | Role |
 |---|---|---|
 | Microsoft.Azure.Functions.Worker.Extensions.Mcp | 1.5.1 | MCP tool triggers (GA) |
 | Microsoft.Azure.Functions.Worker | 2.52.0 | isolated worker runtime |
 | Microsoft.Azure.Functions.Worker.Sdk | 2.0.7 | isolated worker build SDK |
+| ModelContextProtocol | 1.2.0 | typed MCP tool-error result for the Functions server |
 | ModelContextProtocol | 1.4.1 | MCP client SDK (test client) |

@@ -6,6 +6,7 @@ using McpTools.Identity;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Protocol;
 
 namespace McpTools.Tools;
 
@@ -22,8 +23,9 @@ namespace McpTools.Tools;
 ///   Orders API (src/DownstreamOrdersApi) via the Entra On-Behalf-Of exchange
 ///   (<see cref="IDownstreamOrdersClient"/>). The caller's inbound token is the
 ///   OBO user assertion.</item>
-///   <item><b>App-context</b> (the principal carries a <c>roles</c> claim and
-///   no <c>scp</c>): requires the <c>Orders.Read</c> application role, then
+///   <item><b>App-context</b> (the principal has an app id and no <c>scp</c>;
+///   an authorized principal also carries <c>roles</c>): requires the
+///   <c>Orders.Read</c> application role, then
 ///   calls the downstream as the MCP server's own application identity. The
 ///   original caller's azp/appid and oid are logged and propagated only as
 ///   audit correlation; the downstream authorizes the server identity.</item>
@@ -127,8 +129,8 @@ public sealed class GetOrderStatus
                 $"get_order_status: the {ClientPrincipal.HeaderName} header was present but could not be "
                 + "decoded as the Base64 JSON client principal Easy Auth emits."),
             _ => throw new InvalidOperationException(
-                "get_order_status: the caller principal carried neither an scp (delegated) nor a roles "
-                + "(app-context) claim, so no data-source mode applies."),
+                "get_order_status: the caller principal carried neither an scp (delegated) claim nor "
+                + "an azp/appid application identity, so no data-source mode applies."),
         };
     }
 
@@ -158,7 +160,22 @@ public sealed class GetOrderStatus
         ClientPrincipal principal,
         CancellationToken cancellationToken)
     {
-        AppRoleAuthorization.RequireOrdersRead(principal);
+        if (!AppRoleAuthorization.HasOrdersRead(principal))
+        {
+            return new CallToolResult
+            {
+                IsError = true,
+                Content =
+                [
+                    new TextContentBlock
+                    {
+                        Text = "403 Forbidden: get_order_status requires the application role "
+                            + $"'{AppRoleAuthorization.RequiredRole}'.",
+                    },
+                ],
+            };
+        }
+
         var caller = CallerIdentityCorrelation.FromPrincipal(principal);
         LogCaller(caller, IdentityMode.AppContext);
         return await _downstreamOrdersClient.GetOrderStatusAsApplicationAsync(
