@@ -110,5 +110,5 @@ Verified through 2026-07-20; recorded with doc links in `COMPATIBILITY.md`.
 | Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk | 1.0.0-preview.4 | MCP SDK result middleware for top-level tool errors |
 | Microsoft.Azure.Functions.Worker | 2.52.0 | isolated worker runtime |
 | Microsoft.Azure.Functions.Worker.Sdk | 2.0.7 | isolated worker build SDK |
-| ModelContextProtocol | 1.2.0 | typed MCP tool-error result for the Functions server |
+| ModelContextProtocol | 0.4.0-preview.3 | typed MCP tool-error result compatible with the Functions server middleware |
 | ModelContextProtocol | 1.4.1 | MCP client SDK (test client) |
