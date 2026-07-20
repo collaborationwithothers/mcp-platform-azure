@@ -50,7 +50,7 @@ Populated as code lands. One row per pin.
 | Microsoft.Azure.Functions.Worker | 2.52.0 | src/McpTools/McpTools.csproj | Isolated worker runtime; latest stable, satisfies the extension floor >= 2.1.0 | 2026-07-12 | https://www.nuget.org/packages/Microsoft.Azure.Functions.Worker |
 | Microsoft.Azure.Functions.Worker.Sdk | 2.0.7 | src/McpTools/McpTools.csproj | Isolated worker build SDK; latest stable, satisfies the extension floor >= 2.0.2 | 2026-07-12 | https://www.nuget.org/packages/Microsoft.Azure.Functions.Worker.Sdk |
 | ModelContextProtocol | 1.4.1 | src/McpTestClient/McpTestClient.csproj | Official MCP C# SDK for the hand-written test client; latest stable (2.0.0 line is preview). API confirmed against the sample at the v1.4.1 tag (McpClient.CreateAsync, HttpClientTransport) | 2026-07-12 | https://www.nuget.org/packages/ModelContextProtocol/1.4.1 |
-| ModelContextProtocol | 0.4.0-preview.3 | src/McpTools/McpTools.csproj | Exact version used by the Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk 1.0.0-preview.4 source project and referenced by its published assembly. That middleware calls CallToolResult.StructuredContent as JsonNode; ModelContextProtocol 1.2.0 exposes the same property as JsonElement, so overriding the integration package's protocol dependency is binary-incompatible. An isolated copy of the upstream middleware tests, changed to reference the published integration package, failed both an ordinary object and a CallToolResult under 1.2.0 with MissingMethodException, then passed both under 0.4.0-preview.3. | 2026-07-20 (official source plus isolated published-binary reproduction) | [integration package source](https://github.com/Azure/azure-functions-mcp-extension/blob/3c80a045cf34bded5bda85c64c3c461cfbe5484d/src/Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk/Worker.Extensions.Mcp.Sdk.csproj)<br>[0.4.0-preview.3 CallToolResult](https://github.com/modelcontextprotocol/csharp-sdk/blob/v0.4.0-preview.3/src/ModelContextProtocol.Core/Protocol/CallToolResult.cs)<br>[1.2.0 CallToolResult](https://github.com/modelcontextprotocol/csharp-sdk/blob/v1.2.0/src/ModelContextProtocol.Core/Protocol/CallToolResult.cs) |
+| ModelContextProtocol | 0.4.0-preview.3 (transitive via Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk 1.0.0-preview.4) | src/McpTools/McpTools.csproj | There is no direct server PackageReference. The preview integration package declares ModelContextProtocol >= 0.4.0-preview.3, and the current graph resolves that minimum version, which is also the version its published middleware was compiled against. That middleware calls CallToolResult.StructuredContent as JsonNode; ModelContextProtocol 1.2.0 exposes the same property as JsonElement, so a direct 1.2.0 override is binary-incompatible. An isolated copy of the upstream middleware tests, changed to reference the published integration package, failed both an ordinary object and a CallToolResult under 1.2.0 with MissingMethodException, then passed both with the integration package's transitive 0.4.0-preview.3 dependency. The deterministic custom 403 therefore explicitly accepts both the preview integration package and its preview protocol dependency; throwing instead would lose the custom message behind the extension's generic invocation error. | 2026-07-20 (official source plus isolated published-binary reproduction) | [integration package source](https://github.com/Azure/azure-functions-mcp-extension/blob/3c80a045cf34bded5bda85c64c3c461cfbe5484d/src/Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk/Worker.Extensions.Mcp.Sdk.csproj)<br>[0.4.0-preview.3 CallToolResult](https://github.com/modelcontextprotocol/csharp-sdk/blob/v0.4.0-preview.3/src/ModelContextProtocol.Core/Protocol/CallToolResult.cs)<br>[1.2.0 CallToolResult](https://github.com/modelcontextprotocol/csharp-sdk/blob/v1.2.0/src/ModelContextProtocol.Core/Protocol/CallToolResult.cs) |
 | avm-res-apimanagement-service | 0.9.0 (exact) | infra/terraform/modules/apim-gateway/main.tf | Issue-3 AVM capability check (below): expresses Basic v2 via the plain pass-through `sku_name` string, no fallback needed | 2026-07-12 | https://registry.terraform.io/modules/Azure/avm-res-apimanagement-service/azurerm/0.9.0 |
 | azurerm_api_management sku_name | BasicV2_1 (format "<tier>_<capacity>") | infra/terraform/modules/apim-gateway/variables.tf (sku_name default) | Public-demo tracer profile; tier name is "BasicV2" (no underscore before "V2"), confirmed against the azurerm 4.80.0 resource docs | 2026-07-12 | https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0/docs/resources/api_management |
 | Microsoft.ApiManagement/service/apis (MCP passthrough), .../apis/policies, .../products/apis | 2025-09-01-preview | infra/terraform/modules/apim-mcp-server/main.tf | Passthrough MCP server, its server-scope policy, and product bindings. No azurerm resource exists for any of these (confirmed 2026-07-12) | 2026-07-12 | https://learn.microsoft.com/azure/api-management/manage-mcp-servers-rest-api |
@@ -369,8 +369,12 @@ Full detail and doc citations: infra/terraform/modules/apim-gateway/README.md.
   attempt incorrectly paired that preview middleware with ModelContextProtocol
   1.2.0; the middleware was compiled against 0.4.0-preview.3 and threw
   MissingMethodException on every invocation because StructuredContent changed
-  from JsonNode to JsonElement. The server pin now matches the integration
-  package's exact dependency. The deployed live arm must rerun before merge.
+  from JsonNode to JsonElement. The direct protocol override is removed so
+  NuGet currently resolves the integration package's minimum transitive
+  dependency, 0.4.0-preview.3. This
+  explicitly accepts both preview packages to preserve the deterministic custom
+  403; throwing loses that text behind the extension's generic invocation
+  error. The deployed live arm must rerun before merge.
 - 2026-07-19: issue 45 replaces the app-context fixture interim with a complete
   trusted-subsystem identity path. The MCP boundary requires the `Orders.Read`
   application role; a missing role returns the deterministic tool-level 403.
@@ -381,7 +385,7 @@ Full detail and doc citations: infra/terraform/modules/apim-gateway/README.md.
   `allowedApplications` to that server app id. The original caller's
   `azp`/`appid` and `oid` are logged and propagated only as audit correlation.
   The live gate now has positive full-path and valid-role-less negative arms.
-  No ARM API changed. The direct ModelContextProtocol 0.4.0-preview.3 pin
-  provides the typed tool-error result consumed by the separately pinned
-  Functions MCP SDK integration package.
+  No ARM API changed. The pinned Functions MCP SDK integration package brings
+  ModelContextProtocol 0.4.0-preview.3 transitively and provides the typed
+  tool-error result.
   The issue-45 live arms remain unmeasured until the gated workflow runs.

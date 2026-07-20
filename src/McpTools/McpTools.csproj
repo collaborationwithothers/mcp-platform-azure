@@ -19,13 +19,11 @@
       - Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk 1.0.0-preview.4:
         installs the worker middleware that recognizes CallToolResult and
         preserves its top-level IsError flag. The trigger package alone treats
-        CallToolResult as an ordinary object. This pin and the protocol pin
-        below are an exact binary-compatible pair; see COMPATIBILITY.md.
-      - ModelContextProtocol 0.4.0-preview.3: the exact dependency version the
-        published MCP SDK integration middleware was compiled against. It
-        provides CallToolResult/TextContentBlock so expected authorization
-        failures are returned as MCP tool errors, not thrown as protocol-level
-        failures. Do not override it without re-verifying binary compatibility.
+        CallToolResult as an ordinary object. It transitively resolves
+        ModelContextProtocol 0.4.0-preview.3 in the current dependency graph,
+        the version the published middleware was compiled against. Do not add a
+        direct protocol override without re-verifying binary compatibility; see
+        COMPATIBILITY.md.
       - ToolInvocationContextExtensions.TryGetHttpTransport (part of
         Microsoft.Azure.Functions.Worker.Extensions.Mcp above, present
         since 1.0.0 GA): confirmed via assembly reflection AND Microsoft
@@ -53,7 +51,6 @@
     <PackageReference Include="Microsoft.Identity.Client" Version="4.86.1" />
     <PackageReference Include="Microsoft.Identity.Web.Certificateless" Version="4.13.2" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
-    <PackageReference Include="ModelContextProtocol" Version="0.4.0-preview.3" />
   </ItemGroup>
 
   <ItemGroup>
