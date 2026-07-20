@@ -24,11 +24,18 @@
        tool-level 403 result.
     4. Run the raw-HTTP discovery assertions (401 / WWW-Authenticate / PRM /
        wrong-audience / shadow mcp_extension key).
-    5. Probe the registry endpoint anonymously first and RECORD the status (a
-       401 is the expected, evidential secure-by-default result, not a
-       failure), then poll it authenticated (Azure API Center Data Reader, via
-       the workflow's OIDC principal) with a bounded timeout and assert the
-       synced server appears.
+    5. Registry evidence, NON-BLOCKING (Tier 2). Probe the endpoint anonymously
+       (a 401 is the expected secure-by-default result), then read it
+       authenticated (Azure API Center Data Reader, via the workflow's OIDC
+       principal). NOTHING here fails the run: the blocking gate (Tier 1) asserts
+       only gateway and backend correctness. Registry membership is eventual-
+       consistency -- APIM auto-sync is documented at up to 24 h (Microsoft Learn),
+       and there is no automatable way to register a server explicitly (no azapi
+       payload, no az CLI command, no data-plane write op; verified 2026-07-20).
+       So this step records the anonymous posture, the authenticated read status
+       (a 401/403 is a WARNING for the async Tier 2 monitor, not a gate failure),
+       and whether the server has converged, and captures the full servers-list
+       response as evidence. See docs/decisions/ADR-007 and COMPATIBILITY.md.
     6. Issue 10 (OBO thickening): run the OBO passthrough negative test,
        reusing the step-1 server-audience token as the inbound token
        presented directly to the downstream Orders API (tests/integration/
@@ -37,9 +44,11 @@
        gap" and "Testing strategy: the user-context token problem" for why
        that is validated manually, not here.
 
-  Exits non-zero if the MCP client, the discovery assertions, or the
-  authenticated poll fail. The anonymous probe never fails the run; it only
-  records what it observed. The gate does NOT auto-exercise interactive,
+  Exits non-zero if the MCP client or the discovery assertions fail (Tier 1:
+  gateway and backend). Step 5 (registry) is NON-BLOCKING: it records evidence
+  and never exits non-zero, because registry convergence is an eventual-
+  consistency concern monitored asynchronously (Tier 2, ADR-007), not a
+  synchronous gate invariant. The gate does NOT auto-exercise interactive,
   client-driven discovery: that is validated manually in VS Code and recorded
   in docs/demos (spec: Testing Decisions).
 
@@ -49,6 +58,12 @@
     https://learn.microsoft.com/entra/identity-platform/v2-oauth2-client-creds-grant-flow
   - API Center data-plane token audience https://azure-apicenter.net:
     https://learn.microsoft.com/rest/api/dataplane/apicenter/apis/list
+  - Explicit MCP-server registration is NOT automatable (no azapi payload, no
+    az CLI command, no data-plane write operation; verified 2026-07-20), and
+    APIM auto-sync is documented at up to 24 h, so the registry step is
+    non-blocking evidence; convergence is monitored async (Tier 2, ADR-007). See
+    COMPATIBILITY.md and docs/decisions/ADR-007:
+    https://learn.microsoft.com/azure/api-center/synchronize-api-management-apis
 #>
 
 [CmdletBinding()]
@@ -75,8 +90,17 @@ param(
     [string]$McpExtensionKey = '',
     [string]$McpTestClientProject,
     [string]$RegistryResource = 'https://azure-apicenter.net',
-    [int]$PollTimeoutSeconds = 300,
-    [int]$PollIntervalSeconds = 15
+    # Bounded window for the authenticated registry read. The Data Reader RBAC
+    # and the endpoint are created during `terraform apply` (minutes before this
+    # call stage), so this covers residual RBAC propagation and a brief sync-
+    # evidence look, NOT a cold wait. Dropped from 300 s: the old value was sized
+    # for auto-sync, which is up to 24 h (Learn) and never gated here anyway.
+    [int]$PollTimeoutSeconds = 90,
+    [int]$PollIntervalSeconds = 15,
+    # Optional dir to write the captured /v0.1/servers response body plus a
+    # summary, uploaded as a gate artifact so the (doc-UNVERIFIABLE) live
+    # response shape can be pinned in a follow-up. Empty => log only.
+    [string]$EvidenceDir = ''
 )
 
 Set-StrictMode -Version Latest
@@ -183,12 +207,22 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ''
 
 # ---------------------------------------------------------------------------
-# 5. Registry: anonymous probe (evidential), then bounded authenticated poll.
+# 5. Registry: NON-BLOCKING evidence (Tier 2). The blocking gate (Tier 1) proves
+#    gateway and backend correctness synchronously (steps 1-4 and 6) and makes
+#    NO API Center assertion. Registry membership is an eventual-consistency
+#    concern, not a synchronous invariant: APIM auto-sync is documented at up to
+#    24 h (Microsoft Learn), and there is no automatable way to register a server
+#    explicitly (no azapi payload, no az CLI command, no data-plane write op; all
+#    verified 2026-07-20). Asserting an eventual property synchronously produces a
+#    flaky required check, so this step only RECORDS registry evidence -- the
+#    anonymous posture, whether the authenticated read is reachable/authorized,
+#    and whether the server has converged -- and NEVER fails the run. Registry
+#    convergence is monitored asynchronously (Tier 2, designed in
+#    docs/decisions/ADR-007; deliberately not implemented here, on cost grounds).
 # ---------------------------------------------------------------------------
-Write-Host "[5] Registry endpoint access"
+Write-Host "[5] Registry endpoint evidence (non-blocking; convergence is async -- ADR-007)"
 
-# 4a. Anonymous probe FIRST. Expected 401 (secure-by-default): this is an
-#     evidential negative test, recorded, never a failure of the run.
+# 5a. Anonymous probe. Expected 401 (secure-by-default): recorded evidence.
 $anonStatus = 'error'
 try {
     $anon = Invoke-WebRequest -Uri $RegistryEndpointUrl -Method Get -SkipHttpErrorCheck -ErrorAction Stop
@@ -197,72 +231,113 @@ try {
 catch {
     $anonStatus = "error: $($_.Exception.Message)"
 }
-Write-Host "  anonymous probe status: $anonStatus (401 expected = secure-by-default; recorded, not a pass/fail gate)."
-# The read posture is platform-determined (no ARM surface), so this probe never
-# fails the run. But an anonymous 200 means the registry became publicly
-# readable -- a security-relevant posture change worth surfacing beyond the log.
+Write-Host "  anonymous probe status: $anonStatus (401 expected = secure-by-default; recorded, never a pass/fail gate)."
+# An anonymous 200 means the registry became publicly readable -- a security-
+# relevant posture change worth surfacing, but still not a gate failure here.
 if ("$anonStatus" -ne '401') {
     Write-Host "::warning::Registry anonymous probe returned '$anonStatus', not 401. The data-plane registry may be anonymously readable; confirm the intended access posture (docs/security.md, docs/runbooks/registry-anonymous-access.md)."
 }
 
-# 4b. Authenticated poll. The registry token targets the API Center data plane
-#     (https://azure-apicenter.net); the workflow's OIDC principal holds Azure
-#     API Center Data Reader on the instance.
-if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
-    throw "az CLI not found; the authenticated registry poll needs it to mint an API Center data-plane token."
-}
-$registryToken = az account get-access-token --resource $RegistryResource --query accessToken -o tsv
-if ([string]::IsNullOrEmpty($registryToken)) {
-    throw "Failed to acquire an API Center data-plane token (resource $RegistryResource)."
-}
-
-# The registry endpoint path form carries a known Microsoft-doc inconsistency
-# (template includes /workspaces/, the doc's own example omits it). The module
-# emits the /workspaces/ form; try it first, fall back to the stripped form,
-# and record which one actually served the servers list.
-$primaryUrl = $RegistryEndpointUrl
-$fallbackUrl = ($RegistryEndpointUrl -replace '/workspaces/[^/]+/', '/')
-$candidates = @($primaryUrl)
-if ($fallbackUrl -ne $primaryUrl) { $candidates += $fallbackUrl }
-
-$deadline = (Get-Date).AddSeconds($PollTimeoutSeconds)
-$found = $false
+# 5b. Authenticated read (evidence). Token targets the API Center data plane
+#     (https://azure-apicenter.net); the OIDC principal holds Azure API Center
+#     Data Reader. The entire read is wrapped so no registry hiccup can fail the
+#     BLOCKING gate: a 401 (wrong audience) or 403 (Data Reader not propagated)
+#     is surfaced as a WARNING for the async Tier 2 monitor to act on, not a throw.
+$authOk = $false
+$serverPresent = $false
 $observedPath = $null
-$attempt = 0
-while ((Get-Date) -lt $deadline -and -not $found) {
-    $attempt++
-    foreach ($url in $candidates) {
-        $resp = Invoke-WebRequest -Uri $url -Method Get `
-            -Headers @{ Authorization = "Bearer $registryToken" } `
-            -SkipHttpErrorCheck -ErrorAction Stop
-        if ([int]$resp.StatusCode -eq 200) {
-            if ($resp.Content -match [regex]::Escape($ServerName)) {
-                $found = $true
-                $observedPath = $url
-                break
+$lastStatus = $null
+$lastBody = ''
+try {
+    if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+        Write-Host "::warning::az CLI not found; skipping the authenticated registry evidence read."
+    }
+    else {
+        $registryToken = az account get-access-token --resource $RegistryResource --query accessToken -o tsv
+        if ([string]::IsNullOrEmpty($registryToken)) {
+            Write-Host "::warning::Could not acquire an API Center data-plane token (resource $RegistryResource); skipping the authenticated registry evidence read."
+        }
+        else {
+            # Path-form inconsistency (template has /workspaces/, the doc's own
+            # example omits it): try the emitted form, fall back to the stripped
+            # form, and record which one answered.
+            $primaryUrl = $RegistryEndpointUrl
+            $fallbackUrl = ($RegistryEndpointUrl -replace '/workspaces/[^/]+/', '/')
+            $candidates = @($primaryUrl)
+            if ($fallbackUrl -ne $primaryUrl) { $candidates += $fallbackUrl }
+
+            # authOk: the read reached the service and was authorized (not 401/403).
+            # serverPresent: heuristic EVIDENCE that $ServerName is listed (auto-sync
+            # may use an auto-generated name, so this substring match is not
+            # authoritative; the captured body is the real record).
+            $deadline = (Get-Date).AddSeconds($PollTimeoutSeconds)
+            $attempt = 0
+            while ((Get-Date) -lt $deadline -and -not $serverPresent) {
+                $attempt++
+                foreach ($url in $candidates) {
+                    $resp = Invoke-WebRequest -Uri $url -Method Get `
+                        -Headers @{ Authorization = "Bearer $registryToken" } `
+                        -SkipHttpErrorCheck -ErrorAction Stop
+                    $code = [int]$resp.StatusCode
+                    $lastStatus = $code
+                    if ($code -ne 401 -and $code -ne 403) {
+                        # Authorized and the service answered: 200 (list, possibly
+                        # empty) or 404 (endpoint answered, no resource).
+                        $authOk = $true
+                        $observedPath = $url
+                        $lastBody = "$($resp.Content)"
+                        if ($code -eq 200 -and $resp.Content -match [regex]::Escape($ServerName)) {
+                            $serverPresent = $true
+                            break
+                        }
+                    }
+                }
+                if (-not $serverPresent) {
+                    $remaining = [int]($deadline - (Get-Date)).TotalSeconds
+                    Write-Host "  attempt ${attempt}: authOk=$authOk, server '$ServerName' present=$serverPresent (last status $lastStatus); ${remaining}s left."
+                    if ($remaining -gt 0) { Start-Sleep -Seconds $PollIntervalSeconds }
+                }
             }
-            $observedPath = $url  # path form works; server not yet synced
         }
     }
-    if (-not $found) {
-        $remaining = [int]($deadline - (Get-Date)).TotalSeconds
-        Write-Host "  attempt ${attempt}: server '$ServerName' not yet in the registry; ${remaining}s left."
-        if ($remaining -gt 0) { Start-Sleep -Seconds $PollIntervalSeconds }
-    }
+}
+catch {
+    Write-Host "::warning::Registry evidence read errored ($($_.Exception.Message)); recorded as inconclusive, not a gate failure."
+}
+
+# Capture the full authenticated response body + a summary as a gate artifact,
+# so the real /v0.1/servers shape (field names, auto-generated server ids) can be
+# pinned from a live response in a follow-up (the shape is UNVERIFIABLE from docs;
+# see COMPATIBILITY.md). Empty EvidenceDir => log only.
+if (-not [string]::IsNullOrEmpty($EvidenceDir)) {
+    $null = New-Item -ItemType Directory -Path $EvidenceDir -Force
+    Set-Content -Path (Join-Path $EvidenceDir 'registry-servers-response.json') -Value $lastBody -Encoding utf8
+    Set-Content -Path (Join-Path $EvidenceDir 'registry-poll-summary.txt') -Encoding utf8 -Value @"
+anonymous read status : $anonStatus
+authenticated authOk  : $authOk (evidence only; a false here is a Tier 2 signal, NOT a Tier 1 failure)
+last status           : $lastStatus
+served path           : $(if ($observedPath) { $observedPath } else { 'none' })
+server '$ServerName' present (evidence) : $serverPresent
+poll window seconds   : $PollTimeoutSeconds
+note                  : NON-BLOCKING. Registry convergence is eventual (auto-sync up to 24h, Learn); monitored async per ADR-007.
+"@
+    Write-Host "  registry evidence written to $EvidenceDir (registry-servers-response.json, registry-poll-summary.txt)."
 }
 
 Write-Host ''
-Write-Host "== Registry access modes observed =="
+Write-Host "== Registry evidence (non-blocking) =="
 Write-Host "  anonymous read : $anonStatus"
-Write-Host "  authenticated  : Azure API Center Data Reader (token audience $RegistryResource)"
-Write-Host "  served path     : $(if ($observedPath) { $observedPath } else { 'none (no 200 within timeout)' })"
-Write-Host "  (COMPATIBILITY.md registry row records the observed anonymous status and served path form.)"
-Write-Host ''
-
-if (-not $found) {
-    throw "Registry poll: server '$ServerName' did not appear within $PollTimeoutSeconds s."
+Write-Host "  authenticated  : authOk=$authOk, last status $lastStatus (token audience $RegistryResource)"
+Write-Host "  served path     : $(if ($observedPath) { $observedPath } else { 'none' })"
+Write-Host "  server present  : $serverPresent"
+Write-Host "  (COMPATIBILITY.md + ADR-007: Tier 1 asserts gateway/backend; registry convergence is Tier 2, async.)"
+if (-not $authOk) {
+    Write-Host "::warning::Registry authenticated read did not succeed (last status $lastStatus). If 401, the data-plane token audience is wrong; if 403, the Data Reader role has not propagated. Recorded for the async Tier 2 monitor; does NOT fail the blocking gate (ADR-007)."
 }
-Write-Host "[5] Registry poll: server '$ServerName' present (authenticated)."
+elseif (-not $serverPresent) {
+    Write-Host "  server '$ServerName' has not converged into the registry within ${PollTimeoutSeconds}s -- expected under eventual consistency (auto-sync up to 24h); recorded as evidence."
+}
+Write-Host "[5] Registry evidence recorded (non-blocking). See docs/decisions/ADR-007."
 Write-Host ''
 
 # ---------------------------------------------------------------------------

@@ -117,19 +117,45 @@ fetches, not recalled from training data:
   recorded in COMPATIBILITY.md as an observed-not-documented figure.
   [Synchronize APIs from an API Management instance - Delete an integration](https://learn.microsoft.com/azure/api-center/synchronize-api-management-apis#delete-an-integration).
 
-## Auto-sync is the production target; explicit registration is a fallback only
+## Auto-sync is the production target; the gate asserts reachability, not sync
 
 This module wires **auto-sync from APIM** as the headline mechanism: MCP servers
 managed in API Management populate the registry automatically, the way a
 production inventory maintains itself. The module deliberately does **not**
-create an MCP server entry explicitly.
+create an MCP server entry explicitly, and this stays the production path.
 
-Explicit `azapi` registration of a server (via
-`Microsoft.ApiCenter/services/workspaces/apis`) is retained only as a labelled
-**demo-determinism fallback**, to be added by the integration issue **if and
-only if** the bounded poll proves the asynchronous sync too flaky inside a
-short-lived deployment. If that fallback is ever used, it is the compromise, not
-the target, and must be documented as such. It is out of scope here.
+An earlier plan kept **explicit `azapi` registration** (via
+`Microsoft.ApiCenter/services/workspaces/apis`) as a labelled demo-determinism
+fallback. Verification retired that plan: as of **2026-07-20** there is **no
+automatable way to register an MCP server so it surfaces at the data-plane
+`/v0.1/servers` endpoint** -- not via azapi/ARM (the `apis` `kind` enum has no
+`mcp` value and no Learn page documents an MCP-kind payload), not via `az apic`
+(no MCP command; `--type` has no `mcp`), and not via `az rest` (the data-plane
+API has no write operation at all). Registration is portal-only. See
+COMPATIBILITY.md ("Explicit MCP-server registration into API Center") and
+`docs/decisions/ADR-007` (registry assertion determinism).
+
+Because auto-sync is documented at **up to 24 h** (Microsoft Learn,
+synchronize-api-management-apis) and cannot be waited out in an ephemeral
+apply->call->destroy gate, registry membership is treated as an
+**eventual-consistency** concern, not a synchronous gate invariant, split across
+two tiers (ADR-007):
+
+- **Tier 1, the blocking gate**, asserts only **gateway and backend
+  correctness** synchronously and makes **no API Center assertion**. Its registry
+  step is **non-blocking evidence**: it records the anonymous posture, the
+  authenticated-read status, and whether the server has converged, captures the
+  raw `/v0.1/servers` body as a gate artifact, and never fails the run (a 401/403
+  becomes a warning for the async monitor, not a red gate).
+- **Tier 2, registry convergence**, is monitored **asynchronously** (a scheduled
+  nightly poll with a wider bounded window that fails loudly if the entry never
+  converges). It is **designed in ADR-007 but deliberately not implemented** here,
+  on cost grounds.
+
+The compromise is honest and labelled: auto-sync is the production target; the
+blocking gate's synchronous claim is deliberately narrower than "the server is
+discoverable in the registry", because asserting an eventual property
+synchronously is exactly what makes a required check flaky.
 
 ## Registry read access
 
@@ -211,6 +237,6 @@ here. Registry security posture is in `docs/security.md`.
 
 No `terraform apply`/`destroy`; no bounded-poll assertion script (that is the
 integration issue); no explicit `azapi` server registration as the primary
-mechanism (auto-sync is primary; explicit registration is a labelled fallback
-only); no API Center portal publishing flow; no Foundry tool-catalog wiring;
-no scenario composition wiring.
+mechanism (auto-sync is primary; explicit registration was later found not
+automatable at all -- see the section above and ADR-007); no API Center portal
+publishing flow; no Foundry tool-catalog wiring; no scenario composition wiring.

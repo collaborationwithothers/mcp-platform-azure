@@ -448,7 +448,8 @@ jobs:
             -ClientWithoutRoleSecret "$TEST_CLIENT_WITHOUT_ROLE_SECRET" \
             -ServerName "$server_name" \
             -DownstreamOrderStatusUrl "$downstream_order_status_url" \
-            -McpExtensionKey "${mcp_ext_key:-}"
+            -McpExtensionKey "${mcp_ext_key:-}" \
+            -EvidenceDir "${GITHUB_WORKSPACE}/gate-evidence"
 
       # Always upload whatever PRM evidence was captured above, even when the
       # call stage failed its assertions (the failing assertion is the whole

@@ -29,6 +29,49 @@ and the deploying principal does not need role-assignment-write.
 Amendment recorded 2026-07-12 (ticket 4, PR #21) so ticket 5's integration run
 does not fail at the gate on a missing grant.
 
+## Registry evidence (issue 9): two-tier, non-blocking
+
+Registry membership is an **eventual-consistency** concern, not a synchronous
+gate invariant, so it is split across two tiers (see `docs/decisions/ADR-007`):
+
+- **Tier 1 (this blocking gate)** asserts only gateway and backend correctness
+  (steps 1-4 and 6). Its registry step `[5]` is **non-blocking evidence** and can
+  never fail the run. It reads the API Center data-plane endpoint
+  (`/workspaces/default/v0.1/servers`) and RECORDS: the anonymous posture (401
+  expected), the authenticated read status, and whether a specific MCP server has
+  converged. A **401** (wrong data-plane audience `https://azure-apicenter.net`)
+  or **403** (**Azure API Center Data Reader** role not propagated to the poll
+  principal) is surfaced as a `::warning::` for the Tier 2 monitor to act on, not
+  a red gate. The `PollTimeoutSeconds` window (default 90 s, down from 300 s) is a
+  brief evidence look, not a wait on anything asynchronous.
+- **Tier 2 (registry convergence)** is monitored **asynchronously** -- a
+  scheduled nightly poll with a wider bounded window that fails loudly if the
+  entry never converges. It is **designed in ADR-007 but deliberately not
+  implemented** (cost). Do not add a synchronous registry assertion to Tier 1 to
+  compensate; that reintroduces the flaky required check the split exists to
+  avoid.
+
+Two verified facts force the split (2026-07-20; see COMPATIBILITY.md and
+ADR-007):
+
+- APIM -> API Center auto-sync is documented at **up to 24 hours**, which an
+  ephemeral apply->call->destroy gate cannot wait out.
+- There is **no automatable way to register a server explicitly** so it surfaces
+  at `/v0.1/servers` -- not azapi/ARM, not `az apic`, not `az rest`. Registration
+  is portal-only. (An `az apic import-from-apim` on-demand path exists but is
+  deprecated in the current extension, its replacement `az apic import apim` is
+  undocumented, and whether it preserves MCP kind or coexists with the linked
+  auto-sync source is UNVERIFIABLE from docs -- a possible future escape hatch to
+  spike live, not something to build on now.)
+
+The gate captures the full servers-list response and a summary to the
+`gate-evidence` artifact (`registry-servers-response.json`,
+`registry-poll-summary.txt`, uploaded with the PRM evidence). That captured body
+is what a follow-up would pin the real `/v0.1/servers` field names against (the
+doc-published response schema is UNVERIFIABLE today). If the authenticated read
+warns 401/403, fix the audience or the Data Reader grant above before relying on
+the evidence; a server not yet listed is expected and non-fatal.
+
 ## Function code deploy (issue 9, reopened)
 
 The gate deploys the Functions MCP server (`src/McpTools`) between the s1 apply

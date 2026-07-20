@@ -18,10 +18,22 @@ doc page.)
 Every consumer inside the Entra trust boundary reads the registry
 **authenticated**:
 
-- **Test harness (this tracer).** Ticket 5's bounded poll authenticates with an
+- **Test harness (this tracer).** Ticket 5's registry step authenticates with an
   OIDC principal that holds the **Azure API Center Data Reader** role on the
   instance, granted by the `api-center-registry` module via
-  `data_reader_principal_ids`.
+  `data_reader_principal_ids`. This step is **non-blocking evidence** in the
+  blocking gate (Tier 1), which asserts only gateway and backend correctness and
+  makes no API Center assertion (ADR-007). The read records the authenticated
+  status -- a **401** (wrong data-plane audience `https://azure-apicenter.net`)
+  or **403** (Data Reader role not propagated) is surfaced as a warning for the
+  asynchronous Tier 2 monitor, not a gate failure -- and whether a specific
+  server has converged into `/v0.1/servers`. Absence is expected inside an
+  ephemeral gate: APIM auto-sync is documented at up to 24 h (Microsoft Learn),
+  and there is no automatable way to register a server explicitly (verified
+  2026-07-20; azapi, `az` CLI, and the data-plane API all lack the surface -- see
+  COMPATIBILITY.md and ADR-007). The raw `/v0.1/servers` response is captured as
+  a gate artifact. Registry convergence itself is a Tier 2 concern, monitored
+  asynchronously (designed in ADR-007, not implemented on cost grounds).
 - **Foundry tool-catalog integration.** A tool-catalog integration with API
   Center exists; its exact registry auth mechanics are to be verified at that
   phase, not assumed here.
