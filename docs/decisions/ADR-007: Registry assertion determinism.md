@@ -35,11 +35,15 @@ establish why that is the wrong shape:
    - `az rest` against the data plane: the data-plane API (2024-02-01-preview)
      has no write operation at all (the `Apis` group is Get/List/List All).
 
-   An on-demand import path (`az apic import-from-apim`) exists but is deprecated
-   in the current apic-extension (1.2.0b3); its replacement (`az apic import
-   apim`) is undocumented on Learn; and whether it preserves MCP kind, coexists
-   with an active linked source, or is synchronous are all UNVERIFIABLE from
-   docs. It is a possible future escape hatch, not a usable mechanism today.
+   An on-demand import path exists (`az apic import-from-apim`), pinned from the
+   installed apic-extension 1.1.0 (current stable; the rename to `az apic import
+   apim` is only in the 1.2.0b3 beta). It is a long-running operation that blocks
+   to completion by default (`--no-wait` to opt out), so the CLI is synchronous.
+   But the behavioral questions remain live-only and UNVERIFIABLE: whether it
+   preserves MCP kind and surfaces at `/v0.1/servers`, whether it coexists with
+   an active linked apiSources source, and whether the data-plane registry
+   projection is immediate once the control-plane LRO returns. It is a possible
+   future escape hatch that needs a live spike, not a usable mechanism today.
 
 3. **A synchronous assertion of an eventual property is a flaky required check.**
    One slow sync day turns the gate red for reasons unrelated to the diff. The
@@ -115,12 +119,19 @@ two tiers.
   green while never appearing at `/v0.1/servers`.
 - **Imperative `az apic` / `az rest` registration in the gate.** Rejected: no
   `az apic` MCP command exists and the data-plane API has no write operation.
-- **On-demand import escape hatch (`az apic import-from-apim` / `az apic import
-  apim`) to force a synchronous import.** Not adopted, and not built on: the
-  tutorial command is deprecated in the current extension, its replacement is
-  undocumented, and its MCP-kind preservation, coexistence with the active linked
-  source, and synchronicity are all UNVERIFIABLE from Learn (2026-07-20). Kept as
-  a re-check trigger to spike live before relying on -- never as a dependency.
+- **On-demand import escape hatch (`az apic import-from-apim`) to force a
+  synchronous import.** Not adopted, and not built on. The command shape is
+  pinned from the installed apic-extension 1.1.0 (`az apic import-from-apim
+  --apim-apis <* | [name,...]> --apim-name <n> --service-name <apic> -g <rg>
+  [--no-wait]`) and it is an LRO that blocks by default, so CLI synchronicity is
+  fine. What blocks adoption is behavioral and live-only: whether the import
+  preserves MCP kind and surfaces at `/v0.1/servers`, whether it coexists with the
+  active linked apiSources source without conflict, and whether the data-plane
+  projection is immediate. The live spike is: apply s2, run `import-from-apim`
+  for the MCP server API, then GET `/v0.1/servers` and check (a) the entry
+  appears, (b) it is recognizably an MCP server, (c) the pre-existing apiSources
+  link did not error or duplicate. Kept as a re-check trigger with that recipe --
+  never a dependency until the spike passes.
 - **Long or looping poll on auto-sync.** Rejected for the blocking gate: the
   worst case is 24 h, unbounded; a finite poll is a coin flip on sync latency.
   Adopted instead as the shape of the async Tier 2 monitor, where a wider bounded
