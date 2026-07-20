@@ -102,11 +102,12 @@ Restore is pinned to the public nuget.org feed by the repo-root `NuGet.config`.
 
 ## Pinned packages
 
-Verified through 2026-07-19; recorded with doc links in `COMPATIBILITY.md`.
+Verified through 2026-07-20; recorded with doc links in `COMPATIBILITY.md`.
 
 | Package | Version | Role |
 |---|---|---|
 | Microsoft.Azure.Functions.Worker.Extensions.Mcp | 1.5.1 | MCP tool triggers (GA) |
+| Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk | 1.0.0-preview.4 | MCP SDK result middleware for top-level tool errors |
 | Microsoft.Azure.Functions.Worker | 2.52.0 | isolated worker runtime |
 | Microsoft.Azure.Functions.Worker.Sdk | 2.0.7 | isolated worker build SDK |
 | ModelContextProtocol | 1.2.0 | typed MCP tool-error result for the Functions server |

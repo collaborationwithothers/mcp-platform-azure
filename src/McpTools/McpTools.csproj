@@ -15,11 +15,17 @@
       - Microsoft.Extensions.Http 10.0.10 (GA): IHttpClientFactory, used by
         Program.cs to build the HttpClient DownstreamOrdersClient calls the
         downstream Orders API with.
-    Package pin verified 2026-07-19 (issue 45; see COMPATIBILITY.md):
-      - ModelContextProtocol 1.2.0: matches the pinned Functions MCP worker
-        extension SDK and provides CallToolResult/TextContentBlock so expected
-        authorization failures are returned as MCP tool errors, not thrown as
-        protocol-level failures.
+    Package pins verified 2026-07-20 (issue 45; see COMPATIBILITY.md):
+      - Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk 1.0.0-preview.4:
+        installs the worker middleware that recognizes CallToolResult and
+        preserves its top-level IsError flag. The trigger package alone treats
+        CallToolResult as an ordinary object and nests its JSON inside a text
+        content block.
+      - ModelContextProtocol 1.2.0: overrides the MCP SDK integration package's
+        0.4.0-preview.3 lower bound with the stable API used by the current
+        worker-1.5.1 source. It provides CallToolResult/TextContentBlock so
+        expected authorization failures are returned as MCP tool errors, not
+        thrown as protocol-level failures.
       - ToolInvocationContextExtensions.TryGetHttpTransport (part of
         Microsoft.Azure.Functions.Worker.Extensions.Mcp above, present
         since 1.0.0 GA): confirmed via assembly reflection AND Microsoft
@@ -43,6 +49,7 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp" Version="1.5.1" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk" Version="1.0.0-preview.4" />
     <PackageReference Include="Microsoft.Identity.Client" Version="4.86.1" />
     <PackageReference Include="Microsoft.Identity.Web.Certificateless" Version="4.13.2" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
