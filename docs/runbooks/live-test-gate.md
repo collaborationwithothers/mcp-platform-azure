@@ -29,48 +29,40 @@ and the deploying principal does not need role-assignment-write.
 Amendment recorded 2026-07-12 (ticket 4, PR #21) so ticket 5's integration run
 does not fail at the gate on a missing grant.
 
-## Registry evidence (issue 9): two-tier, non-blocking
+## Registry convergence (issue 9): forced, then asserted (Option Y)
 
-Registry membership is an **eventual-consistency** concern, not a synchronous
-gate invariant, so it is split across two tiers (see `docs/decisions/ADR-007`):
+APIM -> API Center auto-sync is documented at **up to 24 hours**, so an ephemeral
+apply->call->destroy gate cannot wait it out, and there is no automatable way to
+register an MCP server at the data-plane `/v0.1/servers` endpoint (which is also
+portal-auth-only: it 401s a bearer token). So the gate makes convergence
+**deterministic** (see `docs/decisions/ADR-007`) instead of waiting on sync:
 
-- **Tier 1 (this blocking gate)** asserts only gateway and backend correctness
-  (steps 1-4 and 6). Its registry step `[5]` is **non-blocking evidence** and can
-  never fail the run. It reads the API Center data-plane endpoint
-  (`/workspaces/default/v0.1/servers`) and RECORDS: the anonymous posture (401
-  expected), the authenticated read status, and whether a specific MCP server has
-  converged. A **401** (wrong data-plane audience `https://azure-apicenter.net`)
-  or **403** (**Azure API Center Data Reader** role not propagated to the poll
-  principal) is surfaced as a `::warning::` for the Tier 2 monitor to act on, not
-  a red gate. The `PollTimeoutSeconds` window (default 90 s, down from 300 s) is a
-  brief evidence look, not a wait on anything asynchronous.
-- **Tier 2 (registry convergence)** is monitored **asynchronously** -- a
-  scheduled nightly poll with a wider bounded window that fails loudly if the
-  entry never converges. It is **designed in ADR-007 but deliberately not
-  implemented** (cost). Do not add a synchronous registry assertion to Tier 1 to
-  compensate; that reintroduces the flaky required check the split exists to
-  avoid.
+- **Force convergence.** The workflow step "Force registry convergence
+  (import-from-apim, Option Y)" runs `az apic import-from-apim` for the MCP server
+  API after the s2 apply. It is a synchronous, idempotent LRO (~34 s) that lands
+  the server in the API Center inventory and coexists with the active auto-sync
+  link -- no duplicate/conflict (all verified live 2026-07-21). It installs the
+  `apic-extension` and fails the step loudly on any import error.
+- **Assert convergence.** Gate step `[5]` reads the **control-plane `apis`
+  inventory** (`management.azure.com`, `2024-06-01-preview`, the call stage's
+  `az` credential) and ASSERTS an entry with `title == server_name && kind ==
+  "mcp"`. FATAL if absent (a short `PollTimeoutSeconds` retry, default 90 s,
+  covers residual projection lag -- not an eventual wait). It also probes
+  `/v0.1/servers` anonymously (records the secure-by-default 401 posture) and
+  captures the raw inventory to `gate-evidence/registry-apis-inventory.json`.
 
-Two verified facts force the split (2026-07-20; see COMPATIBILITY.md and
-ADR-007):
+The `kind=mcp` match works because the live `2024-06-01-preview` control-plane
+`apis` API returns the synced/imported MCP server with `kind=mcp`, even though the
+documented enum omits `mcp` (the live API is ahead of its docs; the entry's own
+`name` is auto-generated, so match on `title`+`kind`, not `name`).
 
-- APIM -> API Center auto-sync is documented at **up to 24 hours**, which an
-  ephemeral apply->call->destroy gate cannot wait out.
-- There is **no automatable way to register a server explicitly** so it surfaces
-  at `/v0.1/servers` -- not azapi/ARM, not `az apic`, not `az rest`. Registration
-  is portal-only. (An `az apic import-from-apim` on-demand path exists but is
-  deprecated in the current extension, its replacement `az apic import apim` is
-  undocumented, and whether it preserves MCP kind or coexists with the linked
-  auto-sync source is UNVERIFIABLE from docs -- a possible future escape hatch to
-  spike live, not something to build on now.)
-
-The gate captures the full servers-list response and a summary to the
-`gate-evidence` artifact (`registry-servers-response.json`,
-`registry-poll-summary.txt`, uploaded with the PRM evidence). That captured body
-is what a follow-up would pin the real `/v0.1/servers` field names against (the
-doc-published response schema is UNVERIFIABLE today). If the authenticated read
-warns 401/403, fix the audience or the Data Reader grant above before relying on
-the evidence; a server not yet listed is expected and non-fatal.
+If step `[5]` fails: the import step's log shows whether `import-from-apim`
+succeeded; a green import + a red assertion points at an `apis` api-version/shape
+change; a red import points at the `apic-extension` (the command is renamed to
+`az apic import apim` in the 1.2.0b3 beta -- a clean break to fix when it ships
+stable). An earlier two-tier design (non-blocking evidence + an async monitor) was
+superseded once the import spike proved forced synchronous convergence; see
+ADR-007's Alternatives.
 
 ## Function code deploy (issue 9, reopened)
 

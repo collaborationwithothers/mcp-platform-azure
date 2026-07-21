@@ -117,45 +117,40 @@ fetches, not recalled from training data:
   recorded in COMPATIBILITY.md as an observed-not-documented figure.
   [Synchronize APIs from an API Management instance - Delete an integration](https://learn.microsoft.com/azure/api-center/synchronize-api-management-apis#delete-an-integration).
 
-## Auto-sync is the production target; the gate asserts reachability, not sync
+## Auto-sync is the production target; the gate forces convergence, then asserts it
 
 This module wires **auto-sync from APIM** as the headline mechanism: MCP servers
 managed in API Management populate the registry automatically, the way a
 production inventory maintains itself. The module deliberately does **not**
 create an MCP server entry explicitly, and this stays the production path.
 
-An earlier plan kept **explicit `azapi` registration** (via
-`Microsoft.ApiCenter/services/workspaces/apis`) as a labelled demo-determinism
-fallback. Verification retired that plan: as of **2026-07-20** there is **no
-automatable way to register an MCP server so it surfaces at the data-plane
-`/v0.1/servers` endpoint** -- not via azapi/ARM (the `apis` `kind` enum has no
-`mcp` value and no Learn page documents an MCP-kind payload), not via `az apic`
-(no MCP command; `--type` has no `mcp`), and not via `az rest` (the data-plane
-API has no write operation at all). Registration is portal-only. See
-COMPATIBILITY.md ("Explicit MCP-server registration into API Center") and
-`docs/decisions/ADR-007` (registry assertion determinism).
+Auto-sync is documented at **up to 24 h** (Microsoft Learn,
+synchronize-api-management-apis), so an ephemeral apply->call->destroy gate
+cannot wait it out. And there is **no automatable way to register an MCP server
+so it surfaces at the data-plane `/v0.1/servers` endpoint** -- not via azapi/ARM
+(the `apis` `kind` enum has no `mcp` value), not via `az apic` (no MCP command),
+not via `az rest` (the data-plane API has no write op). `/v0.1/servers` is also
+portal-auth-only (it 401s a bearer token; verified live 2026-07-21).
 
-Because auto-sync is documented at **up to 24 h** (Microsoft Learn,
-synchronize-api-management-apis) and cannot be waited out in an ephemeral
-apply->call->destroy gate, registry membership is treated as an
-**eventual-consistency** concern, not a synchronous gate invariant, split across
-two tiers (ADR-007):
+The gate therefore makes registry convergence **deterministic** (Option Y,
+ADR-007), rather than waiting on auto-sync timing:
 
-- **Tier 1, the blocking gate**, asserts only **gateway and backend
-  correctness** synchronously and makes **no API Center assertion**. Its registry
-  step is **non-blocking evidence**: it records the anonymous posture, the
-  authenticated-read status, and whether the server has converged, captures the
-  raw `/v0.1/servers` body as a gate artifact, and never fails the run (a 401/403
-  becomes a warning for the async monitor, not a red gate).
-- **Tier 2, registry convergence**, is monitored **asynchronously** (a scheduled
-  nightly poll with a wider bounded window that fails loudly if the entry never
-  converges). It is **designed in ADR-007 but deliberately not implemented** here,
-  on cost grounds.
+- **Force convergence.** After the s2 apply, the live-test workflow runs
+  `az apic import-from-apim` for the MCP server API -- a synchronous, idempotent
+  LRO (~34 s) that lands the server in the API Center inventory and **coexists
+  with the active auto-sync link** (no duplicate/conflict; verified live). This
+  is a CI-only determinism mechanism layered on the production auto-sync path.
+- **Assert convergence.** Gate step `[5]` reads the **control-plane `apis`
+  inventory** (`management.azure.com`, `2024-06-01-preview`) and asserts an entry
+  with `title == server_name && kind == "mcp"` (the live apis list returns
+  `kind=mcp`, which the documented enum omits; the entry's own name is
+  auto-generated). It also probes `/v0.1/servers` anonymously to record the
+  secure-by-default 401 posture, and captures the raw inventory as a gate artifact.
 
-The compromise is honest and labelled: auto-sync is the production target; the
-blocking gate's synchronous claim is deliberately narrower than "the server is
-discoverable in the registry", because asserting an eventual property
-synchronously is exactly what makes a required check flaky.
+An earlier two-tier plan (non-blocking gate evidence + an async nightly monitor)
+was superseded once the import spike proved forced synchronous convergence works;
+see ADR-007's Alternatives. Auto-sync remains the production target; the import is
+only there to make the ephemeral gate deterministic.
 
 ## Registry read access
 

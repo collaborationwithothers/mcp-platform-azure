@@ -18,22 +18,19 @@ doc page.)
 Every consumer inside the Entra trust boundary reads the registry
 **authenticated**:
 
-- **Test harness (this tracer).** Ticket 5's registry step authenticates with an
-  OIDC principal that holds the **Azure API Center Data Reader** role on the
-  instance, granted by the `api-center-registry` module via
-  `data_reader_principal_ids`. This step is **non-blocking evidence** in the
-  blocking gate (Tier 1), which asserts only gateway and backend correctness and
-  makes no API Center assertion (ADR-007). The read records the authenticated
-  status -- a **401** (wrong data-plane audience `https://azure-apicenter.net`)
-  or **403** (Data Reader role not propagated) is surfaced as a warning for the
-  asynchronous Tier 2 monitor, not a gate failure -- and whether a specific
-  server has converged into `/v0.1/servers`. Absence is expected inside an
-  ephemeral gate: APIM auto-sync is documented at up to 24 h (Microsoft Learn),
-  and there is no automatable way to register a server explicitly (verified
-  2026-07-20; azapi, `az` CLI, and the data-plane API all lack the surface -- see
-  COMPATIBILITY.md and ADR-007). The raw `/v0.1/servers` response is captured as
-  a gate artifact. Registry convergence itself is a Tier 2 concern, monitored
-  asynchronously (designed in ADR-007, not implemented on cost grounds).
+- **Test harness (this tracer).** Registry convergence is made deterministic
+  (Option Y, ADR-007): after apply the workflow forces the MCP server into the
+  API Center inventory with `az apic import-from-apim` (a synchronous, idempotent
+  LRO that coexists with the auto-sync link; verified live 2026-07-21), and gate
+  step `[5]` then **asserts** the server is in the **control-plane `apis`
+  inventory** with `kind=mcp`, read with the call stage's `management.azure.com`
+  credential. The `Azure API Center Data Reader` role granted to the OIDC
+  principal via `data_reader_principal_ids` remains for data-plane read scenarios;
+  the data-plane `/v0.1/servers` MCP-registry surface itself is portal-auth-only
+  (it 401s a bearer token; its auth is the portal access mode, not headless RBAC
+  -- verified 2026-07-21), so the gate only probes it anonymously to record the
+  secure-by-default 401 posture and captures the raw `apis` inventory as a gate
+  artifact. Nothing sensitive is placed in registered metadata (below).
 - **Foundry tool-catalog integration.** A tool-catalog integration with API
   Center exists; its exact registry auth mechanics are to be verified at that
   phase, not assumed here.
