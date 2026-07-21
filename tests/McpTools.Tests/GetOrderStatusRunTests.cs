@@ -93,6 +93,30 @@ public class GetOrderStatusRunTests
     }
 
     [Fact]
+    public async Task Run_Delegated_MissingAuditIdentity_ProceedsWithoutCorrelation()
+    {
+        // Regression guard (governance review 2026-07-21): caller correlation is
+        // audit context only, so a delegated principal lacking azp/oid must NOT
+        // throw -- the OBO call proceeds without correlation headers rather than
+        // failing a previously-green delegated path. Contrast
+        // Run_AppContext_MissingAuditIdentity_FailsClosed, where the app-only path
+        // legitimately fails closed because the application identity IS the subject.
+        var fakeClient = new FakeDownstreamOrdersClient(SampleDownstreamStatus);
+        var tool = CreateTool(fakeClient);
+        var context = ContextWithHeaders(WithPrincipal(
+            [("scp", "user_impersonation")],
+            [("Authorization", "Bearer inbound-token")]));
+
+        var result = await tool.Run(context, "CONTOSO-1001", CancellationToken.None);
+
+        Assert.IsType<OrderStatus>(result);
+        Assert.Equal("CONTOSO-1001", fakeClient.LastOrderId);
+        Assert.Equal(DownstreamAccessMode.OnBehalfOf, fakeClient.LastAccessMode);
+        Assert.Equal("inbound-token", fakeClient.LastInboundUserAssertion);
+        Assert.Null(fakeClient.LastCaller);
+    }
+
+    [Fact]
     public async Task Run_AppContext_WithOrdersRead_CallsDownstreamAsApplication()
     {
         var fakeClient = new FakeDownstreamOrdersClient(SampleDownstreamStatus);
@@ -246,7 +270,7 @@ public class GetOrderStatusRunTests
         public Task<object> GetOrderStatusOnBehalfOfAsync(
             string orderId,
             string inboundUserAssertion,
-            CallerIdentityCorrelation caller,
+            CallerIdentityCorrelation? caller,
             CancellationToken cancellationToken)
         {
             LastOrderId = orderId;

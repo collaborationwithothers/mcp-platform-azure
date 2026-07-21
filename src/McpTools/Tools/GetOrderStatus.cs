@@ -149,8 +149,27 @@ public sealed class GetOrderStatus
                 + "absence indicates an unverified transport or a token-store misconfiguration.");
         }
 
-        var caller = CallerIdentityCorrelation.FromPrincipal(principal);
-        LogCaller(caller, IdentityMode.Delegated);
+        // Caller correlation is audit context only, never an authorization input,
+        // so a delegated principal missing azp/oid must NOT fail the OBO call --
+        // failing it would regress a previously-green delegated (#10) path. The
+        // Easy Auth claim-type strings for the delegated principal are marked
+        // UNVERIFIABLE in COMPATIBILITY.md, so this is best-effort (governance
+        // review 2026-07-21). The app-only path keeps fail-closed FromPrincipal
+        // below, where the application identity IS the authorization subject.
+        CallerIdentityCorrelation? caller = null;
+        if (CallerIdentityCorrelation.TryFromPrincipal(principal, out var resolved))
+        {
+            caller = resolved;
+            LogCaller(resolved, IdentityMode.Delegated);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "get_order_status: the delegated caller principal did not carry azp/appid and "
+                + "oid claims; proceeding without caller correlation headers (audit context only, "
+                + "not an authorization input).");
+        }
+
         return await _downstreamOrdersClient.GetOrderStatusOnBehalfOfAsync(
             orderId, inboundToken, caller, cancellationToken);
     }

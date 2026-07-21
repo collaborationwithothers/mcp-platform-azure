@@ -61,7 +61,7 @@ public sealed class DownstreamOrdersClient : IDownstreamOrdersClient
     public async Task<object> GetOrderStatusOnBehalfOfAsync(
         string orderId,
         string inboundUserAssertion,
-        CallerIdentityCorrelation caller,
+        CallerIdentityCorrelation? caller,
         CancellationToken cancellationToken)
     {
         var downstreamToken = await _tokenAcquirer.AcquireDownstreamTokenAsync(
@@ -84,14 +84,19 @@ public sealed class DownstreamOrdersClient : IDownstreamOrdersClient
     private async Task<object> SendAsync(
         string orderId,
         string downstreamToken,
-        CallerIdentityCorrelation caller,
+        CallerIdentityCorrelation? caller,
         CancellationToken cancellationToken)
     {
         var requestUri = new Uri($"{_baseUrl.ToString().TrimEnd('/')}/api/orders/{Uri.EscapeDataString(orderId)}");
         using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", downstreamToken);
-        request.Headers.Add(CallerIdentityCorrelation.ApplicationIdHeader, caller.ApplicationId);
-        request.Headers.Add(CallerIdentityCorrelation.ObjectIdHeader, caller.ObjectId);
+        // Correlation headers are audit-only; omit them when the caller is absent
+        // (best-effort delegated path) rather than sending empty values.
+        if (caller is not null)
+        {
+            request.Headers.Add(CallerIdentityCorrelation.ApplicationIdHeader, caller.ApplicationId);
+            request.Headers.Add(CallerIdentityCorrelation.ObjectIdHeader, caller.ObjectId);
+        }
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
 

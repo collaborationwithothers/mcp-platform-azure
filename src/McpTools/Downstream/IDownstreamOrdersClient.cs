@@ -19,7 +19,9 @@ public interface IDownstreamOrdersClient
     Task<object> GetOrderStatusOnBehalfOfAsync(
         string orderId,
         string inboundUserAssertion,
-        CallerIdentityCorrelation caller,
+        // Nullable: correlation is audit-only on the delegated path, so a caller
+        // without azp/oid still gets served (headers omitted). See GetOrderStatus.
+        CallerIdentityCorrelation? caller,
         CancellationToken cancellationToken);
 
     Task<object> GetOrderStatusAsApplicationAsync(
