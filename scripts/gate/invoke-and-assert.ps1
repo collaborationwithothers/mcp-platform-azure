@@ -24,11 +24,17 @@
        tool-level 403 result.
     4. Run the raw-HTTP discovery assertions (401 / WWW-Authenticate / PRM /
        wrong-audience / shadow mcp_extension key).
-    5. Probe the registry endpoint anonymously first and RECORD the status (a
-       401 is the expected, evidential secure-by-default result, not a
-       failure), then poll it authenticated (Azure API Center Data Reader, via
-       the workflow's OIDC principal) with a bounded timeout and assert the
-       synced server appears.
+    5. Registry convergence ASSERTION (deterministic, Option Y). The workflow's
+       "Force registry convergence" step runs `az apic import-from-apim` (a
+       synchronous, idempotent LRO) before this call stage, so the MCP server is
+       already in the API Center inventory. Probe /v0.1/servers anonymously (a 401
+       is the expected secure-by-default result; that surface is portal-auth-only),
+       then ASSERT the server is in the CONTROL-PLANE apis inventory
+       (management.azure.com, 2024-06-01-preview) -- match title==ServerName AND
+       kind=='mcp' (the live apis list returns kind=mcp, which the documented enum
+       omits). FATAL if absent (a short bounded retry covers residual projection
+       lag). Captures the raw apis inventory as evidence. See ADR-007,
+       COMPATIBILITY.md.
     6. Issue 10 (OBO thickening): run the OBO passthrough negative test,
        reusing the step-1 server-audience token as the inbound token
        presented directly to the downstream Orders API (tests/integration/
@@ -37,18 +43,27 @@
        gap" and "Testing strategy: the user-context token problem" for why
        that is validated manually, not here.
 
-  Exits non-zero if the MCP client, the discovery assertions, or the
-  authenticated poll fail. The anonymous probe never fails the run; it only
-  records what it observed. The gate does NOT auto-exercise interactive,
-  client-driven discovery: that is validated manually in VS Code and recorded
-  in docs/demos (spec: Testing Decisions).
+  Exits non-zero if the MCP client, the discovery assertions, or the registry
+  convergence assertion fail. Registry convergence is made deterministic by the
+  workflow forcing it synchronously (import-from-apim) before the call stage
+  (Option Y, ADR-007), so step 5 asserts it rather than waiting out auto-sync.
+  The gate does NOT auto-exercise interactive, client-driven discovery: that is
+  validated manually in VS Code and recorded in docs/demos (spec: Testing
+  Decisions).
 
 .NOTES
   Verified 2026-07-19 against Microsoft Learn (see COMPATIBILITY.md):
   - Client-credentials scope form <resource>/.default and app-role claims:
     https://learn.microsoft.com/entra/identity-platform/v2-oauth2-client-creds-grant-flow
-  - API Center data-plane token audience https://azure-apicenter.net:
-    https://learn.microsoft.com/rest/api/dataplane/apicenter/apis/list
+  - Registry convergence is read from the CONTROL-PLANE apis inventory
+    (2024-06-01-preview, management.azure.com), which returns the auto-synced MCP
+    server with kind=mcp; the data-plane /v0.1/servers surface is portal-auth-only
+    and is only probed anonymously (COMPATIBILITY.md, ADR-007).
+  - APIM auto-sync is documented at up to 24 h (Learn), so it cannot be asserted
+    synchronously; the gate forces convergence via `az apic import-from-apim` (a
+    synchronous, idempotent LRO that coexists with the auto-sync link; verified
+    live 2026-07-21) in the workflow, then asserts it here (Option Y, ADR-007):
+    https://learn.microsoft.com/azure/api-center/synchronize-api-management-apis
 #>
 
 [CmdletBinding()]
@@ -75,8 +90,24 @@ param(
     [string]$McpExtensionKey = '',
     [string]$McpTestClientProject,
     [string]$RegistryResource = 'https://azure-apicenter.net',
-    [int]$PollTimeoutSeconds = 300,
-    [int]$PollIntervalSeconds = 15
+    # ARM resource id of the API Center service (s2 output api_center_id). The
+    # non-blocking convergence evidence reads the CONTROL-PLANE apis inventory
+    # under this id (management.azure.com), which is what actually shows the
+    # auto-synced MCP server (kind=mcp) -- the data-plane /v0.1/servers surface is
+    # portal-auth-only and 401s a bearer token (COMPATIBILITY.md, ADR-007). Empty
+    # => convergence read skipped (anonymous /v0.1/servers probe only).
+    [string]$ApiCenterResourceId = '',
+    # Bounded window for the authenticated registry read. The Data Reader RBAC
+    # and the endpoint are created during `terraform apply` (minutes before this
+    # call stage), so this covers residual RBAC propagation and a brief sync-
+    # evidence look, NOT a cold wait. Dropped from 300 s: the old value was sized
+    # for auto-sync, which is up to 24 h (Learn) and never gated here anyway.
+    [int]$PollTimeoutSeconds = 90,
+    [int]$PollIntervalSeconds = 15,
+    # Optional dir to write the captured /v0.1/servers response body plus a
+    # summary, uploaded as a gate artifact so the (doc-UNVERIFIABLE) live
+    # response shape can be pinned in a follow-up. Empty => log only.
+    [string]$EvidenceDir = ''
 )
 
 Set-StrictMode -Version Latest
@@ -183,12 +214,26 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ''
 
 # ---------------------------------------------------------------------------
-# 5. Registry: anonymous probe (evidential), then bounded authenticated poll.
+# 5. Registry: DETERMINISTIC convergence ASSERTION (Option Y, ADR-007). The
+#    workflow's "Force registry convergence" step runs `az apic import-from-apim`
+#    -- a synchronous, idempotent LRO that coexists with the production auto-sync
+#    link (verified live 2026-07-21) -- BEFORE this call stage, so the MCP server
+#    is already in the API Center inventory. This step therefore ASSERTS its
+#    presence rather than waiting out auto-sync (up to 24 h). The bounded retry is
+#    a safety margin for residual projection lag, not an eventual-consistency wait.
+#
+#    - Anonymous /v0.1/servers probe: records the secure-by-default posture (401
+#      expected). That MCP-registry surface is portal-auth-only and 401s a bearer
+#      token, so it is only probed anonymously, never asserted.
+#    - Control-plane apis inventory (management.azure.com): the surface where the
+#      MCP server shows up. The live 2024-06-01-preview apis list returns it with
+#      kind=mcp (the documented enum omits 'mcp'; the live API is ahead of docs).
+#      Assert an entry with title==ServerName AND kind=='mcp' (its own name is
+#      auto-generated). FATAL if absent -- the forced import should have landed it.
 # ---------------------------------------------------------------------------
-Write-Host "[5] Registry endpoint access"
+Write-Host "[5] Registry convergence assertion (deterministic -- Option Y, ADR-007)"
 
-# 4a. Anonymous probe FIRST. Expected 401 (secure-by-default): this is an
-#     evidential negative test, recorded, never a failure of the run.
+# 5a. Anonymous /v0.1/servers probe. Expected 401 (secure-by-default): evidence.
 $anonStatus = 'error'
 try {
     $anon = Invoke-WebRequest -Uri $RegistryEndpointUrl -Method Get -SkipHttpErrorCheck -ErrorAction Stop
@@ -197,72 +242,98 @@ try {
 catch {
     $anonStatus = "error: $($_.Exception.Message)"
 }
-Write-Host "  anonymous probe status: $anonStatus (401 expected = secure-by-default; recorded, not a pass/fail gate)."
-# The read posture is platform-determined (no ARM surface), so this probe never
-# fails the run. But an anonymous 200 means the registry became publicly
-# readable -- a security-relevant posture change worth surfacing beyond the log.
+Write-Host "  anonymous /v0.1/servers probe: $anonStatus (401 expected = secure-by-default; recorded, never a gate)."
 if ("$anonStatus" -ne '401') {
     Write-Host "::warning::Registry anonymous probe returned '$anonStatus', not 401. The data-plane registry may be anonymously readable; confirm the intended access posture (docs/security.md, docs/runbooks/registry-anonymous-access.md)."
 }
 
-# 4b. Authenticated poll. The registry token targets the API Center data plane
-#     (https://azure-apicenter.net); the workflow's OIDC principal holds Azure
-#     API Center Data Reader on the instance.
-if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
-    throw "az CLI not found; the authenticated registry poll needs it to mint an API Center data-plane token."
-}
-$registryToken = az account get-access-token --resource $RegistryResource --query accessToken -o tsv
-if ([string]::IsNullOrEmpty($registryToken)) {
-    throw "Failed to acquire an API Center data-plane token (resource $RegistryResource)."
-}
-
-# The registry endpoint path form carries a known Microsoft-doc inconsistency
-# (template includes /workspaces/, the doc's own example omits it). The module
-# emits the /workspaces/ form; try it first, fall back to the stripped form,
-# and record which one actually served the servers list.
-$primaryUrl = $RegistryEndpointUrl
-$fallbackUrl = ($RegistryEndpointUrl -replace '/workspaces/[^/]+/', '/')
-$candidates = @($primaryUrl)
-if ($fallbackUrl -ne $primaryUrl) { $candidates += $fallbackUrl }
-
-$deadline = (Get-Date).AddSeconds($PollTimeoutSeconds)
-$found = $false
-$observedPath = $null
-$attempt = 0
-while ((Get-Date) -lt $deadline -and -not $found) {
-    $attempt++
-    foreach ($url in $candidates) {
-        $resp = Invoke-WebRequest -Uri $url -Method Get `
-            -Headers @{ Authorization = "Bearer $registryToken" } `
-            -SkipHttpErrorCheck -ErrorAction Stop
-        if ([int]$resp.StatusCode -eq 200) {
-            if ($resp.Content -match [regex]::Escape($ServerName)) {
-                $found = $true
-                $observedPath = $url
-                break
+# 5b. Control-plane apis convergence read. Reads the API Center apis inventory
+#     under the service ARM id with the call stage's az (management.azure.com)
+#     credential. The read is wrapped so an unexpected error is caught cleanly;
+#     the assertion after the loop decides pass/fail.
+$converged = $false
+$convergeStatus = 'skipped'
+$matchedName = ''
+$apisRaw = ''
+try {
+    if ([string]::IsNullOrEmpty($ApiCenterResourceId)) {
+        Write-Host "::warning::ApiCenterResourceId not provided; skipping the control-plane convergence read (anonymous probe only)."
+        $convergeStatus = 'skipped (no ApiCenterResourceId)'
+    }
+    elseif (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+        Write-Host "::warning::az CLI not found; skipping the control-plane convergence read."
+        $convergeStatus = 'skipped (no az)'
+    }
+    else {
+        $apisUrl = "https://management.azure.com$ApiCenterResourceId/workspaces/default/apis?api-version=2024-06-01-preview"
+        $deadline = (Get-Date).AddSeconds($PollTimeoutSeconds)
+        $attempt = 0
+        while ((Get-Date) -lt $deadline -and -not $converged) {
+            $attempt++
+            $apisRaw = (az rest --method GET --url $apisUrl -o json 2>$null) -join "`n"
+            if (-not [string]::IsNullOrEmpty($apisRaw)) {
+                $convergeStatus = 'read ok'
+                $items = @()
+                try { $items = ($apisRaw | ConvertFrom-Json).value } catch { $items = @() }
+                foreach ($api in $items) {
+                    try {
+                        if ("$($api.properties.title)" -eq $ServerName -and "$($api.properties.kind)" -eq 'mcp') {
+                            $converged = $true
+                            $matchedName = "$($api.name)"
+                            break
+                        }
+                    }
+                    catch { }
+                }
             }
-            $observedPath = $url  # path form works; server not yet synced
+            else {
+                $convergeStatus = 'read failed/unauthorized'
+            }
+            if (-not $converged) {
+                $remaining = [int]($deadline - (Get-Date)).TotalSeconds
+                Write-Host "  attempt ${attempt}: MCP server '$ServerName' (kind=mcp) not yet in the apis inventory ($convergeStatus); ${remaining}s left."
+                if ($remaining -gt 0) { Start-Sleep -Seconds $PollIntervalSeconds }
+            }
         }
     }
-    if (-not $found) {
-        $remaining = [int]($deadline - (Get-Date)).TotalSeconds
-        Write-Host "  attempt ${attempt}: server '$ServerName' not yet in the registry; ${remaining}s left."
-        if ($remaining -gt 0) { Start-Sleep -Seconds $PollIntervalSeconds }
-    }
+}
+catch {
+    Write-Host "::warning::Control-plane convergence read errored ($($_.Exception.Message)); the assertion below treats an unreadable inventory as a failure."
+    $convergeStatus = "error: $($_.Exception.Message)"
+}
+
+# Capture evidence artifacts (empty EvidenceDir => log only): the raw apis
+# inventory (the real live shape, incl. the undocumented kind=mcp) + a summary.
+if (-not [string]::IsNullOrEmpty($EvidenceDir)) {
+    $null = New-Item -ItemType Directory -Path $EvidenceDir -Force
+    Set-Content -Path (Join-Path $EvidenceDir 'registry-apis-inventory.json') -Value "$apisRaw" -Encoding utf8
+    Set-Content -Path (Join-Path $EvidenceDir 'registry-poll-summary.txt') -Encoding utf8 -Value @"
+anonymous /v0.1/servers status : $anonStatus (portal-auth-only surface; 401 expected)
+control-plane apis read        : $convergeStatus
+MCP server '$ServerName' converged (title match + kind=mcp) : $converged
+matched auto-generated api name : $(if ($matchedName) { $matchedName } else { 'none' })
+poll window seconds            : $PollTimeoutSeconds
+note                          : Option Y (ADR-007). Convergence is FORCED synchronously by the workflow's import-from-apim step, then ASSERTED here. Read surface = control-plane apis inventory (kind=mcp), NOT /v0.1/servers.
+"@
+    Write-Host "  registry evidence written to $EvidenceDir (registry-apis-inventory.json, registry-poll-summary.txt)."
 }
 
 Write-Host ''
-Write-Host "== Registry access modes observed =="
-Write-Host "  anonymous read : $anonStatus"
-Write-Host "  authenticated  : Azure API Center Data Reader (token audience $RegistryResource)"
-Write-Host "  served path     : $(if ($observedPath) { $observedPath } else { 'none (no 200 within timeout)' })"
-Write-Host "  (COMPATIBILITY.md registry row records the observed anonymous status and served path form.)"
-Write-Host ''
+Write-Host "== Registry convergence assertion (Option Y) =="
+Write-Host "  anonymous /v0.1/servers : $anonStatus (portal-auth-only; 401 expected, evidence)"
+Write-Host "  control-plane apis read : $convergeStatus"
+Write-Host "  MCP server converged     : $converged$(if ($converged) { " (title='$ServerName', kind=mcp, name=$matchedName)" } else { '' })"
+Write-Host "  (COMPATIBILITY.md + ADR-007: convergence is forced synchronously via import-from-apim, then asserted here.)"
 
-if (-not $found) {
-    throw "Registry poll: server '$ServerName' did not appear within $PollTimeoutSeconds s."
+if ($convergeStatus -like 'skipped*') {
+    Write-Host "::warning::Control-plane convergence read skipped ($convergeStatus); cannot assert registry convergence. Pass -ApiCenterResourceId and ensure az is available (the live-gate workflow always does). Not failing the run in this non-gate context."
 }
-Write-Host "[5] Registry poll: server '$ServerName' present (authenticated)."
+elseif (-not $converged) {
+    throw "Registry convergence assertion FAILED: MCP server '$ServerName' (kind=mcp) is not in the API Center apis inventory within $PollTimeoutSeconds s (read: $convergeStatus). Option Y forces convergence via 'az apic import-from-apim' in the workflow's 'Force registry convergence' step before this call stage; its absence means the import did not land the server, or the apis api-version/shape changed. See docs/decisions/ADR-007 and COMPATIBILITY.md."
+}
+else {
+    Write-Host "[5] Registry convergence ASSERTED: MCP server '$ServerName' present (kind=mcp, name=$matchedName)."
+}
 Write-Host ''
 
 # ---------------------------------------------------------------------------

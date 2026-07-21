@@ -117,19 +117,40 @@ fetches, not recalled from training data:
   recorded in COMPATIBILITY.md as an observed-not-documented figure.
   [Synchronize APIs from an API Management instance - Delete an integration](https://learn.microsoft.com/azure/api-center/synchronize-api-management-apis#delete-an-integration).
 
-## Auto-sync is the production target; explicit registration is a fallback only
+## Auto-sync is the production target; the gate forces convergence, then asserts it
 
 This module wires **auto-sync from APIM** as the headline mechanism: MCP servers
 managed in API Management populate the registry automatically, the way a
 production inventory maintains itself. The module deliberately does **not**
-create an MCP server entry explicitly.
+create an MCP server entry explicitly, and this stays the production path.
 
-Explicit `azapi` registration of a server (via
-`Microsoft.ApiCenter/services/workspaces/apis`) is retained only as a labelled
-**demo-determinism fallback**, to be added by the integration issue **if and
-only if** the bounded poll proves the asynchronous sync too flaky inside a
-short-lived deployment. If that fallback is ever used, it is the compromise, not
-the target, and must be documented as such. It is out of scope here.
+Auto-sync is documented at **up to 24 h** (Microsoft Learn,
+synchronize-api-management-apis), so an ephemeral apply->call->destroy gate
+cannot wait it out. And there is **no automatable way to register an MCP server
+so it surfaces at the data-plane `/v0.1/servers` endpoint** -- not via azapi/ARM
+(the `apis` `kind` enum has no `mcp` value), not via `az apic` (no MCP command),
+not via `az rest` (the data-plane API has no write op). `/v0.1/servers` is also
+portal-auth-only (it 401s a bearer token; verified live 2026-07-21).
+
+The gate therefore makes registry convergence **deterministic** (Option Y,
+ADR-007), rather than waiting on auto-sync timing:
+
+- **Force convergence.** After the s2 apply, the live-test workflow runs
+  `az apic import-from-apim` for the MCP server API -- a synchronous, idempotent
+  LRO (~34 s) that lands the server in the API Center inventory and **coexists
+  with the active auto-sync link** (no duplicate/conflict; verified live). This
+  is a CI-only determinism mechanism layered on the production auto-sync path.
+- **Assert convergence.** Gate step `[5]` reads the **control-plane `apis`
+  inventory** (`management.azure.com`, `2024-06-01-preview`) and asserts an entry
+  with `title == server_name && kind == "mcp"` (the live apis list returns
+  `kind=mcp`, which the documented enum omits; the entry's own name is
+  auto-generated). It also probes `/v0.1/servers` anonymously to record the
+  secure-by-default 401 posture, and captures the raw inventory as a gate artifact.
+
+An earlier two-tier plan (non-blocking gate evidence + an async nightly monitor)
+was superseded once the import spike proved forced synchronous convergence works;
+see ADR-007's Alternatives. Auto-sync remains the production target; the import is
+only there to make the ephemeral gate deterministic.
 
 ## Registry read access
 
@@ -211,6 +232,6 @@ here. Registry security posture is in `docs/security.md`.
 
 No `terraform apply`/`destroy`; no bounded-poll assertion script (that is the
 integration issue); no explicit `azapi` server registration as the primary
-mechanism (auto-sync is primary; explicit registration is a labelled fallback
-only); no API Center portal publishing flow; no Foundry tool-catalog wiring;
-no scenario composition wiring.
+mechanism (auto-sync is primary; explicit registration was later found not
+automatable at all -- see the section above and ADR-007); no API Center portal
+publishing flow; no Foundry tool-catalog wiring; no scenario composition wiring.

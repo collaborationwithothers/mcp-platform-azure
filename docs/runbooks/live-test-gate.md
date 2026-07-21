@@ -29,6 +29,41 @@ and the deploying principal does not need role-assignment-write.
 Amendment recorded 2026-07-12 (ticket 4, PR #21) so ticket 5's integration run
 does not fail at the gate on a missing grant.
 
+## Registry convergence (issue 9): forced, then asserted (Option Y)
+
+APIM -> API Center auto-sync is documented at **up to 24 hours**, so an ephemeral
+apply->call->destroy gate cannot wait it out, and there is no automatable way to
+register an MCP server at the data-plane `/v0.1/servers` endpoint (which is also
+portal-auth-only: it 401s a bearer token). So the gate makes convergence
+**deterministic** (see `docs/decisions/ADR-007`) instead of waiting on sync:
+
+- **Force convergence.** The workflow step "Force registry convergence
+  (import-from-apim, Option Y)" runs `az apic import-from-apim` for the MCP server
+  API after the s2 apply. It is a synchronous, idempotent LRO (~34 s) that lands
+  the server in the API Center inventory and coexists with the active auto-sync
+  link -- no duplicate/conflict (all verified live 2026-07-21). It installs the
+  `apic-extension` and fails the step loudly on any import error.
+- **Assert convergence.** Gate step `[5]` reads the **control-plane `apis`
+  inventory** (`management.azure.com`, `2024-06-01-preview`, the call stage's
+  `az` credential) and ASSERTS an entry with `title == server_name && kind ==
+  "mcp"`. FATAL if absent (a short `PollTimeoutSeconds` retry, default 90 s,
+  covers residual projection lag -- not an eventual wait). It also probes
+  `/v0.1/servers` anonymously (records the secure-by-default 401 posture) and
+  captures the raw inventory to `gate-evidence/registry-apis-inventory.json`.
+
+The `kind=mcp` match works because the live `2024-06-01-preview` control-plane
+`apis` API returns the synced/imported MCP server with `kind=mcp`, even though the
+documented enum omits `mcp` (the live API is ahead of its docs; the entry's own
+`name` is auto-generated, so match on `title`+`kind`, not `name`).
+
+If step `[5]` fails: the import step's log shows whether `import-from-apim`
+succeeded; a green import + a red assertion points at an `apis` api-version/shape
+change; a red import points at the `apic-extension` (the command is renamed to
+`az apic import apim` in the 1.2.0b3 beta -- a clean break to fix when it ships
+stable). An earlier two-tier design (non-blocking evidence + an async monitor) was
+superseded once the import spike proved forced synchronous convergence; see
+ADR-007's Alternatives.
+
 ## Function code deploy (issue 9, reopened)
 
 The gate deploys the Functions MCP server (`src/McpTools`) between the s1 apply
