@@ -33,7 +33,9 @@
        and there is no automatable way to register a server explicitly (no azapi
        payload, no az CLI command, no data-plane write op; verified 2026-07-20).
        So this step records the anonymous posture, the authenticated read status
-       (a 401/403 is a WARNING for the async Tier 2 monitor, not a gate failure),
+       (a 401 is EXPECTED -- /v0.1/servers authenticates via the portal access
+       mode, not this headless bearer token; a WARNING for the Tier 2 monitor,
+       not a gate failure),
        and whether the server has converged, and captures the full servers-list
        response as evidence. See docs/decisions/ADR-007 and COMPATIBILITY.md.
     6. Issue 10 (OBO thickening): run the OBO passthrough negative test,
@@ -238,11 +240,19 @@ if ("$anonStatus" -ne '401') {
     Write-Host "::warning::Registry anonymous probe returned '$anonStatus', not 401. The data-plane registry may be anonymously readable; confirm the intended access posture (docs/security.md, docs/runbooks/registry-anonymous-access.md)."
 }
 
-# 5b. Authenticated read (evidence). Token targets the API Center data plane
-#     (https://azure-apicenter.net); the OIDC principal holds Azure API Center
-#     Data Reader. The entire read is wrapped so no registry hiccup can fail the
-#     BLOCKING gate: a 401 (wrong audience) or 403 (Data Reader not propagated)
-#     is surfaced as a WARNING for the async Tier 2 monitor to act on, not a throw.
+# 5b. Authenticated read (evidence). Token targets the GENERAL API Center data
+#     plane (https://azure-apicenter.net); the OIDC principal holds Azure API
+#     Center Data Reader. IMPORTANT (observed live 2026-07-20, verified
+#     2026-07-21): the /v0.1/servers MCP-registry surface is NOT an RBAC-bearer
+#     data-plane API -- its auth is the portal access mode (anonymous, or
+#     interactive Entra SPA sign-in), NOT this headless token, and Data Reader's
+#     documented purpose is authorizing interactive portal sign-in. So a 401 here
+#     is EXPECTED, not a wiring bug; the azure-apicenter.net audience is
+#     documented only for the GENERAL data-plane API (apis/definitions/...), not
+#     /v0.1/servers (COMPATIBILITY.md, ADR-007). The read is wrapped so nothing
+#     here can fail the BLOCKING gate; it records the status as evidence. The
+#     eventual Tier 2 monitor should read convergence via the control-plane
+#     `apis` inventory, not this path (ADR-007).
 $authOk = $false
 $serverPresent = $false
 $observedPath = $null
@@ -332,7 +342,7 @@ Write-Host "  served path     : $(if ($observedPath) { $observedPath } else { 'n
 Write-Host "  server present  : $serverPresent"
 Write-Host "  (COMPATIBILITY.md + ADR-007: Tier 1 asserts gateway/backend; registry convergence is Tier 2, async.)"
 if (-not $authOk) {
-    Write-Host "::warning::Registry authenticated read did not succeed (last status $lastStatus). If 401, the data-plane token audience is wrong; if 403, the Data Reader role has not propagated. Recorded for the async Tier 2 monitor; does NOT fail the blocking gate (ADR-007)."
+    Write-Host "::warning::Registry authenticated read did not succeed (last status $lastStatus). A 401 on /v0.1/servers is EXPECTED: that MCP-registry surface authenticates via the portal access mode, not this headless RBAC bearer token (observed live, verified 2026-07-21; COMPATIBILITY.md, ADR-007). A 403 would instead mean the Data Reader role did not propagate. Either way this is recorded for the async Tier 2 monitor (which should read convergence via the control-plane apis inventory, not /v0.1/servers) and does NOT fail the blocking gate."
 }
 elseif (-not $serverPresent) {
     Write-Host "  server '$ServerName' has not converged into the registry within ${PollTimeoutSeconds}s -- expected under eventual consistency (auto-sync up to 24h); recorded as evidence."

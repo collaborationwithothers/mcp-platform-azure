@@ -71,11 +71,19 @@ two tiers.
 
 - **Tier 2 - registry convergence - is monitored asynchronously.** The intended
   shape is a scheduled nightly workflow (or a post-gate, non-required check) that
-  polls `/v0.1/servers` for the expected Contoso orders entry with a wider
-  bounded window (order of 10-15 minutes, sized to the "typically minutes"
-  behavior) and fails loudly on the nightly run if the entry never converges.
-  This is the realistic enterprise pattern: assert synchronous invariants in the
-  PR gate, reconcile eventually-consistent inventory on a schedule.
+  checks the expected Contoso orders entry has converged into API Center, with a
+  wider bounded window (order of 10-15 minutes, sized to the "typically minutes"
+  behavior) and fails loudly on the nightly run if it never does. IMPORTANT
+  (observed live 2026-07-20, verified 2026-07-21): the monitor must read the
+  CONTROL-PLANE inventory (`Microsoft.ApiCenter/services/.../workspaces/default/apis`
+  via the `management.azure.com` token) or the GENERAL data-plane API
+  (`https://azure-apicenter.net` / `Data.Read.All`), NOT the `/v0.1/servers`
+  MCP-registry projection. That surface authenticates via the portal access mode
+  (anonymous, or interactive Entra SPA sign-in), not a headless RBAC bearer
+  token, so a Data-Reader-role token gets 401 there -- confirmed on the first
+  live gate (COMPATIBILITY.md). This is the realistic enterprise pattern: assert
+  synchronous invariants in the PR gate, reconcile eventually-consistent
+  inventory on a schedule.
 
 - **Tier 2 is designed here but deliberately NOT implemented,** on cost grounds
   (a nightly live environment spin-up bills real money). Its captured Tier-1
