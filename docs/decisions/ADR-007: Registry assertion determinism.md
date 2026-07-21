@@ -62,12 +62,15 @@ two tiers.
   `invoke-and-assert.ps1` (MCP session and tool contracts, app-role negative
   path, raw-HTTP discovery/PRM, OBO passthrough negative) are unchanged and
   remain the required check. Step `[5]` becomes **non-blocking registry
-  evidence**: it records the anonymous posture, the authenticated read status
-  (a 401 = wrong data-plane audience, a 403 = Data Reader role not propagated,
-  each surfaced as a `::warning::`), and whether the server has converged, and
-  captures the full `/v0.1/servers` body to the `gate-evidence` artifact. Nothing
-  in step `[5]` can fail the run. The poll window drops 300 s -> 90 s (a brief
-  evidence look, not a wait).
+  evidence**: it probes `/v0.1/servers` anonymously (records the secure-by-default
+  401 posture) and reads the **control-plane apis inventory**
+  (`management.azure.com`, `2024-06-01-preview`) to check the auto-synced MCP
+  server has converged -- matching `title == ServerName && kind == "mcp"` (the
+  live control-plane apis list returns `kind=mcp`, confirmed 2026-07-21; the
+  data-plane `/v0.1/servers` surface is portal-auth-only and 401s a bearer token,
+  so it is not read authenticated). It captures the raw apis inventory to the
+  `gate-evidence` artifact. Nothing in step `[5]` can fail the run. The poll
+  window drops 300 s -> 90 s (a brief evidence look, not a wait).
 
 - **Tier 2 - registry convergence - is monitored asynchronously.** The intended
   shape is a scheduled nightly workflow (or a post-gate, non-required check) that

@@ -25,10 +25,15 @@ output "prm_url" {
 
 output "registry_endpoint_url" {
   value       = module.api_center_registry.registry_endpoint_url
-  description = "Data-plane MCP registry endpoint. The bounded registry poll asserts the tracer server appears here within the timeout."
+  description = "Data-plane MCP registry endpoint (/workspaces/default/v0.1/servers). The gate's anonymous secure-by-default probe targets this; it is portal-auth-only, not a headless-bearer surface (COMPATIBILITY.md, ADR-007)."
 }
 
 output "api_center_name" {
   value       = module.api_center_registry.api_center_name
   description = "Resource name of the API Center service."
+}
+
+output "api_center_id" {
+  value       = module.api_center_registry.api_center_id
+  description = "ARM resource ID of the API Center service. The gate's non-blocking convergence evidence reads the control-plane apis inventory (.../workspaces/default/apis) under this id to check the auto-synced MCP server appeared (kind=mcp)."
 }

@@ -374,6 +374,7 @@ jobs:
           mcp_server_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_url)"
           prm_url="$(terraform -chdir="$s2_dir" output -raw prm_url)"
           registry_url="$(terraform -chdir="$s2_dir" output -raw registry_endpoint_url)"
+          api_center_id="$(terraform -chdir="$s2_dir" output -raw api_center_id)"
           backend_base="$(terraform -chdir="$s1_dir" output -raw mcp_backend_base_url)"
           backend_mcp_url="${backend_base%/}/runtime/webhooks/mcp"
           func_name="$(terraform -chdir="$s1_dir" output -raw function_app_name)"
@@ -449,6 +450,7 @@ jobs:
             -ServerName "$server_name" \
             -DownstreamOrderStatusUrl "$downstream_order_status_url" \
             -McpExtensionKey "${mcp_ext_key:-}" \
+            -ApiCenterResourceId "$api_center_id" \
             -EvidenceDir "${GITHUB_WORKSPACE}/gate-evidence"
 
       # Always upload whatever PRM evidence was captured above, even when the
