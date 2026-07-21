@@ -1,6 +1,6 @@
 # ADR-007: Deterministic registry convergence via forced synchronous import
 
-Status: Proposed
+Status: Accepted (Option Y; implemented in PR #50)
 Date: 2026-07-20 (two-tier design)
 Revised: 2026-07-21 (Option Y, after the live import spike)
 
