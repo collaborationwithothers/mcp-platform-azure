@@ -40,22 +40,37 @@ var host = new HostBuilder()
     {
         services.AddHttpClient();
 
-        services.AddSingleton<IOboTokenAcquirer>(_ =>
+        services.AddSingleton<ManagedIdentityOboTokenAcquirer>(_ =>
         {
             var configuration = context.Configuration;
             return new ManagedIdentityOboTokenAcquirer(
                 RequireSetting(configuration, "MicrosoftEntra:ServerAppClientId", "MicrosoftEntra__ServerAppClientId"),
                 RequireSetting(configuration, "MicrosoftEntra:TenantId", "MicrosoftEntra__TenantId"));
         });
+        services.AddSingleton<IOboTokenAcquirer>(sp =>
+            sp.GetRequiredService<ManagedIdentityOboTokenAcquirer>());
+        services.AddSingleton<IAppTokenAcquirer>(sp =>
+            sp.GetRequiredService<ManagedIdentityOboTokenAcquirer>());
 
         services.AddSingleton<IDownstreamOrdersClient>(sp =>
         {
             var configuration = context.Configuration;
             var baseUrl = RequireSetting(configuration, "DownstreamOrdersApi:BaseUrl", "DownstreamOrdersApi__BaseUrl");
             var scope = RequireSetting(configuration, "DownstreamOrdersApi:Scope", "DownstreamOrdersApi__Scope");
+            var applicationScope = RequireSetting(
+                configuration,
+                "DownstreamOrdersApi:ApplicationScope",
+                "DownstreamOrdersApi__ApplicationScope");
             var tokenAcquirer = sp.GetRequiredService<IOboTokenAcquirer>();
+            var appTokenAcquirer = sp.GetRequiredService<IAppTokenAcquirer>();
             var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient();
-            return new DownstreamOrdersClient(tokenAcquirer, httpClient, new Uri(baseUrl), scope);
+            return new DownstreamOrdersClient(
+                tokenAcquirer,
+                appTokenAcquirer,
+                httpClient,
+                new Uri(baseUrl),
+                scope,
+                applicationScope);
         });
     })
     .Build();

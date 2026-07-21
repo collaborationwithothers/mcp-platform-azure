@@ -232,6 +232,9 @@ module "function_app" {
 
         validation = {
           allowed_audiences = var.entra_auth.allowed_audiences
+          default_authorization_policy = length(var.entra_auth.allowed_applications) == 0 ? null : {
+            allowed_applications = var.entra_auth.allowed_applications
+          }
         }
       }
     }

@@ -32,31 +32,33 @@ are unchanged:
   - `IdentityModeResolver.cs` - decides the mode from that header's claims:
     - an `scp` claim -> **Delegated** (a user-context caller): sourced from the
       synthetic downstream Orders API via the Entra On-Behalf-Of exchange.
-    - a `roles` claim and no `scp` -> **App-context** (a client-credentials,
-      app-only caller): served from the in-memory fixture.
+    - an `azp`/`appid` application identity and no `scp` -> **App-context** (a
+      client-credentials, app-only caller): requires `Orders.Read` in `roles`,
+      then calls the downstream as the MCP server's own application identity.
     - missing / malformed / neither-claim -> a fail-closed rejection.
 - `Tools/GetOrderStatus.cs` - the tool. `Run` resolves the mode, then branches
-  to the OBO downstream (`Downstream/`) or `ServeFromFixture`. The pure,
+  to delegated OBO or the app-only trusted-subsystem downstream
+  (`Downstream/`). The pure,
   host-independent pieces (`ServeFromFixture`, `TryExtractInboundAccessToken`)
   are unit-tested with no Functions host.
-- `Downstream/` - the OBO exchange and the downstream Orders API client (the
-  Delegated path). The server never forwards the inbound token; it exchanges
-  it for a downstream-audience token (docs/decisions/ADR-006).
+- `Downstream/` - delegated OBO and app-only token acquisition plus the
+  downstream Orders API client. The server never forwards the inbound token;
+  each branch acquires a downstream-audience token (docs/decisions/ADR-006).
 - `Fixtures/SyntheticOrders.cs` - the fixed in-memory fixture, ids CONTOSO-1001
   to CONTOSO-1005. The data is SYNTHETIC and the tool description says so.
 - `Hosting/BuiltInAuthGuard.cs` - the startup fail-closed check (below).
 - `Program.cs` - isolated-worker host. Runs `BuiltInAuthGuard` before serving,
   and wires the OBO exchange via DI.
 
-**App-context is a documented interim.** Serving app-context (client-
-credentials) callers from the in-memory fixture rather than through a
-downstream call is a deliberate interim until the workload-identity hardening
-issue: an app-only token has no user to act on behalf of, so it cannot drive an
-OBO exchange (OBO needs a delegated user assertion). The live apply-call-destroy
-gate authenticates with a client-credentials token, so **the gate's
-happy-path exercises exactly this app-context/fixture branch** -- which is why
-it passes against the frozen fixture-served contract without any user-context
-token. The delegated (OBO) path is validated manually; see
+**App-context is a trusted-subsystem path.** An app-only caller must carry the
+`Orders.Read` application role at the MCP layer. The server then acquires a
+downstream `/.default` token using its own managed-identity-backed confidential
+client and calls the Orders API. The downstream sees and authorizes one server
+identity for every app-only caller. The original caller's `azp`/`appid` and
+`oid` are logged and forwarded as audit correlation only, never as downstream
+authorization inputs. The live apply-call-destroy gate's client-credentials
+happy path now exercises this complete production identity path. The delegated
+OBO path remains independently validated manually; see
 `docs/runbooks/obo-app-registrations.md`, "User-context token strategy."
 
 **Fail-closed header trust.** The server does not re-validate the inbound
@@ -73,20 +75,19 @@ A hand-written .NET MCP client (the official ModelContextProtocol C# SDK) that
 drives a real MCP session against the deployed gateway endpoint - the primary
 behavioural seam in the spec's Testing Decisions.
 
-This is the ticket-2 SKELETON. It wires the session shape end to end -
-connect -> initialize -> tools/list -> tools/call - and prints what it sees. The
-behavioural assertions and the non-interactive client-credentials token
-acquisition are deliberately left as no-op stubs; ticket 5 (the live
-apply-call-destroy gate) fills them in. It reads the target endpoint from the
-`MCP_SERVER_ENDPOINT` environment variable or the first CLI argument.
+It wires the session shape end to end: connect, initialize, tools/list, and
+tools/call. The normal mode asserts both frozen result contracts; the
+`MCP_EXPECT_FORBIDDEN_ROLE` mode asserts the deterministic missing-role MCP
+error. It reads the target endpoint and bearer token from
+`MCP_SERVER_ENDPOINT` and `MCP_ACCESS_TOKEN`.
 
 ### McpTools.Tests (`tests/McpTools.Tests`)
 
 The unit seam: in-process xUnit tests with no Azure Functions host and no Azure
 dependency. They cover the identity-mode decision (`IdentityModeResolverTests`,
 `ClientPrincipalTests`), the tool's mode branching (`GetOrderStatusRunTests`),
-the app-context fixture path and the frozen contract shapes
-(`GetOrderStatusTests`), the OBO exchange never forwarding the inbound token
+the pure fixture seam and frozen contract shapes (`GetOrderStatusTests`), both
+downstream identity modes never forwarding the inbound token
 (`DownstreamOrdersClientTests`), and the startup fail-closed auth guard
 (`BuiltInAuthGuardTests`).
 
@@ -101,11 +102,13 @@ Restore is pinned to the public nuget.org feed by the repo-root `NuGet.config`.
 
 ## Pinned packages
 
-Verified 2026-07-12; recorded with doc links in `COMPATIBILITY.md`.
+Verified through 2026-07-20; recorded with doc links in `COMPATIBILITY.md`.
 
 | Package | Version | Role |
 |---|---|---|
 | Microsoft.Azure.Functions.Worker.Extensions.Mcp | 1.5.1 | MCP tool triggers (GA) |
+| Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk | 1.0.0-preview.4 | MCP SDK result middleware for top-level tool errors |
 | Microsoft.Azure.Functions.Worker | 2.52.0 | isolated worker runtime |
 | Microsoft.Azure.Functions.Worker.Sdk | 2.0.7 | isolated worker build SDK |
+| ModelContextProtocol | 0.4.0-preview.3 (transitive via Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk) | typed MCP tool-error result compatible with the Functions server middleware |
 | ModelContextProtocol | 1.4.1 | MCP client SDK (test client) |

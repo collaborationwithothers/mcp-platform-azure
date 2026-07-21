@@ -19,14 +19,17 @@
     2. Run McpTestClient against the deployed gateway MCP endpoint with the
        server-audience token: initialize, tools/list, and the two tool
        contracts.
-    3. Run the raw-HTTP discovery assertions (401 / WWW-Authenticate / PRM /
+    3. Acquire a second valid server-audience token for a client without
+       Orders.Read, call get_order_status, and require the deterministic
+       tool-level 403 result.
+    4. Run the raw-HTTP discovery assertions (401 / WWW-Authenticate / PRM /
        wrong-audience / shadow mcp_extension key).
-    4. Probe the registry endpoint anonymously first and RECORD the status (a
+    5. Probe the registry endpoint anonymously first and RECORD the status (a
        401 is the expected, evidential secure-by-default result, not a
        failure), then poll it authenticated (Azure API Center Data Reader, via
        the workflow's OIDC principal) with a bounded timeout and assert the
        synced server appears.
-    5. Issue 10 (OBO thickening): run the OBO passthrough negative test,
+    6. Issue 10 (OBO thickening): run the OBO passthrough negative test,
        reusing the step-1 server-audience token as the inbound token
        presented directly to the downstream Orders API (tests/integration/
        obo-passthrough-negative.ps1). This does not exercise the OBO happy
@@ -41,7 +44,7 @@
   in docs/demos (spec: Testing Decisions).
 
 .NOTES
-  Verified 2026-07-15 against Microsoft Learn (see COMPATIBILITY.md):
+  Verified 2026-07-19 against Microsoft Learn (see COMPATIBILITY.md):
   - Client-credentials scope form <resource>/.default and app-role claims:
     https://learn.microsoft.com/entra/identity-platform/v2-oauth2-client-creds-grant-flow
   - API Center data-plane token audience https://azure-apicenter.net:
@@ -61,6 +64,8 @@ param(
     # Dedicated test client app (client credentials).
     [Parameter(Mandatory)][string]$ClientId,
     [Parameter(Mandatory)][string]$ClientSecret,
+    [Parameter(Mandatory)][string]$ClientWithoutRoleId,
+    [Parameter(Mandatory)][string]$ClientWithoutRoleSecret,
     # Resource name of the synced MCP server (s2 var server_name); the token the
     # authenticated registry poll asserts is present in the servers list.
     [Parameter(Mandatory)][string]$ServerName,
@@ -88,12 +93,16 @@ $oboNegativeScript = Join-Path $repoRoot 'tests/integration/obo-passthrough-nega
 $tokenEndpoint = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
 
 function Get-ClientCredentialToken {
-    param([string]$Scope)
+    param(
+        [string]$Scope,
+        [string]$TokenClientId = $ClientId,
+        [string]$TokenClientSecret = $ClientSecret
+    )
     try {
         $resp = Invoke-RestMethod -Uri $tokenEndpoint -Method Post `
             -ContentType 'application/x-www-form-urlencoded' -Body @{
-            client_id     = $ClientId
-            client_secret = $ClientSecret
+            client_id     = $TokenClientId
+            client_secret = $TokenClientSecret
             scope         = $Scope
             grant_type    = 'client_credentials'
         }
@@ -118,6 +127,11 @@ Write-Host ''
 Write-Host "[1] Acquiring client-credentials tokens"
 $mcpToken = Get-ClientCredentialToken -Scope "$Audience/.default"
 Write-Host "  server-audience token acquired ($Audience)."
+$missingRoleToken = Get-ClientCredentialToken `
+    -Scope "$Audience/.default" `
+    -TokenClientId $ClientWithoutRoleId `
+    -TokenClientSecret $ClientWithoutRoleSecret
+Write-Host "  server-audience token acquired for the caller without Orders.Read."
 $wrongToken = Get-ClientCredentialToken -Scope 'https://graph.microsoft.com/.default'
 Write-Host "  wrong-audience token acquired (Microsoft Graph)."
 Write-Host ''
@@ -137,9 +151,25 @@ if ($clientExit -ne 0) {
 Write-Host ''
 
 # ---------------------------------------------------------------------------
-# 3. Raw-HTTP discovery assertions.
+# 3. App-role negative path: valid token reaches the MCP tool, but the caller
+#    lacks Orders.Read and receives the deterministic tool-level 403.
 # ---------------------------------------------------------------------------
-Write-Host "[3] Raw-HTTP discovery assertions"
+Write-Host "[3] App-role authorization negative assertion"
+$env:MCP_ACCESS_TOKEN = $missingRoleToken
+$env:MCP_EXPECT_FORBIDDEN_ROLE = 'Orders.Read'
+dotnet run --project $McpTestClientProject -c Release
+$missingRoleExit = $LASTEXITCODE
+$env:MCP_EXPECT_FORBIDDEN_ROLE = $null
+$env:MCP_ACCESS_TOKEN = $null
+if ($missingRoleExit -ne 0) {
+    throw "McpTestClient missing-role assertion failed (exit $missingRoleExit)."
+}
+Write-Host ''
+
+# ---------------------------------------------------------------------------
+# 4. Raw-HTTP discovery assertions.
+# ---------------------------------------------------------------------------
+Write-Host "[4] Raw-HTTP discovery assertions"
 & $discoveryScript `
     -McpServerUrl $McpServerUrl `
     -PrmUrl $PrmUrl `
@@ -153,9 +183,9 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ''
 
 # ---------------------------------------------------------------------------
-# 4. Registry: anonymous probe (evidential), then bounded authenticated poll.
+# 5. Registry: anonymous probe (evidential), then bounded authenticated poll.
 # ---------------------------------------------------------------------------
-Write-Host "[4] Registry endpoint access"
+Write-Host "[5] Registry endpoint access"
 
 # 4a. Anonymous probe FIRST. Expected 401 (secure-by-default): this is an
 #     evidential negative test, recorded, never a failure of the run.
@@ -232,16 +262,16 @@ Write-Host ''
 if (-not $found) {
     throw "Registry poll: server '$ServerName' did not appear within $PollTimeoutSeconds s."
 }
-Write-Host "[4] Registry poll: server '$ServerName' present (authenticated)."
+Write-Host "[5] Registry poll: server '$ServerName' present (authenticated)."
 Write-Host ''
 
 # ---------------------------------------------------------------------------
-# 5. Issue 10: OBO passthrough negative test. Reuses the step-1
+# 6. Issue 10: OBO passthrough negative test. Reuses the step-1
 #    server-audience token ($mcpToken) as the inbound token presented
 #    directly to the downstream Orders API. Does not need a delegated/user
 #    token (ADR-006, "Testing strategy: the user-context token problem").
 # ---------------------------------------------------------------------------
-Write-Host "[5] OBO passthrough negative test"
+Write-Host "[6] OBO passthrough negative test"
 & $oboNegativeScript `
     -DownstreamOrderStatusUrl $DownstreamOrderStatusUrl `
     -InboundServerAudienceToken $mcpToken

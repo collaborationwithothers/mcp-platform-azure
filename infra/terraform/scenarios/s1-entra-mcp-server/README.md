@@ -44,8 +44,8 @@ the `live-test` environment and never run from PR CI.
 | `entra_auth` | object | `{ tenant_id, server_app_client_id, allowed_audiences, unauthenticated_action = "Return401" }`. References the out-of-band server resource app registration; see `docs/runbooks/entra-app-registrations.md`. |
 | `prm_scope` | string | e.g. `api://<server-app-id>/user_impersonation`. |
 | `app_settings` | map(string) | Additional app settings, merged in alongside the module's own. Empty by default. |
-| `downstream_app` | object | Issue 10: `{ client_id, api_scope }` of the out-of-band downstream Orders API app registration. `api_scope` wires into the MCP server's `DownstreamOrdersApi__Scope` app setting; `client_id` is used by the `azuread_service_principal` data source that backs the OBO consent grant. |
-| `downstream_entra_auth` | object | Issue 10: same shape as `entra_auth`, for the downstream Orders API's own `mcp-function-host` instantiation. `allowed_audiences` is scoped to only the downstream app. |
+| `downstream_app` | object | `{ client_id, api_scope, application_scope }` for the downstream Orders API. `api_scope` is the delegated `user_impersonation` scope; `application_scope` is the same resource's `/.default` scope for app-only acquisition. |
+| `downstream_entra_auth` | object | Base auth shape for the downstream Orders API. The composition adds `allowed_applications = [server app client id]`, so built-in auth accepts only the MCP server identity. |
 | `downstream_storage_account_name` | string | Issue 10: deployment storage account name for the downstream instantiation. |
 | `downstream_create_storage_account` | bool | Issue 10: whether to create `downstream_storage_account_name`. Default `false`. |
 
@@ -78,6 +78,9 @@ re-created every ephemeral run, not set up once by a human:
 - `azuread_service_principal_delegated_permission_grant` -- the OBO
   admin-consent grant from the server app to the downstream app's
   `user_impersonation` scope.
+- `azuread_app_role_assignment` -- assigns the downstream app's `Orders.Read`
+  application role to the MCP server service principal for the app-only
+  trusted-subsystem call.
 
 See `main.tf`'s block comment above these resources for the full reasoning,
 and `docs/runbooks/obo-app-registrations.md` for the Graph API permissions

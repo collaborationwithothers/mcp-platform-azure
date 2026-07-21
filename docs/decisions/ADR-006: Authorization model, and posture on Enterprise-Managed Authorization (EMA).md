@@ -435,6 +435,61 @@ applies a claims mapping), so the resolver matches both the short and the
 schema-URI forms and the actual form is confirmed by a live trace, not asserted
 (COMPATIBILITY.md; docs/security.md).
 
+## Workload identity hardening: app roles and trusted subsystem (issue 45)
+
+Added 2026-07-19. This supersedes the app-context fixture interim above. The
+delegated branch remains unchanged.
+
+An app-only token has no user assertion and cannot drive OBO. The replacement
+is a trusted-subsystem path:
+
+1. The MCP server app registration exposes the application-only role
+   `Orders.Read`. The tool checks the Easy-Auth-injected `roles` claim and
+   returns a deterministic 403 tool error when the required role is absent.
+   Built-in auth authenticates tokens but does not validate app roles for
+   application code, so this check belongs at the MCP layer.
+2. After authorization, the MCP server acquires a downstream app-only token by
+   calling MSAL.NET `AcquireTokenForClient` for the downstream resource's
+   `/.default` scope. It reuses the existing confidential client credential:
+   the Function App's managed identity federated to the server app registration.
+3. The downstream app registration also exposes `Orders.Read`, assigned only
+   to the MCP server service principal by Terraform. The downstream Function
+   App's built-in-auth `allowedApplications` policy independently allowlists the
+   MCP server app client id. The downstream therefore trusts the server identity,
+   not the original agent.
+4. The original caller's `azp`/`appid` and `oid` are written to structured logs
+   and propagated as `X-Mcp-Caller-Azp` / `X-Mcp-Caller-Oid`. They are
+   audit-grade correlation, not authorization-grade identity.
+
+Trade-off: downstream sees one identity for every app-only agent. Per-agent
+policy exists only at the MCP layer, so compromise or misauthorization there
+has a wider blast radius than delegated OBO. The app-only branch also has no
+inbound Entra-exchange backstop. This is why the fail-closed chain is explicit:
+APIM and built-in auth validate the inbound token, tool code requires
+`Orders.Read`, and downstream built-in auth accepts only the MCP server app.
+
+Multi-tenancy remains a seam, not an implementation in v1. APIM product and
+subscription membership is not bound to Entra application-role assignment by
+this decision. A future tenant-aware design must align those two control planes
+explicitly; it must not infer tenancy from the audit-only caller headers.
+
+### Entra Agent ID freshness note, checked 2026-07-19
+
+The broad question "does Entra Agent ID support delegated OBO" is now answered:
+Microsoft Learn documents that agent identity blueprints support standard OAuth
+2.0 OBO and that the resulting resource token carries user context (`idtyp =
+user`, `scp`, user `oid`) plus the agent identity in `azp`/`appid`. See
+[Agent OAuth flows: On behalf of flow](https://learn.microsoft.com/entra/agent-id/agent-on-behalf-of-oauth-flow)
+and [Token claims reference for agents](https://learn.microsoft.com/entra/agent-id/agent-token-claims).
+
+The narrower chain relevant here remains unverified: Microsoft Learn does not
+explicitly show an Agent ID resource token received by this MCP server being
+used as the assertion for a second OBO exchange to the Orders API. Standard OBO
+accepts a user-context access token whose audience is the middle-tier API, so
+the documented token shape is compatible in principle, but that second hop has
+not been measured in this repository. If it is verified later, it fits the
+existing delegated branch without changing the `get_order_status` contract.
+
 ## Alternatives considered
 
 - Implement EMA now against Okta: rejected for v1; adds a non-Azure IdP

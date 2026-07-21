@@ -3,8 +3,8 @@
   <!--
     In-process unit tests for the tool logic (spec: Testing Decisions, "unit
     seam"), with no Azure Functions host and no Azure dependency: the
-    identity-mode decision, the tool's mode branching, the app-context fixture
-    path, the OBO exchange client, and the startup auth guard. Package pins
+    identity-mode decision, the tool's mode branching, the pure fixture seam,
+    delegated and app-only downstream clients, and the startup auth guard. Package pins
     verified 2026-07-12.
   -->
   <PropertyGroup>

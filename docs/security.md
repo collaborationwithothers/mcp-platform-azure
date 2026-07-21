@@ -93,12 +93,13 @@ different confidence levels -- keep them distinct:**
   because the downstream instance's own `allowed_audiences` check does not
   accept it. The automated negative test
   (`tests/integration/obo-passthrough-negative.ps1`, invoked from
-  `scripts/gate/invoke-and-assert.ps1`'s step [5]) uses **the app-context
+  `scripts/gate/invoke-and-assert.ps1`'s step [6]) uses **the app-context
   client-credentials token the gate already holds** (audience = the MCP server
   app), so it needs no user context. **Measured 2026-07-19**: passed live in
   `ephemeral-env.yml` run
   [29681694550](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/29681694550)
-  (call stage green, which runs step [5]). That run used `skip_teardown=true`,
+  (call stage green, which ran the then-current step [5]). That run used
+  `skip_teardown=true`,
   so the destroy half of apply-call-destroy is not yet proven; a clean full run
   still validates teardown.
 - **Manually evidenced (delegated token).** A *delegated* (user-context)
@@ -114,7 +115,7 @@ different confidence levels -- keep them distinct:**
 Both follow from the two Function App instances having disjoint
 `allowed_audiences`; neither requires application code to enforce.
 
-The sanctioned path is the OBO exchange, taken for **delegated callers only**.
+The downstream access path depends on the caller identity mode.
 `get_order_status` branches on caller identity mode
 (`McpTools.Identity.IdentityModeResolver`, decided from the
 `X-MS-CLIENT-PRINCIPAL` claims Easy Auth injects):
@@ -134,15 +135,19 @@ The sanctioned path is the OBO exchange, taken for **delegated callers only**.
   (`McpTools.Downstream.DownstreamOrdersClient`, `ManagedIdentityOboTokenAcquirer`)
   is unit-tested, including an explicit test asserting the downstream call
   never carries the inbound assertion.
-- **App-context (a `roles` claim, no `scp`):** served from the in-memory
-  fixture, never reaching the OBO exchange or the downstream. An app-only token
-  has no user to act on behalf of, so it cannot drive OBO; this is a documented
-  interim until the workload-identity hardening issue. The live gate's
-  client-credentials happy path exercises exactly this branch (src/README.md).
+- **App-context (an `azp`/`appid` application identity, no `scp`):** the MCP
+  layer requires `Orders.Read` in the `roles` claim. A missing role returns the deterministic tool
+  error `403 Forbidden: get_order_status requires the application role
+  'Orders.Read'.` The server then uses the same managed-identity-backed
+  confidential client to acquire a downstream `/.default` token for its own
+  application identity. The downstream's built-in auth independently
+  allowlists only the MCP server app client id. The original caller's
+  `azp`/`appid` and `oid` are structured-log fields and downstream correlation
+  headers only. The downstream never authorizes from those headers.
 
 `GetOrderStatus.Run`'s own branching is unit-tested against a fake downstream
-client (delegated -> downstream, app-context -> fixture, missing principal ->
-rejected).
+client (delegated -> OBO downstream, authorized app-context -> app-only
+downstream, missing role/principal -> rejected).
 
 ### Header trust chain (issue 10)
 
@@ -183,15 +188,26 @@ case. Without the startup guarantee, a caller reaching a mis-configured host
 with Easy Auth off could supply its own `X-MS-CLIENT-PRINCIPAL` and pick its
 own identity mode.
 
-**Backstop asymmetry, stated honestly.** The **delegated** branch has an
-Entra-exchange backstop: even if a forged or wrong principal reached it, the
-OBO exchange itself would reject an invalid user assertion at Entra's token
-endpoint, so a bad delegated request fails at the exchange. The **app-context**
-branch has **no** such backstop -- it serves the fixture directly on the
-strength of the `roles` claim alone. So the app-context branch's correctness
-rests entirely on the trust chain above (APIM + Easy Auth + the startup check),
-which is another reason the fixture-only app-context path is an interim, not the
-end state.
+**Trusted-subsystem trade-off and backstop asymmetry.** The delegated branch
+keeps the original user's authority through OBO. The app-context branch cannot
+do that because there is no user. It instead enforces per-caller policy at the
+MCP layer and calls downstream as one server identity. The downstream therefore
+cannot distinguish the original agents for authorization; compromising the
+server identity affects every authorized app-only caller. The caller ids carried
+in `X-Mcp-Caller-Azp` and `X-Mcp-Caller-Oid` preserve audit attribution but are
+explicitly not trusted for authorization. The app-context branch also has no
+OBO-exchange backstop for the inbound caller, so its fail-closed controls are
+critical: APIM and built-in auth validate the inbound token, code requires
+`Orders.Read`, and downstream built-in auth accepts only the server app. This is
+the intentional trusted-subsystem trade-off, not token passthrough.
+
+**Multi-tenant seam, documented but not wired in v1.** APIM product or
+subscription membership and Entra application-role grants are independent
+authorization systems in this tracer. A future multi-tenant design must align
+the tenant-facing APIM product boundary with the principals granted
+`Orders.Read`; issue 45 deliberately does not implement that binding. The
+`X-Mcp-Caller-Azp` and `X-Mcp-Caller-Oid` audit headers must never be used to
+infer tenant membership or replace that explicit authorization wiring.
 
 **Trust-chain caveat flagged for live confirmation.** Whether Easy Auth fully
 populates `X-MS-CLIENT-PRINCIPAL`'s claims mapping **without a token store
@@ -208,8 +224,9 @@ the inbound-token question above: no GA, non-interactive,
 CLAUDE.md-compliant mechanism exists to acquire a genuine delegated user
 token in CI (client-credentials tokens are app-only, ROPC is discouraged
 and would need a stored password, device code needs a human) -- ADR-006,
-"Testing strategy: the user-context token problem." The automated live gate
-covers the negative test only. The happy path is validated manually:
+"Testing strategy: the user-context token problem." For the delegated path,
+the automated live gate covers the passthrough negative test only. The
+delegated happy path is validated manually:
 **done 2026-07-19** -- a device-code delegated token drove the delegated
 branch -> OBO -> downstream, returning both frozen contract shapes; captured
 evidence in docs/demos/obo-happy-path.md (which also confirms the delegated

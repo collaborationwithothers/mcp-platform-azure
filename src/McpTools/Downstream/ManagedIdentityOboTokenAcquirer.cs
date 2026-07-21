@@ -22,7 +22,7 @@ namespace McpTools.Downstream;
 /// mcp-function-host module's identity_principal_id output already exposes
 /// for exactly this purpose.
 /// </summary>
-public sealed class ManagedIdentityOboTokenAcquirer : IOboTokenAcquirer
+public sealed class ManagedIdentityOboTokenAcquirer : IOboTokenAcquirer, IAppTokenAcquirer
 {
     private readonly IConfidentialClientApplication _confidentialClient;
 
@@ -46,6 +46,16 @@ public sealed class ManagedIdentityOboTokenAcquirer : IOboTokenAcquirer
     {
         var result = await _confidentialClient
             .AcquireTokenOnBehalfOf([downstreamScope], new UserAssertion(userAssertion))
+            .ExecuteAsync(cancellationToken);
+
+        return result.AccessToken;
+    }
+
+    public async Task<string> AcquireDownstreamTokenForAppAsync(
+        string downstreamScope, CancellationToken cancellationToken)
+    {
+        var result = await _confidentialClient
+            .AcquireTokenForClient([downstreamScope])
             .ExecuteAsync(cancellationToken);
 
         return result.AccessToken;

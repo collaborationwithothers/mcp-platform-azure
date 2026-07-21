@@ -112,7 +112,7 @@ Before the first live run that includes this deploy, the `S1_TFVARS_JSON`
 live-test secret (docs/runbooks/entra-app-registrations.md's pattern) must
 gain three new fields, sourced from
 [obo-app-registrations.md](obo-app-registrations.md): `downstream_app`
-(`{client_id, api_scope}`), `downstream_entra_auth` (same shape as
+(`{client_id, api_scope, application_scope}`), `downstream_entra_auth` (same shape as
 `entra_auth`, pointed at the downstream app registration), and
 `downstream_storage_account_name`. Without these the s1 apply fails on a
 missing required variable, not a subtle runtime issue -- `terraform plan`
@@ -131,9 +131,22 @@ Without this, the s1 apply fails on the `azuread_application_federated_identity_
 or `azuread_service_principal_delegated_permission_grant` resource with an
 authorization error, not a missing-variable error.
 
+The same apply assigns the downstream app's `Orders.Read` application role to
+the MCP server service principal and configures downstream Easy Auth with
+`allowedApplications = [<server-app-client-id>]`. This makes the MCP server the
+only application identity the downstream accepts. The server acquires a
+downstream `/.default` token as itself for app-only callers; it never forwards
+the caller token.
+
+The `live-test` GitHub Environment also needs
+`TEST_CLIENT_WITHOUT_ROLE_ID` and `TEST_CLIENT_WITHOUT_ROLE_SECRET` for a
+second confidential client. That client has no `Orders.Read` assignment but is
+listed in the APIM policy's allowed client ids, as described in
+[entra-app-registrations.md](entra-app-registrations.md) section 3.
+
 The call stage additionally runs
 `tests/integration/obo-passthrough-negative.ps1` (via
-`scripts/gate/invoke-and-assert.ps1`'s new step [5]), reusing the
+`scripts/gate/invoke-and-assert.ps1`'s step [6]), reusing the
 step-1 server-audience token as the inbound token presented directly to the
 downstream. This proves token passthrough is rejected; it is NOT a test of
 the OBO exchange succeeding. `GetOrderStatus.Run` DOES call the OBO
@@ -141,16 +154,17 @@ exchange in its live path (ADR-006, "OBO exchange: the inbound-token gap
 and its correction"), but the automated gate still cannot exercise that
 HAPPY path: no non-interactive mechanism exists to acquire a genuine
 delegated user token in CI (same ADR, "Testing strategy: the user-context
-token problem"). That path is validated manually.
+token problem"). That path is validated manually. The automated app-context
+coverage is now complete: step [2] proves a caller with `Orders.Read` reaches
+the downstream through the MCP server's own identity, and step [3] proves an
+otherwise valid caller without that role gets the deterministic tool-level 403
+response.
 
-**Not yet run against a live deployment.** This section, the new deploy
-step, and the new tfvars fields are unverified by an actual live-test run as
-of this PR (issue 10 does not carry authority to trigger one); the first
-live run after this PR merges is where the config-zip deploy, the new
-Terraform variables, and the negative test assertion get their first live
-proof. If anything here does not match what the gate actually does, the fix
-PR updates this runbook and COMPATIBILITY.md, per this file's own History
-convention.
+The issue-10 downstream deploy and OBO path were exercised in live run
+29681694550 on 2026-07-19. The issue-45 app-only role enforcement, server-only
+downstream authorization policy, and positive/negative gate arms remain
+unverified until this PR receives its gated live test. If the observed behavior
+differs, update this runbook and COMPATIBILITY.md with the measured result.
 
 ## Tracing the no-token WWW-Authenticate / PRM mechanism (issue 9)
 

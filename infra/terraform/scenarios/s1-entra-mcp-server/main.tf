@@ -35,10 +35,11 @@ module "mcp_function_host" {
   # already carries the downstream app id as its api://<id>/... prefix), so
   # a separate ClientId setting would be unused configuration.
   app_settings = merge(var.app_settings, {
-    MicrosoftEntra__ServerAppClientId = var.entra_auth.server_app_client_id
-    MicrosoftEntra__TenantId          = var.entra_auth.tenant_id
-    DownstreamOrdersApi__BaseUrl      = module.downstream_orders_api.base_url
-    DownstreamOrdersApi__Scope        = var.downstream_app.api_scope
+    MicrosoftEntra__ServerAppClientId     = var.entra_auth.server_app_client_id
+    MicrosoftEntra__TenantId              = var.entra_auth.tenant_id
+    DownstreamOrdersApi__BaseUrl          = module.downstream_orders_api.base_url
+    DownstreamOrdersApi__Scope            = var.downstream_app.api_scope
+    DownstreamOrdersApi__ApplicationScope = var.downstream_app.application_scope
   })
 }
 
@@ -61,8 +62,14 @@ module "downstream_orders_api" {
   create_storage_account = var.downstream_create_storage_account
   flex_consumption       = local.profile_flex_consumption[var.deployment_profile]
 
-  entra_auth = var.downstream_entra_auth
-  prm_scope  = null
+  entra_auth = {
+    tenant_id              = var.downstream_entra_auth.tenant_id
+    server_app_client_id   = var.downstream_entra_auth.server_app_client_id
+    allowed_audiences      = var.downstream_entra_auth.allowed_audiences
+    unauthenticated_action = var.downstream_entra_auth.unauthenticated_action
+    allowed_applications   = [var.entra_auth.server_app_client_id]
+  }
+  prm_scope = null
 }
 
 # --- Issue 10 (OBO thickening): OBO identity wiring (azuread) ---
@@ -138,4 +145,14 @@ resource "azuread_service_principal_delegated_permission_grant" "obo_downstream_
   # Admin consent for all users (user_object_id omitted): the server acts
   # on behalf of whichever user's token it receives, not one specific user.
   claim_values = ["user_impersonation"]
+}
+
+# App-only trusted-subsystem permission: the MCP server app is assigned the
+# downstream Orders.Read application role. The downstream Function App's Easy
+# Auth policy independently allowlists this server app's client id, so the
+# propagated original-caller headers remain audit context, never authorization.
+resource "azuread_app_role_assignment" "server_downstream_orders_read" {
+  app_role_id         = data.azuread_service_principal.downstream.app_role_ids["Orders.Read"]
+  principal_object_id = data.azuread_service_principal.server.object_id
+  resource_object_id  = data.azuread_service_principal.downstream.object_id
 }

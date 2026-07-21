@@ -15,6 +15,15 @@
       - Microsoft.Extensions.Http 10.0.10 (GA): IHttpClientFactory, used by
         Program.cs to build the HttpClient DownstreamOrdersClient calls the
         downstream Orders API with.
+    Package pins verified 2026-07-20 (issue 45; see COMPATIBILITY.md):
+      - Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk 1.0.0-preview.4:
+        installs the worker middleware that recognizes CallToolResult and
+        preserves its top-level IsError flag. The trigger package alone treats
+        CallToolResult as an ordinary object. It transitively resolves
+        ModelContextProtocol 0.4.0-preview.3 in the current dependency graph,
+        the version the published middleware was compiled against. Do not add a
+        direct protocol override without re-verifying binary compatibility; see
+        COMPATIBILITY.md.
       - ToolInvocationContextExtensions.TryGetHttpTransport (part of
         Microsoft.Azure.Functions.Worker.Extensions.Mcp above, present
         since 1.0.0 GA): confirmed via assembly reflection AND Microsoft
@@ -38,6 +47,7 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp" Version="1.5.1" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk" Version="1.0.0-preview.4" />
     <PackageReference Include="Microsoft.Identity.Client" Version="4.86.1" />
     <PackageReference Include="Microsoft.Identity.Web.Certificateless" Version="4.13.2" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
