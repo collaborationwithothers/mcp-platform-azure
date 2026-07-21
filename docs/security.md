@@ -210,6 +210,20 @@ critical: APIM and built-in auth validate the inbound token, code requires
 `Orders.Read`, and downstream built-in auth accepts only the server app. This is
 the intentional trusted-subsystem trade-off, not token passthrough.
 
+**Downstream role is an enforced issuance gate, not a bare grant (issue 53).**
+The downstream Orders API has "Assignment required?" = Yes
+(`appRoleAssignmentRequired`) on its enterprise application, so Entra refuses to
+issue the app-only downstream token unless the MCP server holds the `Orders.Read`
+assignment -- the assignment is an issuance-time gate, complementary to the
+request-time `allowedApplications` check, not a cosmetic grant that could be
+revoked without failing the app-only call closed (ADR-006, "Downstream
+assignment-required issuance gate"; COMPATIBILITY.md). Consequence for the
+delegated path: assignment-required also applies to the signed-in user on OBO, so
+the delegated test user (or a group) must be assigned to the downstream app or
+OBO issuance is refused (AADSTS50105); this is re-validated by the manual
+delegated happy path after the toggle (docs/runbooks/obo-app-registrations.md;
+docs/demos/obo-happy-path.md).
+
 **Multi-tenant seam, documented but not wired in v1.** APIM product or
 subscription membership and Entra application-role grants are independent
 authorization systems in this tracer. A future multi-tenant design must align

@@ -68,6 +68,46 @@ as the wrong audience on the other.
    same tenant for OBO). These become `downstream_app.client_id` and
    `downstream_entra_auth.server_app_client_id` /
    `downstream_entra_auth.tenant_id`.
+6. **Enterprise applications > `<downstream app>` > Properties >
+   "Assignment required?" = Yes** (issue 53). This is the
+   `appRoleAssignmentRequired` toggle on the downstream **service principal**
+   (the Enterprise Application object), NOT on the app registration you created
+   in steps 1-5 -- the property lives on the service principal, and for apps
+   where the portal does not surface it the documented alternative is to set
+   `appRoleAssignmentRequired` on the service principal via PowerShell/Graph
+   ([howto-restrict-your-app-to-a-set-of-users](https://learn.microsoft.com/entra/identity-platform/howto-restrict-your-app-to-a-set-of-users#update-the-app-to-require-user-assignment)).
+   It turns the Terraform-assigned `Orders.Read` grant (section on
+   `azuread_app_role_assignment` in the composition README) from a bare grant
+   into an enforced issuance-time gate: Entra refuses to mint the app-only
+   downstream token for any principal that lacks the assignment
+   ([client-credentials flow, Get direct authorization](https://learn.microsoft.com/entra/identity-platform/v2-oauth2-client-creds-grant-flow#get-direct-authorization)).
+   Low-churn path: this is set once, out of band, and is deliberately NOT managed
+   in Terraform -- the composition reads the downstream service principal as a
+   data source (`data.azuread_service_principal.downstream`), and managing the
+   toggle would mean taking ownership of it as a resource for no per-run benefit.
+   See ADR-006, "Downstream assignment-required issuance gate," and
+   COMPATIBILITY.md.
+7. **Assign the delegated demo user (or a group) to the downstream enterprise
+   application** (issue 53). Assignment-required also applies to the signed-in
+   user on the OBO path, so the sandbox/delegated test user used for the manual
+   OBO happy path (section 3) must be assigned to THIS downstream app
+   (**Enterprise applications > `<downstream app>` > Users and groups > Add
+   user/group**), directly or via a group; otherwise Entra refuses the
+   delegated user's downstream token with **AADSTS50105** ("The signed in user
+   isn't assigned to a role for the ... app"). Group-based assignment is valid
+   but needs Entra ID P1/P2 and does not follow nested groups; a direct user
+   assignment is sufficient for the single demo user
+   ([assign-user-or-group-access-portal](https://learn.microsoft.com/entra/identity/enterprise-apps/assign-user-or-group-access-portal#prerequisites)).
+   After enabling the toggle, **re-run the manual delegated happy path** (section
+   3; docs/demos/obo-happy-path.md) to confirm OBO still succeeds. Microsoft Learn
+   does not document whether the assignment check is evaluated at the OBO
+   token-exchange step specifically (only at interactive sign-in), so this live
+   re-run is what confirms the gate does not break delegated OBO (ADR-006,
+   "Downstream assignment-required issuance gate"; COMPATIBILITY.md). This does
+   NOT affect the server-side role-less negative test: that runs against the
+   server app (entra-app-registrations.md section 3), whose service principal
+   must stay assignment-NOT-required so role-less tokens can still be issued for
+   the MCP-layer 403 arm.
 
 ## 2. Bootstrap the live-test OIDC principal's Graph permissions
 
@@ -165,7 +205,12 @@ genuine interactive user sign-in (MFA/Conditional Access apply normally).
 1. Ensure the demo client app registration has the delegated
    `api://<server-app>/user_impersonation` scope and a
    `allowPublicClient`/native platform so device code is permitted; sign the
-   sandbox user in once to consent (or admin-consent the scope).
+   sandbox user in once to consent (or admin-consent the scope). **Since issue
+   53 (assignment-required on the downstream app):** the sandbox user must ALSO
+   be assigned to the downstream enterprise application (section 1 step 7),
+   directly or via a group, or the OBO exchange for that user is refused with
+   AADSTS50105. This run doubles as the post-toggle re-validation of the
+   delegated happy path.
 2. Acquire a delegated token as the sandbox user, e.g.
    `az login --use-device-code --allow-no-subscriptions` then
    `az account get-access-token --scope api://<server-app>/user_impersonation`
