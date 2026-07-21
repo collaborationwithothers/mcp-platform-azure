@@ -368,12 +368,14 @@ jobs:
           apic_name="$(terraform -chdir="$s2_dir" output -raw api_center_name)"
           apim_id="$(terraform -chdir="$s2_dir" output -raw apim_id)"
           apim_name="$(basename "$apim_id")"
-          sub="$(printf '%s' "$apim_id" | cut -d/ -f3)"
           server_name="$(jq -r '.server_name' "${GITHUB_WORKSPACE}/s2.tfvars.json")"
           echo "Forcing convergence: import '${server_name}' from APIM '${apim_name}' into API Center '${apic_name}' (synchronous LRO)."
           az extension add --name apic-extension --only-show-errors
+          # --apim-subscription is omitted: APIM and API Center share the ephemeral
+          # subscription (the az context default), and that flag is not on Learn
+          # (only in the extension --help), so the command stays on documented args.
           az apic import-from-apim -g "$rg" --service-name "$apic_name" \
-            --apim-name "$apim_name" --apim-resource-group "$rg" --apim-subscription "$sub" \
+            --apim-name "$apim_name" --apim-resource-group "$rg" \
             --apim-apis "[${server_name}]"
           echo "import-from-apim completed; the MCP server is now in the API Center inventory (call stage asserts it)."
 
