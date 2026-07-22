@@ -1,5 +1,13 @@
 # mcp-platform-azure
 
+## Author
+
+Designed and built by [Hari Praghash](https://github.com/haripraghash)
+([LinkedIn](https://www.linkedin.com/in/haripraghash/)): Principal-level Azure
+platform engineer, London. Implementation is agent-assisted (Claude Code /
+Codex under a machine account) with human-owned architecture, review gates,
+and sign-off; the governance model for that is itself documented in AGENTS.md.
+
 Public portfolio reference implementation: enterprise hosting and governance
 of MCP (Model Context Protocol) servers on Azure, built Terraform-first with
 azapi where the AzureRM provider lags. Full design reasoning:
