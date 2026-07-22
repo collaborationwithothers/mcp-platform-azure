@@ -572,7 +572,15 @@ assigned to the downstream app, and the manual delegated happy path is re-run
 after the toggle (docs/demos/obo-happy-path.md; ties to PR #50 finding B2). A
 successful post-toggle run is the evidence the gate does not break delegated OBO;
 if issuance had instead failed with AADSTS50105, that would have located the
-enforcement point at the OBO hop. Group-based assignment is a valid way to
+enforcement point at the OBO hop. Live update 2026-07-22 (operator-attested; run
+29892332176, stamp mcp-tracer-apim-9f82a4f5, docs/demos/obo-happy-path.md "Run
+2026-07-22"): BOTH arms ran. An assigned delegated user still round-tripped OBO
+-> downstream, and an UNASSIGNED delegated user was refused at the server-side
+OBO exchange with AADSTS50105 -- so the enforcement point IS at the OBO hop,
+observed live, which is the point Microsoft Learn leaves unstated. This upgrades
+the OBO consequence from doc-PARTIAL to live-observed (the verbatim transcript
+and log line are pending paste into the demo record). Group-based assignment is a
+valid way to
 satisfy the requirement but needs Entra ID P1/P2 and does not follow nested
 groups (verifier 2026-07-21); direct user assignment is used for the single demo
 user.

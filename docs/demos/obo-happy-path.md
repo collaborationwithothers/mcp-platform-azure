@@ -143,3 +143,66 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <delegated to
   - Clean teardown of the new `azuread` resources was not exercised (this run
     used `skip_teardown=true`); a full `skip_teardown=false` run still validates
     the destroy path.
+
+### Run 2026-07-22 (issue 53: assignment-required gate re-validation)
+
+Re-validation after enabling "Assignment required?" = Yes
+(`appRoleAssignmentRequired`) on the downstream Orders API's enterprise
+application (issue 53). The question this run answers: does the issuance gate
+break delegated OBO for an assigned user (it must not), and does it actually fire
+for an unassigned user on the OBO path (Microsoft Learn does not document whether
+the check is evaluated at the OBO token-exchange step; ADR-006, "Downstream
+assignment-required issuance gate"; COMPATIBILITY.md). Both arms were run.
+
+- **Deploy:** `ephemeral-env.yml` run
+  [29892332176](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/29892332176)
+  (apply-call-destroy green; `skip_teardown=true`, so the environment stayed up
+  for the manual run and the destroy half was not exercised). Stamp
+  `mcp-tracer-apim-9f82a4f5`; gateway MCP endpoint
+  `https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp`.
+  Branch `claude/issue-53-downstream-assignment-required-gate`.
+
+- **Positive arm (assigned user, gate ON):** operator-attested 2026-07-22 that a
+  delegated (`scp`) token for a user assigned to the downstream enterprise
+  application drove the delegated branch -> OBO -> downstream and returned both
+  frozen contract shapes (known id -> status, unknown id -> typed not-found).
+  This is the evidence that the assignment-required gate does NOT break delegated
+  OBO when the user is assigned. Verbatim McpTestClient transcript to paste:
+
+  ```
+  <paste the McpTestClient transcript for the assigned-user run here>
+  ```
+
+- **Negative arm (unassigned user, gate ON):** operator-attested 2026-07-22 that a
+  delegated token for a user NOT assigned to the downstream enterprise
+  application was refused: the token minted fine against the server app (which is
+  deliberately assignment-NOT-required), but the server-side OBO exchange for the
+  downstream token failed, surfacing **AADSTS50105** in the MCP server Function
+  App logs. This locates the assignment-required enforcement at the OBO
+  token-exchange hop live -- the specific point Microsoft Learn leaves
+  unstated -- and is the evidence that the downstream role is a real issuance
+  gate on the delegated path, not only the app-only path. Verbatim log line to
+  paste (redact tenant/app/user ids):
+
+  ```
+  <paste the AADSTS50105 log line from the MCP server Function App here>
+  ```
+
+- **Interpretation:** with the downstream gate ON, an assigned delegated user
+  still round-trips through OBO (positive arm) while an unassigned delegated user
+  is refused at the OBO exchange with AADSTS50105 (negative arm). Together these
+  show the gate is enforced on the delegated path at issuance time without
+  breaking the sanctioned path, closing the PR #50 finding B2 re-validation and
+  issue-53 acceptance items 3 and 6.
+
+- **Open / honest notes:**
+  - This entry is **operator-attested** (Hari ran the manual steps and reported
+    the outcomes); the two verbatim artifacts above are pending paste to make the
+    evidence self-contained rather than attested-only. Until pasted, do not treat
+    the transcript/log text as captured.
+  - The exact `X-MS-CLIENT-PRINCIPAL` claim-type STRING form (short `scp` vs
+    mapped schema URI) is still not directly asserted here; it is unchanged from
+    the 2026-07-19 run's open note.
+  - Clean teardown of the `azuread` resources was again not exercised
+    (`skip_teardown=true`); a full `skip_teardown=false` run still validates the
+    destroy path.

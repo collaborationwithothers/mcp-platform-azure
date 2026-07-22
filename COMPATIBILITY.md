@@ -406,6 +406,16 @@ Full detail and doc citations: infra/terraform/modules/apim-gateway/README.md.
   is the low-churn path). The OBO consequence (delegated user must be assigned to
   the downstream app or AADSTS50105) is PARTIAL on Learn -- documented for
   interactive sign-in, not stated for the OBO exchange step -- so it is confirmed
-  by the manual delegated happy-path re-run after the toggle, not asserted. That
-  live re-validation, and the live gate staying green, remain UNMEASURED until
-  the gated workflow / manual demo runs.
+  by the manual delegated happy-path re-run after the toggle, not asserted.
+  LIVE UPDATE 2026-07-22 (operator-attested; run
+  [29892332176](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/29892332176),
+  stamp mcp-tracer-apim-9f82a4f5): both arms ran manually. An ASSIGNED delegated
+  user still round-tripped OBO -> downstream (gate does not break delegated OBO);
+  an UNASSIGNED delegated user was refused at the server-side OBO exchange with
+  AADSTS50105 -- which LOCATES the assignment-required enforcement at the OBO
+  token-exchange hop live, the point Learn leaves unstated (upgrades the OBO
+  consequence from Learn-PARTIAL to live-observed). Evidence in
+  docs/demos/obo-happy-path.md ("Run 2026-07-22"); the two verbatim artifacts
+  (transcript, AADSTS50105 log line) are pending paste into that record, so the
+  outcome is operator-attested until they land. The `skip_teardown=true` destroy
+  half remains unexercised.
