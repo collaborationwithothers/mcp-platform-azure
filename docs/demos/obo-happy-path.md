@@ -156,16 +156,28 @@ the manual run and the destroy half was not exercised). Stamp
 `https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp`.
 Branch `claude/issue-53-downstream-assignment-required-gate`.
 
-**What is established (positive arm).** With the gate ON, a delegated (`scp`)
-user drove the delegated branch -> OBO -> downstream and returned both frozen
-contract shapes (known id -> status, unknown id -> typed not-found). This shows
-the assignment-required toggle does NOT break delegated OBO -- the sanctioned
-path still works with the gate on. This satisfies issue-53's happy-path
-re-validation (acceptance item 3, positive half). Verbatim McpTestClient
-transcript to paste:
+**What is established (positive arm -- matched pair with the negative below).**
+With the gate ON, the SAME non-admin sandbox user as the negative test (step 2
+below), now ASSIGNED to the downstream enterprise application, drove the delegated
+branch -> OBO -> downstream and returned both frozen contract shapes (known id ->
+status, unknown id -> typed not-found). Because the negative arm and this arm use
+the identical non-admin user and differ ONLY by the downstream app assignment,
+together they isolate the assignment as the single cause -- no Global Admin bypass
+in play on either side. This shows the assignment-required toggle does NOT break
+delegated OBO for an authorized user, and satisfies issue-53's happy-path
+re-validation (acceptance item 3, positive half). Verbatim McpTestClient output:
 
 ```
-<paste the McpTestClient transcript for the assigned-user run here>
+[McpTestClient] Target MCP endpoint: https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp
+[McpTestClient] Authorization header: present (Bearer)
+[McpTestClient] initialize OK: protocol 2025-06-18, server Azure Functions MCP server.
+[McpTestClient] tools/list returned 1 tool(s):
+  - get_order_status
+[McpTestClient] call(known)   -> {"orderId":"CONTOSO-1003","status":"Processing","updatedUtc":"2026-06-05T17:45:00Z"}
+[McpTestClient] known id OK: { orderId=CONTOSO-1003, status=Processing, updatedUtc=2026-06-05T17:45:00Z }.
+[McpTestClient] call(unknown) -> {"orderId":"CONTOSO-9999","found":false,"message":"No order was found for id 'CONTOSO-9999'. Order data is synthetic (known ids are CONTOSO-1001 to CONTOSO-1005)."}
+[McpTestClient] unknown id OK: typed not-found (found:false) for CONTOSO-9999.
+[McpTestClient] All session and tool assertions passed.
 ```
 
 **Negative arm -- the chronology, recorded as a sequence (do not flatten).** The
@@ -216,13 +228,16 @@ evidence is the argument.
    original sign-in. This is the exact point Microsoft Learn left unstated, now
    measured.
 
-3. **Why this is the gate, by A/B, not assumption.** Same gate-ON environment,
-   one variable isolated across three runs:
-   - Global Admin, unassigned -> SUCCEEDS (documented bypass).
-   - Non-admin, unassigned -> FAILS (step 2).
-   - Assigned user -> SUCCEEDS (positive arm above).
-   The only thing flipping the unassigned outcome is admin-vs-non-admin, which is
-   exactly what bypasses `appRoleAssignmentRequired`. Consent is tenant-wide
+3. **Why this is the gate, by A/B, not assumption.** Same gate-ON environment:
+   - **Matched pair, same non-admin user, one variable (assignment):**
+     unassigned -> FAILS (step 2); assigned -> SUCCEEDS (positive arm above).
+     This alone isolates the downstream app assignment as the cause.
+   - **Control for the bypass:** Global Admin, unassigned -> SUCCEEDS (documented
+     GA bypass), confirming the earlier confound and why negative tests need a
+     non-admin.
+   The only thing flipping the non-admin's outcome is the assignment, and the only
+   thing letting an unassigned user through is Global Admin -- exactly the
+   `appRoleAssignmentRequired` semantics. Consent is tenant-wide
    (`azuread_service_principal_delegated_permission_grant`, all users), identical
    for both, so consent is not the differentiator. `GetOrderStatus.Run` has NO
    delegated->app-only fallback and `AcquireTokenOnBehalfOf` is not caught
@@ -245,7 +260,8 @@ path (live-confirmed here for non-admins, exact error captured).
     above). Captured via `az webapp log tail` (the tracer Function App has no App
     Insights / Log Analytics wired, checked via Azure Monitor 2026-07-22, so the
     live log stream was the capture path).
-  - The positive-arm McpTestClient transcript is still pending paste.
+  - Both McpTestClient transcripts (positive assigned-user, negative unassigned)
+    are captured above; the negative/positive pair uses the same non-admin user.
   - GA bypass is a live-relevant operational rule now, not a footnote: manual
     negative tests of this gate MUST use a non-admin user, or the bypass masks the
     result.
