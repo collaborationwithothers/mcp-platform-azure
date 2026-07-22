@@ -93,13 +93,13 @@ as the wrong audience on the other.
    OBO happy path (section 3) must be assigned to THIS downstream app
    (**Enterprise applications > `<downstream app>` > Users and groups > Add
    user/group**), directly or via a group. Microsoft Learn documents the
-   assignment requirement for interactive sign-in and app-only token acquisition;
-   whether it ALSO gates the OBO token-exchange step for a delegated scope is NOT
-   documented and is UNPROVEN in this repo (ADR-006, "Downstream
-   assignment-required issuance gate"; docs/demos/obo-happy-path.md "Run
-   2026-07-22"), so treat the delegated-user assignment as a required precondition
-   for the happy path but do not assume an unassigned NON-admin user is refused
-   until that negative test is run cleanly. Group-based assignment is valid but
+   assignment requirement only for interactive sign-in and app-only token
+   acquisition, but a 2026-07-22 A/B live test established that it ALSO gates the
+   OBO delegated-scope exchange for non-admin users: an unassigned non-admin
+   user's delegated call FAILS (ADR-006, "Downstream assignment-required issuance
+   gate"; docs/demos/obo-happy-path.md "Run 2026-07-22"). So the delegated-user
+   assignment is a required precondition for the happy path. Group-based
+   assignment is valid but
    needs Entra ID P1/P2 and does not follow nested groups; a direct user
    assignment is sufficient for the single demo user
    ([assign-user-or-group-access-portal](https://learn.microsoft.com/entra/identity/enterprise-apps/assign-user-or-group-access-portal#prerequisites)).

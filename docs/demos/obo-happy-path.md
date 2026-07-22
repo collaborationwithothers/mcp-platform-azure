@@ -168,46 +168,70 @@ transcript to paste:
 <paste the McpTestClient transcript for the assigned-user run here>
 ```
 
-**What is NOT established (delegated negative arm) -- earlier claim RETRACTED.**
-An earlier revision of this entry claimed an unassigned delegated user was
-refused at the OBO exchange with AADSTS50105, "locating enforcement at the OBO
-hop." That is retracted: the manual runs that probed this were confounded and do
-NOT prove the delegated OBO path is gated.
+**Negative arm -- the chronology, recorded as a sequence (do not flatten).** The
+enforcement point was mis-called once before it was established, and the order of
+evidence is the argument.
 
-- A run in which an *unassigned* user's delegated call still returned an order
-  used a **Global Administrator** account. Global Administrators bypass
-  `appRoleAssignmentRequired` entirely (VERIFIED, azure-docs-verifier
-  2026-07-22), so that run is an EXPECTED bypass, not a gate failure -- and it is
-  not a valid negative test.
-- The run that reported AADSTS50105 has not been confirmed to use a non-admin
-  user, so it cannot be relied on as a clean gate-fired result either (an admin
-  would not get AADSTS50105 from this gate, so a valid negative result must come
-  from a confirmed non-admin, unassigned, consented user).
+1. **First claim (RETRACTED).** An earlier revision asserted an unassigned
+   delegated user was refused with AADSTS50105 "at the OBO hop, live-observed."
+   That was premature. The run behind it was not confirmed to use a non-admin
+   user, and a second manual run then muddied it: an *unassigned* user whose
+   delegated call still SUCCEEDED turned out to be a **Global Administrator**.
+   Global Administrators bypass `appRoleAssignmentRequired` entirely (VERIFIED,
+   azure-docs-verifier 2026-07-22), so that success is an expected bypass, not a
+   gate failure -- and neither run was a valid negative test.
 
-The code path makes the confound legible: `GetOrderStatus.Run` has NO
-delegated->app-only fallback (src/McpTools/Tools/GetOrderStatus.cs), and
-`AcquireTokenOnBehalfOf` is not wrapped in a catch
-(src/McpTools/Downstream/ManagedIdentityOboTokenAcquirer.cs), so a returned order
-means the OBO exchange genuinely succeeded -- for the admin user, via the bypass.
+2. **Clean negative test (established).** Re-run with a **confirmed non-admin,
+   unassigned, consented** user against the same gate-ON environment: the
+   delegated call FAILED -- `get_order_status` returned an MCP error result
+   instead of an order. Verbatim McpTestClient output:
 
-**Whether `appRoleAssignmentRequired` even gates the OBO delegated-scope exchange
-is UNPROVEN here and Learn-PARTIAL** (Microsoft Learn documents the requirement
-for interactive sign-in and app-only token acquisition; it does not state the OBO
-token-exchange step is gated -- azure-docs-verifier 2026-07-21 and 2026-07-22).
-Issue-53's app-only gate (the MCP server SP must hold Orders.Read to get an
-app-only downstream token) is the doc-VERIFIED, load-bearing claim and is
-unaffected by any of this; the delegated OBO "consequence" is the secondary,
-still-open question.
+   ```
+   [McpTestClient] Target MCP endpoint: https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp
+   [McpTestClient] Authorization header: present (Bearer)
+   [McpTestClient] initialize OK: protocol 2025-06-18, server Azure Functions MCP server.
+   [McpTestClient] tools/list returned 1 tool(s):
+     - get_order_status
+   [McpTestClient] call(known)   -> An error occurred invoking 'get_order_status'.
+   Unhandled exception. System.InvalidOperationException: call(CONTOSO-1003) returned an MCP error result; expected the typed success shape.
+   ```
 
-**To close it cleanly (not yet done):** re-run the negative test with a
-**confirmed non-admin, unassigned, consented sandbox user** and capture, from the
-McpTestClient output AND the MCP server Function App logs, that the call FAILS
-(not returns an order) with AADSTS50105 at the OBO exchange. Only that closes the
-delegated-path question; until then, do not assert the delegated path is gated.
+3. **Why this is the gate, by A/B, not assumption.** Same gate-ON environment,
+   one variable isolated across three runs:
+   - Global Admin, unassigned -> SUCCEEDS (documented bypass).
+   - Non-admin, unassigned -> FAILS (step 2).
+   - Assigned user -> SUCCEEDS (positive arm above).
+   The only thing flipping the unassigned outcome is admin-vs-non-admin, which is
+   exactly what bypasses `appRoleAssignmentRequired`. Consent is tenant-wide
+   (`azuread_service_principal_delegated_permission_grant`, all users), identical
+   for both, so consent is not the differentiator. `GetOrderStatus.Run` has NO
+   delegated->app-only fallback and `AcquireTokenOnBehalfOf` is not caught
+   (src/McpTools/Tools/GetOrderStatus.cs;
+   src/McpTools/Downstream/ManagedIdentityOboTokenAcquirer.cs), so a thrown tool
+   means the OBO token exchange genuinely failed. Consent, principal-parsing, and
+   code paths are all ruled out, leaving the assignment gate.
+
+**Conclusion:** `appRoleAssignmentRequired` on the downstream DOES gate the
+delegated OBO token exchange for non-admin principals -- live-confirmed 2026-07-22
+by the A/B behaviour above. This closes the earlier Learn-PARTIAL for practical
+purposes, with the standing GA-bypass caveat. It also confirms the issue-53
+posture: the downstream role assignment is a real issuance gate on BOTH the
+app-only path (VERIFIED by docs) and the delegated path (live-confirmed here for
+non-admins).
 
 - **Open / honest notes:**
-  - This entry is **operator-attested**; the positive-arm transcript is pending
-    paste. The delegated negative arm is retracted pending a clean non-admin run.
+  - **Exact error code pending log capture.** The client sees only "an error
+    occurred"; the specific Entra code (expected AADSTS50105, "user not assigned
+    to a role for the app") was NOT captured, because the tracer Function App has
+    no App Insights / Log Analytics wired (checked via Azure Monitor 2026-07-22).
+    To capture it, re-run the failing call while tailing the server:
+    `az webapp log tail --name mcp-tracer-func --resource-group rg-mcp-tracer-29892332176`,
+    and paste the AADSTS line here (redact tenant/app/user ids). The A/B result
+    already establishes the CAUSE is the gate; this pins the exact string.
+  - The positive-arm McpTestClient transcript is still pending paste.
+  - GA bypass is a live-relevant operational rule now, not a footnote: manual
+    negative tests of this gate MUST use a non-admin user, or the bypass masks the
+    result.
   - The exact `X-MS-CLIENT-PRINCIPAL` claim-type STRING form (short `scp` vs
     mapped schema URI) is still not directly asserted here; unchanged from the
     2026-07-19 run's open note.

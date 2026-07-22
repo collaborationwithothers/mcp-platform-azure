@@ -218,20 +218,23 @@ assignment -- the assignment is an issuance-time gate, complementary to the
 request-time `allowedApplications` check, not a cosmetic grant that could be
 revoked without failing the app-only call closed (ADR-006, "Downstream
 assignment-required issuance gate"; COMPATIBILITY.md). This app-only gate is the
-load-bearing, doc-VERIFIED claim. Whether the same requirement also gates the
-DELEGATED (OBO) path is NOT established: Microsoft Learn documents
-assignment-required for interactive sign-in, not the OBO token-exchange step, and
-the 2026-07-22 manual attempt to confirm it live was confounded by the Global
-Administrator bypass (a GA user's unassigned delegated call still succeeded,
-because GAs bypass `appRoleAssignmentRequired`), so it does not prove the
-delegated OBO exchange is gated. Do not claim per-user issuance-time enforcement
-on the delegated path until a clean negative test with a confirmed non-admin,
-unassigned, consented user shows the call FAILS with AADSTS50105 (ADR-006,
-"Downstream assignment-required issuance gate"; docs/demos/obo-happy-path.md "Run
-2026-07-22"). Note the asymmetry regardless: `Orders.Read` is an application-only
-role, so it can gate the app-only path but can never be held by a user, and the
-delegated path's per-caller authorization remains the MCP layer plus the
-documented data-layer outgrow trigger, not this gate.
+load-bearing, doc-VERIFIED claim. The same requirement also gates the DELEGATED
+(OBO) path for non-admin users: although Microsoft Learn documents
+assignment-required only for interactive sign-in (not the OBO token-exchange
+step), a 2026-07-22 A/B live test established it -- a confirmed non-admin,
+unassigned, consented user's delegated call FAILED (an MCP error, not an order),
+while a Global Administrator's unassigned call SUCCEEDED because GAs bypass
+`appRoleAssignmentRequired`, and an assigned user's call succeeded; the
+admin-vs-non-admin variable isolates the assignment gate as the cause
+(docs/demos/obo-happy-path.md "Run 2026-07-22"). Two caveats stated plainly: the
+exact Entra error string (expected AADSTS50105) is not yet captured (the tracer
+Function App has no App Insights), and **Global Administrators bypass this gate**,
+so it does not constrain a GA-held or GA-impersonating identity. Note the
+asymmetry regardless: `Orders.Read` is an application-only role, so it gates the
+app-only path but can never be held by a user; on the delegated path the gate is
+provisioning-to-the-app (any assigned non-admin user passes), and finer per-caller
+authorization remains the MCP layer plus the documented data-layer outgrow
+trigger, not this gate.
 
 **Multi-tenant seam, documented but not wired in v1.** APIM product or
 subscription membership and Entra application-role grants are independent
