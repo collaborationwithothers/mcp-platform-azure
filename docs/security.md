@@ -225,11 +225,12 @@ step), a 2026-07-22 A/B live test established it -- a confirmed non-admin,
 unassigned, consented user's delegated call FAILED (an MCP error, not an order),
 while a Global Administrator's unassigned call SUCCEEDED because GAs bypass
 `appRoleAssignmentRequired`, and an assigned user's call succeeded; the
-admin-vs-non-admin variable isolates the assignment gate as the cause
-(docs/demos/obo-happy-path.md "Run 2026-07-22"). Two caveats stated plainly: the
-exact Entra error string (expected AADSTS50105) is not yet captured (the tracer
-Function App has no App Insights), and **Global Administrators bypass this gate**,
-so it does not constrain a GA-held or GA-impersonating identity. Note the
+admin-vs-non-admin variable isolates the assignment gate as the cause, and the
+captured server exception (AADSTS50105 at MSAL `OnBehalfOfRequest.ExecuteAsync`)
+pins the enforcement point at the OBO token exchange
+(docs/demos/obo-happy-path.md "Run 2026-07-22"). One caveat stated plainly:
+**Global Administrators bypass this gate**, so it does not constrain a GA-held or
+GA-impersonating identity. Note the
 asymmetry regardless: `Orders.Read` is an application-only role, so it gates the
 app-only path but can never be held by a user; on the delegated path the gate is
 provisioning-to-the-app (any assigned non-admin user passes), and finer per-caller

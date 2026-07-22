@@ -196,6 +196,26 @@ evidence is the argument.
    Unhandled exception. System.InvalidOperationException: call(CONTOSO-1003) returned an MCP error result; expected the typed success shape.
    ```
 
+   Server-side exception captured via `az webapp log tail` (2026-07-22; app id,
+   trace id, correlation id REDACTED per this file's no-org-ids rule; the user is
+   already `{EUII Hidden}` by Entra):
+
+   ```
+   Exception: AADSTS50105: Your administrator has configured the application
+   <downstream-app> ('<downstream-app-id>') to block users unless they are
+   specifically granted ('assigned') access to the application. The signed in
+   user '{EUII Hidden}' is blocked because they are not a direct member of a
+   group with access, nor had access directly assigned by an administrator.
+   ...
+     at Microsoft.Identity.Client.Internal.Requests.OnBehalfOfRequest.ExecuteAsync(CancellationToken cancellationToken)
+     ...
+   ```
+
+   The MSAL stack frame `OnBehalfOfRequest.ExecuteAsync` pins the enforcement
+   point: AADSTS50105 is thrown AT the OBO token exchange, not at the user's
+   original sign-in. This is the exact point Microsoft Learn left unstated, now
+   measured.
+
 3. **Why this is the gate, by A/B, not assumption.** Same gate-ON environment,
    one variable isolated across three runs:
    - Global Admin, unassigned -> SUCCEEDS (documented bypass).
@@ -213,21 +233,18 @@ evidence is the argument.
 
 **Conclusion:** `appRoleAssignmentRequired` on the downstream DOES gate the
 delegated OBO token exchange for non-admin principals -- live-confirmed 2026-07-22
-by the A/B behaviour above. This closes the earlier Learn-PARTIAL for practical
-purposes, with the standing GA-bypass caveat. It also confirms the issue-53
-posture: the downstream role assignment is a real issuance gate on BOTH the
-app-only path (VERIFIED by docs) and the delegated path (live-confirmed here for
-non-admins).
+by the A/B behaviour above AND the captured AADSTS50105 thrown at
+`OnBehalfOfRequest.ExecuteAsync`. This fully closes the earlier Learn-PARTIAL (the
+enforcement point is the OBO exchange, measured), with the standing GA-bypass
+caveat. It also confirms the issue-53 posture: the downstream role assignment is a
+real issuance gate on BOTH the app-only path (VERIFIED by docs) and the delegated
+path (live-confirmed here for non-admins, exact error captured).
 
 - **Open / honest notes:**
-  - **Exact error code pending log capture.** The client sees only "an error
-    occurred"; the specific Entra code (expected AADSTS50105, "user not assigned
-    to a role for the app") was NOT captured, because the tracer Function App has
-    no App Insights / Log Analytics wired (checked via Azure Monitor 2026-07-22).
-    To capture it, re-run the failing call while tailing the server:
-    `az webapp log tail --name mcp-tracer-func --resource-group rg-mcp-tracer-29892332176`,
-    and paste the AADSTS line here (redact tenant/app/user ids). The A/B result
-    already establishes the CAUSE is the gate; this pins the exact string.
+  - Exact error code CAPTURED 2026-07-22 (AADSTS50105 at `OnBehalfOfRequest`,
+    above). Captured via `az webapp log tail` (the tracer Function App has no App
+    Insights / Log Analytics wired, checked via Azure Monitor 2026-07-22, so the
+    live log stream was the capture path).
   - The positive-arm McpTestClient transcript is still pending paste.
   - GA bypass is a live-relevant operational rule now, not a footnote: manual
     negative tests of this gate MUST use a non-admin user, or the bypass masks the

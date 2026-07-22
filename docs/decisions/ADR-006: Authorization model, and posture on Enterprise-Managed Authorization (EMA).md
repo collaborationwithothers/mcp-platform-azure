@@ -587,13 +587,14 @@ flipping the unassigned outcome is admin-vs-non-admin, exactly what bypasses the
 gate. Consent is tenant-wide and identical for both, and `Run` has no
 delegated->app-only fallback and does not catch the OBO exchange, so a thrown tool
 means OBO genuinely failed. Conclusion: `appRoleAssignmentRequired` DOES gate the
-OBO delegated-scope exchange for non-admin principals (live-confirmed), closing
-the earlier Learn-PARTIAL in practice, with the standing GA-bypass caveat. Not yet
-captured: the exact Entra error string (expected AADSTS50105) -- the tracer
-Function App has no App Insights wired, so the client-visible tool error is the
-evidence and the exact code awaits a `az webapp log tail` re-run. This does not
-touch the app-only gate above, which remains the load-bearing, doc-VERIFIED claim.
-Group-based assignment is a valid way to
+OBO delegated-scope exchange for non-admin principals (live-confirmed), and the
+captured server exception pins the enforcement point exactly: AADSTS50105 ("block
+users unless they are specifically granted assigned access") thrown at MSAL's
+`OnBehalfOfRequest.ExecuteAsync` -- i.e. AT the OBO token exchange, not at the
+user's original sign-in. This fully closes the earlier Learn-PARTIAL: Learn does
+not document the OBO step being gated, but it is now measured. Standing GA-bypass
+caveat applies. This does not touch the app-only gate above, which remains the
+load-bearing, doc-VERIFIED claim. Group-based assignment is a valid way to
 satisfy the requirement but needs Entra ID P1/P2 and does not follow nested
 groups (verifier 2026-07-21); direct user assignment is used for the single demo
 user.
