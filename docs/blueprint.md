@@ -1,7 +1,8 @@
 # Repo: mcp-platform-azure
 
 Blueprint version: 1.0, 2026-07-08. Author: AI Portfolio Architect session with Hari Praghash.
-Status: P0. This is the only active repo until v1 is public, documented, and demoable.
+Amended: 2026-07-22 at the v1.0.0 tag (blueprint revision cycle, issue #20). The amendment is additive: it adds a thickening phase (Section 13, Phase 3.5) and a corrections section (Section 18) recording what v1 taught. The original 2026-07-08 body is left as written so assumptions remain visible next to outcomes.
+Status: P0. This is the only active repo until v1 is public, documented, and demoable. (v1.0.0 is now tagged; the repo README status line is the source of truth for shipped state.)
 
 NOTE FOR ANY MODEL ITERATING ON THIS DOCUMENT: all Azure service capabilities and status flags below were verified against Microsoft Learn and official blogs on 2026-07-08. Several features are preview and change fast. Before changing any claim about a service capability, SKU, or price, re-verify against current Microsoft documentation. Do not add benchmark numbers, latency figures, or cost figures that were not measured; estimates must be labelled as estimates with their basis. ASCII punctuation only.
 
@@ -194,6 +195,7 @@ mcp-platform-azure/
 Phase 0 (skeleton, days): repo, README stub, ADR stubs, CI with terraform fmt/validate + tflint + checkov + dotnet build. Public from day one.
 Phase 1 (v1): S3 modules -> S1 server -> S2 gateway (public-demo profile) -> integration tests -> docs (README, ADR-001/002/006, security.md core) -> demo script + short recording. v1 tag when all are public and the demo runs clean from a fresh clone.
 Phase 2 (v1.1): S4 private platform + runbooks + ADR-003. Phase 3 (v1.2): S5 observability workbook + alerts + ADR-004, S6 REST export, ADR-005.
+Phase 3.5 (thickening, post-v1, pre-deep-gated) [added by the v1 blueprint revision, 2026-07-22]: deepen the SAME proven v1 stack before the deep-gated variants. Three scenarios, each extending v1 machinery rather than opening a new capability class: multi-server composition behind one gateway (issue #17; pairs with the per-server resource-identity problem #42 surfaced), per-tool authorization and tool blocking at the gateway (issue #18), and content safety policy on MCP tool-call arguments (issue #19). These were named as capabilities in Sections 4 and 6 but never phased; v1 identified them as the natural next increment. They are the strict scope of the grill-with-docs cycle this revision runs (issue #20).
 Phase 4 (gated): Python variant, Foundry agent + Container Apps private ingress, evals, EMA when unblocked.
 
 Document-first rule: each scenario lands with its docs in the same PR; no code-only merges to main.
@@ -249,3 +251,101 @@ Failure modes of the plan:
 - Demo friction: Entra client pre-registration (no DCR) makes the quickstart heavier than samples that use keys. If early users bounce off the auth setup, add a keyed "insecure-demo" toggle that is loudly labelled.
 
 Strongest counterargument: Microsoft's own samples and labs will keep absorbing these scenarios; in 12 months an official Terraform module set for MCP could make this repo redundant. Response: the window is now, the multi-tenant + private + observability combination is not covered today, and the ADRs (the reasoning) retain value even after the code is commoditized. Ship fast or do not bother.
+
+## 18. Corrections: what building v1 taught (added 2026-07-22, at the v1.0.0 tag)
+
+This section is an amendment, not a rewrite. Everything above is the 2026-07-08
+plan as written; it is deliberately left intact so the record shows what was
+assumed versus what building v1 actually established. Each correction below names
+the section it corrects, states the original assumption, states what v1 proved,
+and links the evidence (ADR, PR, issue, or COMPATIBILITY.md row). Honesty rule
+applies: no figure appears here that was not measured, and Microsoft-documented
+bounds are marked as such.
+
+1. azapi provider schema lags the documented ARM API version (corrects Sections
+   4 and 9). The plan anticipated "preview churn" and answered it with pinning.
+   The sharper lesson: the azapi provider's own EMBEDDED resource schema lags the
+   documented API version. azapi 2.10.0 does not recognise 2025-09-01-preview for
+   `Microsoft.ApiManagement/service/apis` and siblings (newest it knows is
+   2025-03-01-preview), so `schema_validation_enabled = false` is set on every
+   such resource and correctness moves to the live gate, where ARM acceptance is
+   proven rather than asserted locally. Pinning was necessary but not sufficient;
+   the provider-vs-API-version gap is its own failure mode. (COMPATIBILITY.md,
+   "azapi_resource schema_validation_enabled".)
+
+2. PRM is not one document at the server root (corrects Section 4 Diagram 2 and
+   Section 6). The plan drew "401 + WWW-Authenticate -> /.well-known/oauth-
+   protected-resource" as a single server-side document. v1 established three
+   deviations: (a) the deployed APIM `type=mcp` runtime REWRITES the
+   `resource_metadata` challenge to a path-scoped value downstream of the policy
+   pipeline, with no policy hook to override it; (b) RFC 9728 s3.3 forces the PRM
+   `resource` to equal the MCP server URL, not the Entra App ID URI; (c) the
+   document must be served at BOTH the gateway root AND the RFC 9728 s3.1
+   path-inserted location, or a spec-conformant client rejects it. Placement is a
+   gateway concern, resolved in the apim-gateway/apim-mcp-server modules.
+   (ADR-006 "PRM discovery and placement" + "What the live interactive trace
+   showed"; PR #16; issue-9 traces.)
+
+3. The Entra RFC 8707 vs RFC 9728 boundary blocks interactive sign-in on the
+   demo hostname (corrects Section 4 Diagram 2's tidy token step; produced issue
+   #42). Discovery succeeds all the way to the Entra token endpoint, then Entra
+   rejects the token request with AADSTS9010010 because RFC 9728 wants the
+   `resource` to be the server URL while Entra's RFC 8707 enforcement wants a
+   registered Application ID URI, and `https://<host>.azure-api.net/...` cannot be
+   both. The sequence diagram hid this by assuming the token is simply acquired.
+   Resolution is a genuine v1.1 choice (APIM OAuth-mediation layer vs custom
+   verified domain), not pre-decided, and it interacts with the private-network
+   variant. (ADR-006 step 5; issue #42; COMPATIBILITY.md AADSTS9010010 row. The
+   error itself is not in Learn's reference -- observed, not documented.)
+
+4. The identity model grew an app-only trusted-subsystem branch mid-build
+   (corrects Section 6; issue #45, ADR-006). The plan's downstream story was OBO
+   for user-context calls. v1 established that app-only callers (Foundry agents
+   with Entra Agent ID, service principals, CI clients) carry no user assertion
+   and cannot drive OBO at all, so a second branch was required: an app-role
+   check (`Orders.Read`) at the MCP layer, a downstream call under the SERVER's
+   own identity (trusted subsystem), and caller `azp`/`oid` propagated as
+   audit-grade-only correlation. This is a model addition with a real trade-off
+   (downstream sees one identity for all app-only agents; no inbound Entra
+   backstop, so the fail-closed Easy Auth checks become the critical control),
+   not an implementation detail. (ADR-006 "Workload identity hardening"; PR #50;
+   docs/security.md.)
+
+5. The MCP error contract needed explicit layering (corrects Section 10's
+   single-line "assert schema"). v1 established three distinct error surfaces
+   that must not be conflated: protocol/auth-layer rejection (401 at APIM and
+   Easy Auth for a missing/invalid token), a thrown TOOL error with top-level
+   `isError` true (missing/malformed principal, or a role-less app-only caller's
+   deterministic 403), and a typed DOMAIN result (an unknown order id is a normal
+   not-found result, not an error). Preserving top-level `isError` through the
+   Functions worker required an UNDOCUMENTED SDK integration middleware package
+   (Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk 1.0.0-preview.4), found
+   only by reading the extension source. (src/McpTools/Tools/GetOrderStatus.cs;
+   docs/security.md; COMPATIBILITY.md SDK middleware row.)
+
+6. Registry convergence had to be forced and asserted, not awaited (corrects
+   Sections 4 and 8; ADR-007). The plan relied on APIM -> API Center auto-sync to
+   populate the registry. v1 established that auto-sync is unbounded relative to a
+   CI gate (Microsoft documents "typically minutes, up to 24 hours"), and that
+   the data-plane `/v0.1/servers` surface is portal-auth-only (it 401s a headless
+   bearer token, by design). Correction: force a synchronous, idempotent
+   `az apic import-from-apim` (measured ~34 s, exit 0, coexists with the auto-sync
+   link) and assert `kind == "mcp"` on the control-plane `apis` inventory read
+   with the management token. A live-relevant surprise: `kind=mcp` exists in the
+   live API despite being absent from every documented enum (the live API is
+   ahead of its docs). (ADR-007; COMPATIBILITY.md "API Center on-demand import"
+   and "/v0.1/servers" rows.)
+
+7. Registry assertion determinism as a discipline (corrects Section 10's
+   optional-integration framing; ADR-007). Related to #6 but distinct: the plan
+   treated the ephemeral environment as an optional, cost-gated extra. v1
+   established that a required registry check built on eventual consistency
+   trains the team to ignore red, so the gate was redesigned to make convergence
+   deterministic (force + assert synchronously) rather than monitored after the
+   fact. This is a testing-philosophy correction, not just a wiring one.
+
+Corrections deferred to their own cycles, referenced here so the list is not
+read as exhaustive: interactive sign-in resolution (#42), and the Entra Agent ID
+-> second-OBO-hop chain, which Microsoft Learn documents as shape-compatible but
+which has NOT been measured in this repository (ADR-006, 2026-07-19 freshness
+note). Neither is claimed as done.

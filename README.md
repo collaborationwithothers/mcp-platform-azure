@@ -11,7 +11,8 @@ and sign-off; the governance model for that is itself documented in AGENTS.md.
 Public portfolio reference implementation: enterprise hosting and governance
 of MCP (Model Context Protocol) servers on Azure, built Terraform-first with
 azapi where the AzureRM provider lags. Full design reasoning:
-[docs/blueprint.md](docs/blueprint.md); the v1 slice being built now:
+[docs/blueprint.md](docs/blueprint.md); the v1 slice, shipped and tagged
+v1.0.0 (2026-07-22, ephemeral live gate green):
 [docs/specs/v1-tracer-bullet.md](docs/specs/v1-tracer-bullet.md).
 
 ## Scenario index (v1)

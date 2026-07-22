@@ -1,7 +1,22 @@
 # ADR-002: MCP server hosting selection
 
-Status: Proposed
+Status: Accepted (v1 tag, 2026-07-22)
 Date: 2026-07-08
+Accepted: 2026-07-22
+
+## Acceptance (v1 tag, 2026-07-22)
+
+Accepted: v1 hosts the MCP server on the Azure Functions MCP extension, Flex
+Consumption, .NET isolated worker, exactly as decided. Proven by the
+mcp-function-host module (Flex Consumption + Entra built-in auth; PR #14), the
+McpTools server implementing get_order_status (PR #15), the gate step that
+deploys the function code before assertions (PR #40), and live invocation of the
+deployed server through the gate (PR #37; green run 29892332176, 2026-07-22). The
+extension is pinned at Microsoft.Azure.Functions.Worker.Extensions.Mcp 1.5.1 with
+the 1.0.0-preview.4 SDK integration middleware (COMPATIBILITY.md), which resolves
+the "extension version pinning and preview-churn exposure" that Consequences
+below flagged. Cold-start and stateful-extension scale-out remain
+characterised-in-passing, not load-tested; no latency figures are claimed.
 
 ## Context
 

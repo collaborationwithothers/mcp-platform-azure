@@ -1,7 +1,51 @@
 # ADR-006: Authorization model, and posture on Enterprise-Managed Authorization (EMA)
 
-Status: Proposed
+Status: Accepted (v1 tag, 2026-07-22; proof is uneven by branch, see Acceptance)
 Date: 2026-07-08
+Accepted: 2026-07-22
+
+## Acceptance (v1 tag, 2026-07-22)
+
+The v1 authorization decision is accepted: standard OAuth 2.1 with Entra ID, 401
+plus RFC 9728 PRM on the server, validate-azure-ad-token and audience checks at
+gateway and server, OBO (never token passthrough) for delegated downstream calls,
+and a trusted-subsystem path for app-only callers. EMA stays unimplemented (its
+adoption trigger below is unchanged).
+
+The proof is NOT uniform across the branches, and this note keeps that split
+explicit rather than collapsing it into "proven":
+
+- Discovery (401 + PRM, RFC 9728 conformance). Proven live end to end: the
+  issue-9 live gate asserts the PRM `resource` value and the path-inserted
+  well-known location, and a real VS Code 1.128.1 MCP client walked the discovery
+  chain to the Entra token endpoint (2026-07-18 trace; see "What the live
+  interactive trace showed"). Interactive SIGN-IN is a known, documented gap
+  (the RFC 8707 vs RFC 9728 hostname boundary, AADSTS9010010), deferred to v1.1
+  as issue #42 -- discovery works, sign-in on `azure-api.net` does not, and that
+  is recorded honestly, not as "auth proven".
+
+- App-only branch (trusted subsystem, issue 45 / PR #50). LIVE-GATE-PROVEN. The
+  client-credentials path is a full E2E in the automated gate: token -> APIM ->
+  Easy Auth -> branch selection -> Orders.Read app-role check -> server-identity
+  downstream call -> response, plus the negative assertion for a caller without
+  the app role, plus the downstream assignment-required issuance gate for the
+  role-less case (issue 53). Green on run 29892332176 (2026-07-22).
+
+- Delegated OBO branch. Happy path is PROVEN BY UNIT TESTS PLUS A MANUAL RUNBOOK,
+  NOT BY CI. The automated live gate covers only the negative test
+  (audience-mismatch rejection, PR #44); it cannot mint a genuine delegated
+  user token non-interactively, so the positive OBO round-trip is validated by a
+  human against the live-test environment (docs/runbooks/obo-app-registrations.md;
+  docs/demos/obo-happy-path.md, run 2026-07-22) and by unit tests, not by the
+  gate. The 2026-07-22 matched-pair A/B additionally established the downstream
+  assignment-required gate on the delegated path for non-admins (Global Admins
+  bypass it -- see the issue-53 section). This distinction is load-bearing: do
+  not restate the delegated happy path as gate-proven.
+
+Still open, and NOT part of this acceptance: native Entra spec-level EMA
+(unimplemented, trigger below); the Entra Agent ID -> second-OBO-hop chain
+(documented-compatible but unmeasured here, see the 2026-07-19 freshness note);
+interactive sign-in on the ephemeral hostname (issue #42).
 
 ## Context
 
