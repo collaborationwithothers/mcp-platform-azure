@@ -572,15 +572,22 @@ assigned to the downstream app, and the manual delegated happy path is re-run
 after the toggle (docs/demos/obo-happy-path.md; ties to PR #50 finding B2). A
 successful post-toggle run is the evidence the gate does not break delegated OBO;
 if issuance had instead failed with AADSTS50105, that would have located the
-enforcement point at the OBO hop. Live update 2026-07-22 (operator-attested; run
-29892332176, stamp mcp-tracer-apim-9f82a4f5, docs/demos/obo-happy-path.md "Run
-2026-07-22"): BOTH arms ran. An assigned delegated user still round-tripped OBO
--> downstream, and an UNASSIGNED delegated user was refused at the server-side
-OBO exchange with AADSTS50105 -- so the enforcement point IS at the OBO hop,
-observed live, which is the point Microsoft Learn leaves unstated. This upgrades
-the OBO consequence from doc-PARTIAL to live-observed (the verbatim transcript
-and log line are pending paste into the demo record). Group-based assignment is a
-valid way to
+enforcement point at the OBO hop. Live status 2026-07-22 (operator-attested; run
+29892332176, docs/demos/obo-happy-path.md "Run 2026-07-22"): the POSITIVE arm is
+established -- an assigned delegated user still round-trips OBO -> downstream, so
+the toggle does not break the sanctioned path. The NEGATIVE arm is NOT
+established, and an earlier draft that claimed the OBO hop was "live-observed" to
+enforce the gate is RETRACTED: the run in which an unassigned delegated user still
+succeeded used a Global Administrator, which bypasses `appRoleAssignmentRequired`
+entirely (see the threat-model note below), so it is an expected bypass rather
+than a gate failure, and it is not a valid negative test; the run that reported
+AADSTS50105 is not confirmed to have used a non-admin user. So whether
+`appRoleAssignmentRequired` gates the OBO delegated-scope exchange at all remains
+doc-PARTIAL AND live-UNPROVEN in this repo; it is closed only by a future
+negative test with a confirmed non-admin, unassigned, consented user (the
+call must FAIL with AADSTS50105, not return an order). This does not touch the
+app-only gate above, which is the load-bearing, doc-VERIFIED claim. Group-based
+assignment is a valid way to
 satisfy the requirement but needs Entra ID P1/P2 and does not follow nested
 groups (verifier 2026-07-21); direct user assignment is used for the single demo
 user.
@@ -589,7 +596,13 @@ user.
 `appRoleAssignmentRequired` entirely (verifier 2026-07-21). The trusted-subsystem
 principals here (the MCP server's managed identity, the delegated demo user) are
 not Global Administrators, so the gate binds them; but a future design must not
-assume the gate constrains a GA-held or GA-impersonating identity.
+assume the gate constrains a GA-held or GA-impersonating identity. This is not
+hypothetical: during the 2026-07-22 manual re-validation a delegated call by an
+unassigned GLOBAL ADMIN user still succeeded through OBO -- the documented bypass,
+initially mistaken for a gate failure. Operationally it means any manual negative
+test of this gate MUST use a non-admin sandbox user, or the bypass masks the
+result (docs/demos/obo-happy-path.md "Run 2026-07-22";
+docs/runbooks/obo-app-registrations.md).
 
 **Rejected alternative: leave assignment-required off (grant stays cosmetic).**
 Rejected. It is the pre-issue-53 state, and it is exactly what the C2 sign-off

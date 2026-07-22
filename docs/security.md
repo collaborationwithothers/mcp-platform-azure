@@ -217,12 +217,21 @@ issue the app-only downstream token unless the MCP server holds the `Orders.Read
 assignment -- the assignment is an issuance-time gate, complementary to the
 request-time `allowedApplications` check, not a cosmetic grant that could be
 revoked without failing the app-only call closed (ADR-006, "Downstream
-assignment-required issuance gate"; COMPATIBILITY.md). Consequence for the
-delegated path: assignment-required also applies to the signed-in user on OBO, so
-the delegated test user (or a group) must be assigned to the downstream app or
-OBO issuance is refused (AADSTS50105); this is re-validated by the manual
-delegated happy path after the toggle (docs/runbooks/obo-app-registrations.md;
-docs/demos/obo-happy-path.md).
+assignment-required issuance gate"; COMPATIBILITY.md). This app-only gate is the
+load-bearing, doc-VERIFIED claim. Whether the same requirement also gates the
+DELEGATED (OBO) path is NOT established: Microsoft Learn documents
+assignment-required for interactive sign-in, not the OBO token-exchange step, and
+the 2026-07-22 manual attempt to confirm it live was confounded by the Global
+Administrator bypass (a GA user's unassigned delegated call still succeeded,
+because GAs bypass `appRoleAssignmentRequired`), so it does not prove the
+delegated OBO exchange is gated. Do not claim per-user issuance-time enforcement
+on the delegated path until a clean negative test with a confirmed non-admin,
+unassigned, consented user shows the call FAILS with AADSTS50105 (ADR-006,
+"Downstream assignment-required issuance gate"; docs/demos/obo-happy-path.md "Run
+2026-07-22"). Note the asymmetry regardless: `Orders.Read` is an application-only
+role, so it can gate the app-only path but can never be held by a user, and the
+delegated path's per-caller authorization remains the MCP layer plus the
+documented data-layer outgrow trigger, not this gate.
 
 **Multi-tenant seam, documented but not wired in v1.** APIM product or
 subscription membership and Entra application-role grants are independent

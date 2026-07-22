@@ -148,61 +148,69 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <delegated to
 
 Re-validation after enabling "Assignment required?" = Yes
 (`appRoleAssignmentRequired`) on the downstream Orders API's enterprise
-application (issue 53). The question this run answers: does the issuance gate
-break delegated OBO for an assigned user (it must not), and does it actually fire
-for an unassigned user on the OBO path (Microsoft Learn does not document whether
-the check is evaluated at the OBO token-exchange step; ADR-006, "Downstream
-assignment-required issuance gate"; COMPATIBILITY.md). Both arms were run.
+application (issue 53), against `ephemeral-env.yml` run
+[29892332176](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/29892332176)
+(apply-call-destroy green; `skip_teardown=true`, so the environment stayed up for
+the manual run and the destroy half was not exercised). Stamp
+`mcp-tracer-apim-9f82a4f5`; gateway MCP endpoint
+`https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp`.
+Branch `claude/issue-53-downstream-assignment-required-gate`.
 
-- **Deploy:** `ephemeral-env.yml` run
-  [29892332176](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/29892332176)
-  (apply-call-destroy green; `skip_teardown=true`, so the environment stayed up
-  for the manual run and the destroy half was not exercised). Stamp
-  `mcp-tracer-apim-9f82a4f5`; gateway MCP endpoint
-  `https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp`.
-  Branch `claude/issue-53-downstream-assignment-required-gate`.
+**What is established (positive arm).** With the gate ON, a delegated (`scp`)
+user drove the delegated branch -> OBO -> downstream and returned both frozen
+contract shapes (known id -> status, unknown id -> typed not-found). This shows
+the assignment-required toggle does NOT break delegated OBO -- the sanctioned
+path still works with the gate on. This satisfies issue-53's happy-path
+re-validation (acceptance item 3, positive half). Verbatim McpTestClient
+transcript to paste:
 
-- **Positive arm (assigned user, gate ON):** operator-attested 2026-07-22 that a
-  delegated (`scp`) token for a user assigned to the downstream enterprise
-  application drove the delegated branch -> OBO -> downstream and returned both
-  frozen contract shapes (known id -> status, unknown id -> typed not-found).
-  This is the evidence that the assignment-required gate does NOT break delegated
-  OBO when the user is assigned. Verbatim McpTestClient transcript to paste:
+```
+<paste the McpTestClient transcript for the assigned-user run here>
+```
 
-  ```
-  <paste the McpTestClient transcript for the assigned-user run here>
-  ```
+**What is NOT established (delegated negative arm) -- earlier claim RETRACTED.**
+An earlier revision of this entry claimed an unassigned delegated user was
+refused at the OBO exchange with AADSTS50105, "locating enforcement at the OBO
+hop." That is retracted: the manual runs that probed this were confounded and do
+NOT prove the delegated OBO path is gated.
 
-- **Negative arm (unassigned user, gate ON):** operator-attested 2026-07-22 that a
-  delegated token for a user NOT assigned to the downstream enterprise
-  application was refused: the token minted fine against the server app (which is
-  deliberately assignment-NOT-required), but the server-side OBO exchange for the
-  downstream token failed, surfacing **AADSTS50105** in the MCP server Function
-  App logs. This locates the assignment-required enforcement at the OBO
-  token-exchange hop live -- the specific point Microsoft Learn leaves
-  unstated -- and is the evidence that the downstream role is a real issuance
-  gate on the delegated path, not only the app-only path. Verbatim log line to
-  paste (redact tenant/app/user ids):
+- A run in which an *unassigned* user's delegated call still returned an order
+  used a **Global Administrator** account. Global Administrators bypass
+  `appRoleAssignmentRequired` entirely (VERIFIED, azure-docs-verifier
+  2026-07-22), so that run is an EXPECTED bypass, not a gate failure -- and it is
+  not a valid negative test.
+- The run that reported AADSTS50105 has not been confirmed to use a non-admin
+  user, so it cannot be relied on as a clean gate-fired result either (an admin
+  would not get AADSTS50105 from this gate, so a valid negative result must come
+  from a confirmed non-admin, unassigned, consented user).
 
-  ```
-  <paste the AADSTS50105 log line from the MCP server Function App here>
-  ```
+The code path makes the confound legible: `GetOrderStatus.Run` has NO
+delegated->app-only fallback (src/McpTools/Tools/GetOrderStatus.cs), and
+`AcquireTokenOnBehalfOf` is not wrapped in a catch
+(src/McpTools/Downstream/ManagedIdentityOboTokenAcquirer.cs), so a returned order
+means the OBO exchange genuinely succeeded -- for the admin user, via the bypass.
 
-- **Interpretation:** with the downstream gate ON, an assigned delegated user
-  still round-trips through OBO (positive arm) while an unassigned delegated user
-  is refused at the OBO exchange with AADSTS50105 (negative arm). Together these
-  show the gate is enforced on the delegated path at issuance time without
-  breaking the sanctioned path, closing the PR #50 finding B2 re-validation and
-  issue-53 acceptance items 3 and 6.
+**Whether `appRoleAssignmentRequired` even gates the OBO delegated-scope exchange
+is UNPROVEN here and Learn-PARTIAL** (Microsoft Learn documents the requirement
+for interactive sign-in and app-only token acquisition; it does not state the OBO
+token-exchange step is gated -- azure-docs-verifier 2026-07-21 and 2026-07-22).
+Issue-53's app-only gate (the MCP server SP must hold Orders.Read to get an
+app-only downstream token) is the doc-VERIFIED, load-bearing claim and is
+unaffected by any of this; the delegated OBO "consequence" is the secondary,
+still-open question.
+
+**To close it cleanly (not yet done):** re-run the negative test with a
+**confirmed non-admin, unassigned, consented sandbox user** and capture, from the
+McpTestClient output AND the MCP server Function App logs, that the call FAILS
+(not returns an order) with AADSTS50105 at the OBO exchange. Only that closes the
+delegated-path question; until then, do not assert the delegated path is gated.
 
 - **Open / honest notes:**
-  - This entry is **operator-attested** (Hari ran the manual steps and reported
-    the outcomes); the two verbatim artifacts above are pending paste to make the
-    evidence self-contained rather than attested-only. Until pasted, do not treat
-    the transcript/log text as captured.
+  - This entry is **operator-attested**; the positive-arm transcript is pending
+    paste. The delegated negative arm is retracted pending a clean non-admin run.
   - The exact `X-MS-CLIENT-PRINCIPAL` claim-type STRING form (short `scp` vs
-    mapped schema URI) is still not directly asserted here; it is unchanged from
-    the 2026-07-19 run's open note.
+    mapped schema URI) is still not directly asserted here; unchanged from the
+    2026-07-19 run's open note.
   - Clean teardown of the `azuread` resources was again not exercised
     (`skip_teardown=true`); a full `skip_teardown=false` run still validates the
     destroy path.

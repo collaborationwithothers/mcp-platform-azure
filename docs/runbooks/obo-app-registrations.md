@@ -92,22 +92,31 @@ as the wrong audience on the other.
    user on the OBO path, so the sandbox/delegated test user used for the manual
    OBO happy path (section 3) must be assigned to THIS downstream app
    (**Enterprise applications > `<downstream app>` > Users and groups > Add
-   user/group**), directly or via a group; otherwise Entra refuses the
-   delegated user's downstream token with **AADSTS50105** ("The signed in user
-   isn't assigned to a role for the ... app"). Group-based assignment is valid
-   but needs Entra ID P1/P2 and does not follow nested groups; a direct user
+   user/group**), directly or via a group. Microsoft Learn documents the
+   assignment requirement for interactive sign-in and app-only token acquisition;
+   whether it ALSO gates the OBO token-exchange step for a delegated scope is NOT
+   documented and is UNPROVEN in this repo (ADR-006, "Downstream
+   assignment-required issuance gate"; docs/demos/obo-happy-path.md "Run
+   2026-07-22"), so treat the delegated-user assignment as a required precondition
+   for the happy path but do not assume an unassigned NON-admin user is refused
+   until that negative test is run cleanly. Group-based assignment is valid but
+   needs Entra ID P1/P2 and does not follow nested groups; a direct user
    assignment is sufficient for the single demo user
    ([assign-user-or-group-access-portal](https://learn.microsoft.com/entra/identity/enterprise-apps/assign-user-or-group-access-portal#prerequisites)).
    After enabling the toggle, **re-run the manual delegated happy path** (section
-   3; docs/demos/obo-happy-path.md) to confirm OBO still succeeds. Microsoft Learn
-   does not document whether the assignment check is evaluated at the OBO
-   token-exchange step specifically (only at interactive sign-in), so this live
-   re-run is what confirms the gate does not break delegated OBO (ADR-006,
-   "Downstream assignment-required issuance gate"; COMPATIBILITY.md). This does
-   NOT affect the server-side role-less negative test: that runs against the
-   server app (entra-app-registrations.md section 3), whose service principal
-   must stay assignment-NOT-required so role-less tokens can still be issued for
-   the MCP-layer 403 arm.
+   3; docs/demos/obo-happy-path.md) to confirm OBO still succeeds.
+
+   **Global Administrator bypass -- this bit us on 2026-07-22.** Global
+   Administrators bypass `appRoleAssignmentRequired` entirely, so an admin's
+   unassigned delegated call STILL succeeds and looks like the gate is broken when
+   it is not. Any manual negative test of this gate (unassigned user expected to
+   be refused with **AADSTS50105**, "The signed in user isn't assigned to a role
+   for the ... app") MUST use a **non-admin sandbox user** and confirm the failure
+   in BOTH the McpTestClient output (the call fails, not returns an order) and the
+   MCP server Function App logs. This does NOT affect the server-side role-less
+   negative test: that runs against the server app (entra-app-registrations.md
+   section 3), whose service principal must stay assignment-NOT-required so
+   role-less tokens can still be issued for the MCP-layer 403 arm.
 
 ## 2. Bootstrap the live-test OIDC principal's Graph permissions
 
