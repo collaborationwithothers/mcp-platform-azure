@@ -569,31 +569,19 @@ user's original sign-in to the client app, is unconfirmed by Learn (verifier
 2026-07-21, PARTIAL). So the mitigation is applied AND the enforcement point is
 confirmed live rather than asserted: the delegated test user (or a group) is
 assigned to the downstream app, and the manual delegated happy path is re-run
-after the toggle (docs/demos/obo-happy-path.md; ties to PR #50 finding B2). A
-successful post-toggle run is the evidence the gate does not break delegated OBO;
-if issuance had instead failed with AADSTS50105, that would have located the
-enforcement point at the OBO hop. Live status 2026-07-22 (operator-attested; run
-29892332176, docs/demos/obo-happy-path.md "Run 2026-07-22"), recorded AS a
-chronology because the enforcement point was mis-called once before it was
-established: (1) an early draft claiming the OBO hop was "live-observed" to
-enforce the gate was RETRACTED after an unassigned user's still-succeeding call
-turned out to be a Global Administrator, which bypasses `appRoleAssignmentRequired`
-entirely (see the threat-model note below) -- an expected bypass, not a gate
-failure. (2) A clean re-run with a confirmed non-admin, unassigned, consented
-user then FAILED: `get_order_status` returned an MCP error, not an order. (3) The
-A/B across the three runs isolates the cause -- Global Admin unassigned succeeds
-(bypass), non-admin unassigned fails, assigned user succeeds; the only variable
-flipping the unassigned outcome is admin-vs-non-admin, exactly what bypasses the
-gate. Consent is tenant-wide and identical for both, and `Run` has no
-delegated->app-only fallback and does not catch the OBO exchange, so a thrown tool
-means OBO genuinely failed. Conclusion: `appRoleAssignmentRequired` DOES gate the
-OBO delegated-scope exchange for non-admin principals (live-confirmed), and the
-captured server exception pins the enforcement point exactly: AADSTS50105 ("block
-users unless they are specifically granted assigned access") thrown at MSAL's
-`OnBehalfOfRequest.ExecuteAsync` -- i.e. AT the OBO token exchange, not at the
-user's original sign-in. This fully closes the earlier Learn-PARTIAL: Learn does
-not document the OBO step being gated, but it is now measured. Standing GA-bypass
-caveat applies. This does not touch the app-only gate above, which remains the
+after the toggle (docs/demos/obo-happy-path.md "Run 2026-07-22"; ties to PR #50
+finding B2). Live-confirmed 2026-07-22 (run 29892332176) by a matched pair on the
+SAME non-admin user, differing only by the downstream app assignment: unassigned
+-> the delegated call FAILS, assigned -> it succeeds. The failure's captured
+server exception pins the enforcement point exactly -- AADSTS50105 ("block users
+unless they are specifically granted assigned access") thrown at MSAL's
+`OnBehalfOfRequest.ExecuteAsync`, i.e. AT the OBO token exchange, not at the user's
+original sign-in. Consent is tenant-wide and identical for both arms, and `Run`
+has no delegated->app-only fallback and does not catch the OBO exchange, so the
+assignment is the isolated cause. This closes the Learn-PARTIAL in practice: Learn
+does not document the OBO step being gated, but it is now measured, for non-admin
+principals (Global Administrators bypass the gate -- see the threat-model note
+below). This does not touch the app-only gate above, which remains the
 load-bearing, doc-VERIFIED claim. Group-based assignment is a valid way to
 satisfy the requirement but needs Entra ID P1/P2 and does not follow nested
 groups (verifier 2026-07-21); direct user assignment is used for the single demo
@@ -604,11 +592,11 @@ user.
 principals here (the MCP server's managed identity, the delegated demo user) are
 not Global Administrators, so the gate binds them; but a future design must not
 assume the gate constrains a GA-held or GA-impersonating identity. This is not
-hypothetical: during the 2026-07-22 manual re-validation a delegated call by an
-unassigned GLOBAL ADMIN user still succeeded through OBO -- the documented bypass,
-initially mistaken for a gate failure. Operationally it means any manual negative
-test of this gate MUST use a non-admin sandbox user, or the bypass masks the
-result (docs/demos/obo-happy-path.md "Run 2026-07-22";
+hypothetical: on 2026-07-22 an unassigned Global Administrator's delegated call
+succeeded through OBO (the documented bypass) while the same-tenant non-admin
+user's did not. Operationally it means any manual negative test of this gate MUST
+use a non-admin sandbox user, or the bypass masks the result
+(docs/demos/obo-happy-path.md "Run 2026-07-22";
 docs/runbooks/obo-app-registrations.md).
 
 **Rejected alternative: leave assignment-required off (grant stays cosmetic).**

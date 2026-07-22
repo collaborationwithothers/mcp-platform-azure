@@ -106,14 +106,14 @@ as the wrong audience on the other.
    After enabling the toggle, **re-run the manual delegated happy path** (section
    3; docs/demos/obo-happy-path.md) to confirm OBO still succeeds.
 
-   **Global Administrator bypass -- this bit us on 2026-07-22.** Global
-   Administrators bypass `appRoleAssignmentRequired` entirely, so an admin's
-   unassigned delegated call STILL succeeds and looks like the gate is broken when
-   it is not. Any manual negative test of this gate (unassigned user expected to
-   be refused with **AADSTS50105**, "The signed in user isn't assigned to a role
-   for the ... app") MUST use a **non-admin sandbox user** and confirm the failure
-   in BOTH the McpTestClient output (the call fails, not returns an order) and the
-   MCP server Function App logs. This does NOT affect the server-side role-less
+   **Global Administrator bypass.** Global Administrators bypass
+   `appRoleAssignmentRequired` entirely, so an admin's unassigned delegated call
+   STILL succeeds -- which looks like the gate is broken when it is not. Any manual
+   negative test of this gate (unassigned user expected to be refused with
+   **AADSTS50105**, "The signed in user isn't assigned to a role for the ... app")
+   MUST use a **non-admin sandbox user** and confirm the failure in BOTH the
+   McpTestClient output (the call fails, not returns an order) and the MCP server
+   Function App logs. This does NOT affect the server-side role-less
    negative test: that runs against the server app (entra-app-registrations.md
    section 3), whose service principal must stay assignment-NOT-required so
    role-less tokens can still be issued for the MCP-layer 403 arm.

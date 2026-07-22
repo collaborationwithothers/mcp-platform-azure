@@ -156,16 +156,16 @@ the manual run and the destroy half was not exercised). Stamp
 `https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp`.
 Branch `claude/issue-53-downstream-assignment-required-gate`.
 
-**What is established (positive arm -- matched pair with the negative below).**
-With the gate ON, the SAME non-admin sandbox user as the negative test (step 2
-below), now ASSIGNED to the downstream enterprise application, drove the delegated
-branch -> OBO -> downstream and returned both frozen contract shapes (known id ->
-status, unknown id -> typed not-found). Because the negative arm and this arm use
-the identical non-admin user and differ ONLY by the downstream app assignment,
-together they isolate the assignment as the single cause -- no Global Admin bypass
-in play on either side. This shows the assignment-required toggle does NOT break
-delegated OBO for an authorized user, and satisfies issue-53's happy-path
-re-validation (acceptance item 3, positive half). Verbatim McpTestClient output:
+**Result: the downstream assignment gate is enforced on the delegated OBO path for
+non-admin users.** Confirmed by a matched pair on the SAME non-admin sandbox user,
+differing only by the downstream app assignment, plus a Global Admin control.
+
+**Positive arm (non-admin, assigned).** The user, assigned to the downstream
+enterprise application, drove the delegated branch -> OBO -> downstream and
+returned both frozen contract shapes (known id -> status, unknown id -> typed
+not-found). The assignment-required toggle does NOT break delegated OBO for an
+authorized user (issue-53 acceptance item 3, positive half). Verbatim
+McpTestClient output:
 
 ```
 [McpTestClient] Target MCP endpoint: https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp
@@ -180,91 +180,60 @@ re-validation (acceptance item 3, positive half). Verbatim McpTestClient output:
 [McpTestClient] All session and tool assertions passed.
 ```
 
-**Negative arm -- the chronology, recorded as a sequence (do not flatten).** The
-enforcement point was mis-called once before it was established, and the order of
-evidence is the argument.
+**Negative arm (same non-admin, unassigned).** With the user removed from the
+downstream app, the delegated call FAILED -- `get_order_status` returned an MCP
+error instead of an order:
 
-1. **First claim (RETRACTED).** An earlier revision asserted an unassigned
-   delegated user was refused with AADSTS50105 "at the OBO hop, live-observed."
-   That was premature. The run behind it was not confirmed to use a non-admin
-   user, and a second manual run then muddied it: an *unassigned* user whose
-   delegated call still SUCCEEDED turned out to be a **Global Administrator**.
-   Global Administrators bypass `appRoleAssignmentRequired` entirely (VERIFIED,
-   azure-docs-verifier 2026-07-22), so that success is an expected bypass, not a
-   gate failure -- and neither run was a valid negative test.
+```
+[McpTestClient] call(known)   -> An error occurred invoking 'get_order_status'.
+Unhandled exception. System.InvalidOperationException: call(CONTOSO-1003) returned an MCP error result; expected the typed success shape.
+```
 
-2. **Clean negative test (established).** Re-run with a **confirmed non-admin,
-   unassigned, consented** user against the same gate-ON environment: the
-   delegated call FAILED -- `get_order_status` returned an MCP error result
-   instead of an order. Verbatim McpTestClient output:
+Server-side exception captured via `az webapp log tail` (2026-07-22; app id, trace
+id, correlation id REDACTED per this file's no-org-ids rule; the user is already
+`{EUII Hidden}` by Entra):
 
-   ```
-   [McpTestClient] Target MCP endpoint: https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp
-   [McpTestClient] Authorization header: present (Bearer)
-   [McpTestClient] initialize OK: protocol 2025-06-18, server Azure Functions MCP server.
-   [McpTestClient] tools/list returned 1 tool(s):
-     - get_order_status
-   [McpTestClient] call(known)   -> An error occurred invoking 'get_order_status'.
-   Unhandled exception. System.InvalidOperationException: call(CONTOSO-1003) returned an MCP error result; expected the typed success shape.
-   ```
+```
+Exception: AADSTS50105: Your administrator has configured the application
+<downstream-app> ('<downstream-app-id>') to block users unless they are
+specifically granted ('assigned') access to the application. The signed in
+user '{EUII Hidden}' is blocked because they are not a direct member of a
+group with access, nor had access directly assigned by an administrator.
+...
+  at Microsoft.Identity.Client.Internal.Requests.OnBehalfOfRequest.ExecuteAsync(CancellationToken cancellationToken)
+  ...
+```
 
-   Server-side exception captured via `az webapp log tail` (2026-07-22; app id,
-   trace id, correlation id REDACTED per this file's no-org-ids rule; the user is
-   already `{EUII Hidden}` by Entra):
+The MSAL stack frame `OnBehalfOfRequest.ExecuteAsync` pins the enforcement point:
+AADSTS50105 is thrown AT the OBO token exchange, not at the user's original
+sign-in -- the exact point Microsoft Learn leaves unstated, now measured.
 
-   ```
-   Exception: AADSTS50105: Your administrator has configured the application
-   <downstream-app> ('<downstream-app-id>') to block users unless they are
-   specifically granted ('assigned') access to the application. The signed in
-   user '{EUII Hidden}' is blocked because they are not a direct member of a
-   group with access, nor had access directly assigned by an administrator.
-   ...
-     at Microsoft.Identity.Client.Internal.Requests.OnBehalfOfRequest.ExecuteAsync(CancellationToken cancellationToken)
-     ...
-   ```
+**Why the assignment is the cause.** The positive and negative arms use the same
+non-admin user and differ only by the downstream app assignment, so the assignment
+is the isolated variable. Consent is tenant-wide
+(`azuread_service_principal_delegated_permission_grant`, all users), identical for
+both. `GetOrderStatus.Run` has NO delegated->app-only fallback and
+`AcquireTokenOnBehalfOf` is not caught (src/McpTools/Tools/GetOrderStatus.cs;
+src/McpTools/Downstream/ManagedIdentityOboTokenAcquirer.cs), so a thrown tool means
+the OBO exchange genuinely failed. Consent, principal-parsing, and code paths are
+ruled out.
 
-   The MSAL stack frame `OnBehalfOfRequest.ExecuteAsync` pins the enforcement
-   point: AADSTS50105 is thrown AT the OBO token exchange, not at the user's
-   original sign-in. This is the exact point Microsoft Learn left unstated, now
-   measured.
+**Global Administrator bypass (operational rule).** A separate run showed an
+unassigned Global Administrator's delegated call still SUCCEEDS, because Global
+Administrators bypass `appRoleAssignmentRequired` entirely (VERIFIED,
+azure-docs-verifier 2026-07-22). Any manual negative test of this gate MUST
+therefore use a non-admin user, or the bypass masks the result.
 
-3. **Why this is the gate, by A/B, not assumption.** Same gate-ON environment:
-   - **Matched pair, same non-admin user, one variable (assignment):**
-     unassigned -> FAILS (step 2); assigned -> SUCCEEDS (positive arm above).
-     This alone isolates the downstream app assignment as the cause.
-   - **Control for the bypass:** Global Admin, unassigned -> SUCCEEDS (documented
-     GA bypass), confirming the earlier confound and why negative tests need a
-     non-admin.
-   The only thing flipping the non-admin's outcome is the assignment, and the only
-   thing letting an unassigned user through is Global Admin -- exactly the
-   `appRoleAssignmentRequired` semantics. Consent is tenant-wide
-   (`azuread_service_principal_delegated_permission_grant`, all users), identical
-   for both, so consent is not the differentiator. `GetOrderStatus.Run` has NO
-   delegated->app-only fallback and `AcquireTokenOnBehalfOf` is not caught
-   (src/McpTools/Tools/GetOrderStatus.cs;
-   src/McpTools/Downstream/ManagedIdentityOboTokenAcquirer.cs), so a thrown tool
-   means the OBO token exchange genuinely failed. Consent, principal-parsing, and
-   code paths are all ruled out, leaving the assignment gate.
-
-**Conclusion:** `appRoleAssignmentRequired` on the downstream DOES gate the
-delegated OBO token exchange for non-admin principals -- live-confirmed 2026-07-22
-by the A/B behaviour above AND the captured AADSTS50105 thrown at
-`OnBehalfOfRequest.ExecuteAsync`. This fully closes the earlier Learn-PARTIAL (the
-enforcement point is the OBO exchange, measured), with the standing GA-bypass
-caveat. It also confirms the issue-53 posture: the downstream role assignment is a
-real issuance gate on BOTH the app-only path (VERIFIED by docs) and the delegated
-path (live-confirmed here for non-admins, exact error captured).
+**Conclusion.** `appRoleAssignmentRequired` on the downstream gates the delegated
+OBO token exchange for non-admin principals (Learn-PARTIAL, live-confirmed here;
+enforcement point measured at the OBO exchange). The downstream role assignment is
+a real issuance gate on BOTH the app-only path (VERIFIED by docs) and the
+delegated path, with the standing GA-bypass caveat.
 
 - **Open / honest notes:**
-  - Exact error code CAPTURED 2026-07-22 (AADSTS50105 at `OnBehalfOfRequest`,
-    above). Captured via `az webapp log tail` (the tracer Function App has no App
-    Insights / Log Analytics wired, checked via Azure Monitor 2026-07-22, so the
-    live log stream was the capture path).
-  - Both McpTestClient transcripts (positive assigned-user, negative unassigned)
-    are captured above; the negative/positive pair uses the same non-admin user.
-  - GA bypass is a live-relevant operational rule now, not a footnote: manual
-    negative tests of this gate MUST use a non-admin user, or the bypass masks the
-    result.
+  - The exact code was captured via `az webapp log tail`; the tracer Function App
+    has no App Insights / Log Analytics wired (checked via Azure Monitor
+    2026-07-22), so the live log stream was the capture path.
   - The exact `X-MS-CLIENT-PRINCIPAL` claim-type STRING form (short `scp` vs
     mapped schema URI) is still not directly asserted here; unchanged from the
     2026-07-19 run's open note.
