@@ -210,6 +210,33 @@ critical: APIM and built-in auth validate the inbound token, code requires
 `Orders.Read`, and downstream built-in auth accepts only the server app. This is
 the intentional trusted-subsystem trade-off, not token passthrough.
 
+**Downstream role is an enforced issuance gate, not a bare grant (issue 53).**
+The downstream Orders API has "Assignment required?" = Yes
+(`appRoleAssignmentRequired`) on its enterprise application, so Entra refuses to
+issue the app-only downstream token unless the MCP server holds the `Orders.Read`
+assignment -- the assignment is an issuance-time gate, complementary to the
+request-time `allowedApplications` check, not a cosmetic grant that could be
+revoked without failing the app-only call closed (ADR-006, "Downstream
+assignment-required issuance gate"; COMPATIBILITY.md). This app-only gate is the
+load-bearing, doc-VERIFIED claim. The same requirement also gates the DELEGATED
+(OBO) path for non-admin users: although Microsoft Learn documents
+assignment-required only for interactive sign-in (not the OBO token-exchange
+step), a 2026-07-22 A/B live test established it -- a confirmed non-admin,
+unassigned, consented user's delegated call FAILED (an MCP error, not an order),
+while a Global Administrator's unassigned call SUCCEEDED because GAs bypass
+`appRoleAssignmentRequired`, and an assigned user's call succeeded; the
+admin-vs-non-admin variable isolates the assignment gate as the cause, and the
+captured server exception (AADSTS50105 at MSAL `OnBehalfOfRequest.ExecuteAsync`)
+pins the enforcement point at the OBO token exchange
+(docs/demos/obo-happy-path.md "Run 2026-07-22"). One caveat stated plainly:
+**Global Administrators bypass this gate**, so it does not constrain a GA-held or
+GA-impersonating identity. Note the
+asymmetry regardless: `Orders.Read` is an application-only role, so it gates the
+app-only path but can never be held by a user; on the delegated path the gate is
+provisioning-to-the-app (any assigned non-admin user passes), and finer per-caller
+authorization remains the MCP layer plus the documented data-layer outgrow
+trigger, not this gate.
+
 **Multi-tenant seam, documented but not wired in v1.** APIM product or
 subscription membership and Entra application-role grants are independent
 authorization systems in this tracer. A future multi-tenant design must align

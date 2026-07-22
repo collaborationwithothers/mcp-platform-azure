@@ -490,6 +490,122 @@ the documented token shape is compatible in principle, but that second hop has
 not been measured in this repository. If it is verified later, it fits the
 existing delegated branch without changing the `get_order_status` contract.
 
+### Downstream assignment-required issuance gate (issue 53)
+
+Added 2026-07-21. This hardens the issue-45 trusted-subsystem path above; it
+does not change its decision. Follow-up from the C2 sign-off during governance
+review of PR #50: the sign-off accepted the v1 trusted-subsystem posture on the
+explicit condition recorded here.
+
+**The gap this closes.** As shipped in issue 45, the downstream `Orders.Read`
+app-role assignment (`azuread_app_role_assignment`, main.tf) was only a *grant*.
+The downstream enterprise application did not require assignment, so removing the
+grant would NOT have failed the app-only call closed: Entra would still mint an
+app-only downstream token for the MCP server, and the downstream's request-time
+`allowedApplications` check would still admit it on client-id alone. The grant
+was, in isolation, cosmetic. The whole point of a trusted-subsystem role is that
+losing the role loses the access; that only holds if issuance itself is gated.
+
+**The gate.** Setting "Assignment required?" = Yes (`appRoleAssignmentRequired`)
+on the downstream Orders API turns the bare grant into an enforced issuance-time
+gate: Entra refuses to issue the app-only downstream token to any service
+principal that does not hold an app-role assignment on the downstream. Verified
+against Microsoft Learn (azure-docs-verifier 2026-07-21): the client-credentials
+flow doc states enabling assignment requirements "will block ... applications
+without assigned roles from being able to get a token," and the Graph
+`servicePrincipal.appRoleAssignmentRequired` property gates whether "apps can get
+tokens." With the gate on, removing the MCP server's assignment now fails the
+app-only call closed at token issuance, before any downstream code runs.
+
+**Object placement, and why the portal toggle is the low-churn path.**
+`appRoleAssignmentRequired` is a property of the downstream *service principal*
+(the Enterprise Application object: Enterprise applications > Properties >
+"Assignment required?"), NOT of the app registration (verifier 2026-07-21;
+confirmed on the Graph `servicePrincipal` type, distinct from the `application`
+type). In this repo the downstream service principal is a Terraform *data*
+source (`data.azuread_service_principal.downstream`, main.tf), created out of
+band with the app registration (docs/runbooks/obo-app-registrations.md). Managing
+the toggle in Terraform would mean converting that data source into a managed
+`azuread_service_principal` resource, taking ownership of an out-of-band object
+the composition otherwise only reads. The gate is set once and does not rotate
+per run, so the churn of that ownership change buys nothing here; the portal
+toggle, documented in the runbook, is the chosen low-churn path for v1.
+
+**Complement to `allowed_applications`, not a replacement (two enforcement
+points).** These are two distinct checks at two distinct moments (verifier
+2026-07-21, VERIFIED):
+
+- `appRoleAssignmentRequired` is enforced by Entra at *token issuance time*,
+  before the token exists. It answers "may this principal get a downstream token
+  at all."
+- The downstream Function App's built-in-auth `allowedApplications` / `azp`
+  check is enforced by the *resource*, at *request time*, on a token that has
+  already been issued. It answers "is the caller on this API's allow-list."
+
+They are defense in depth: the issuance gate keeps a role-less principal from
+ever holding a downstream token; the request-time allow-list keeps a
+wrong-but-role-holding principal from being admitted. Neither subsumes the other,
+and this issue keeps both.
+
+**This does NOT touch the server-side role-less negative test.** That test
+targets the *server* app registration, where assignment must stay NOT required so
+a valid server-audience token *without* `Orders.Read` can still be issued and
+reach the MCP layer to receive the deterministic 403 (the MCP-layer authorization
+arm; docs/runbooks/entra-app-registrations.md section 3). This gate is on the
+*downstream* app only. App-only positive and role-less negative arms are
+unaffected by design.
+
+**Delegated (OBO) consequence.** Assignment-required applies to every principal
+requesting a token for the gated resource, including the signed-in user on the
+delegated/OBO path -- not only app-only callers. The general delegated rule is
+documented: a user not assigned to an assignment-required app (directly or via a
+group) is refused with `AADSTS50105` ("The signed in user isn't assigned to a
+role for the ... app"; verifier 2026-07-21, VERIFIED for interactive sign-in).
+Honest limit: Microsoft Learn does NOT explicitly state that this check is
+evaluated at the OBO *token-B exchange* step specifically (the OBO flow article
+documents only Conditional Access / `AADSTS50079` for that step); whether the
+downstream's assignment requirement fires at the OBO hop, versus only at the
+user's original sign-in to the client app, is unconfirmed by Learn (verifier
+2026-07-21, PARTIAL). So the mitigation is applied AND the enforcement point is
+confirmed live rather than asserted: the delegated test user (or a group) is
+assigned to the downstream app, and the manual delegated happy path is re-run
+after the toggle (docs/demos/obo-happy-path.md "Run 2026-07-22"; ties to PR #50
+finding B2). Live-confirmed 2026-07-22 (run 29892332176) by a matched pair on the
+SAME non-admin user, differing only by the downstream app assignment: unassigned
+-> the delegated call FAILS, assigned -> it succeeds. The failure's captured
+server exception pins the enforcement point exactly -- AADSTS50105 ("block users
+unless they are specifically granted assigned access") thrown at MSAL's
+`OnBehalfOfRequest.ExecuteAsync`, i.e. AT the OBO token exchange, not at the user's
+original sign-in. Consent is tenant-wide and identical for both arms, and `Run`
+has no delegated->app-only fallback and does not catch the OBO exchange, so the
+assignment is the isolated cause. This closes the Learn-PARTIAL in practice: Learn
+does not document the OBO step being gated, but it is now measured, for non-admin
+principals (Global Administrators bypass the gate -- see the threat-model note
+below). This does not touch the app-only gate above, which remains the
+load-bearing, doc-VERIFIED claim. Group-based assignment is a valid way to
+satisfy the requirement but needs Entra ID P1/P2 and does not follow nested
+groups (verifier 2026-07-21); direct user assignment is used for the single demo
+user.
+
+**Threat-model note: Global Administrator bypass.** Global Administrators bypass
+`appRoleAssignmentRequired` entirely (verifier 2026-07-21). The trusted-subsystem
+principals here (the MCP server's managed identity, the delegated demo user) are
+not Global Administrators, so the gate binds them; but a future design must not
+assume the gate constrains a GA-held or GA-impersonating identity. This is not
+hypothetical: on 2026-07-22 an unassigned Global Administrator's delegated call
+succeeded through OBO (the documented bypass) while the same-tenant non-admin
+user's did not. Operationally it means any manual negative test of this gate MUST
+use a non-admin sandbox user, or the bypass masks the result
+(docs/demos/obo-happy-path.md "Run 2026-07-22";
+docs/runbooks/obo-app-registrations.md).
+
+**Rejected alternative: leave assignment-required off (grant stays cosmetic).**
+Rejected. It is the pre-issue-53 state, and it is exactly what the C2 sign-off
+declined to accept as the standing v1 posture: a downstream role that can be
+revoked without changing what the app-only path can reach is not an authorization
+control, only a label. Enabling the gate is what lets this repo claim the
+downstream access is role-gated rather than allow-list-gated alone.
+
 ## Alternatives considered
 
 - Implement EMA now against Okta: rejected for v1; adds a non-Azure IdP

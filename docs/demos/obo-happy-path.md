@@ -143,3 +143,100 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <delegated to
   - Clean teardown of the new `azuread` resources was not exercised (this run
     used `skip_teardown=true`); a full `skip_teardown=false` run still validates
     the destroy path.
+
+### Run 2026-07-22 (issue 53: assignment-required gate re-validation)
+
+Re-validation after enabling "Assignment required?" = Yes
+(`appRoleAssignmentRequired`) on the downstream Orders API's enterprise
+application (issue 53), against `ephemeral-env.yml` run
+[29892332176](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/29892332176)
+(apply-call-destroy green; `skip_teardown=true`, so the environment stayed up for
+the manual run and the destroy half was not exercised). Stamp
+`mcp-tracer-apim-9f82a4f5`; gateway MCP endpoint
+`https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp`.
+Branch `claude/issue-53-downstream-assignment-required-gate`.
+
+**Result: the downstream assignment gate is enforced on the delegated OBO path for
+non-admin users.** Confirmed by a matched pair on the SAME non-admin sandbox user,
+differing only by the downstream app assignment, plus a Global Admin control.
+
+**Positive arm (non-admin, assigned).** The user, assigned to the downstream
+enterprise application, drove the delegated branch -> OBO -> downstream and
+returned both frozen contract shapes (known id -> status, unknown id -> typed
+not-found). The assignment-required toggle does NOT break delegated OBO for an
+authorized user (issue-53 acceptance item 3, positive half). Verbatim
+McpTestClient output:
+
+```
+[McpTestClient] Target MCP endpoint: https://mcp-tracer-apim-9f82a4f5.azure-api.net/orders/runtime/webhooks/mcp
+[McpTestClient] Authorization header: present (Bearer)
+[McpTestClient] initialize OK: protocol 2025-06-18, server Azure Functions MCP server.
+[McpTestClient] tools/list returned 1 tool(s):
+  - get_order_status
+[McpTestClient] call(known)   -> {"orderId":"CONTOSO-1003","status":"Processing","updatedUtc":"2026-06-05T17:45:00Z"}
+[McpTestClient] known id OK: { orderId=CONTOSO-1003, status=Processing, updatedUtc=2026-06-05T17:45:00Z }.
+[McpTestClient] call(unknown) -> {"orderId":"CONTOSO-9999","found":false,"message":"No order was found for id 'CONTOSO-9999'. Order data is synthetic (known ids are CONTOSO-1001 to CONTOSO-1005)."}
+[McpTestClient] unknown id OK: typed not-found (found:false) for CONTOSO-9999.
+[McpTestClient] All session and tool assertions passed.
+```
+
+**Negative arm (same non-admin, unassigned).** With the user removed from the
+downstream app, the delegated call FAILED -- `get_order_status` returned an MCP
+error instead of an order:
+
+```
+[McpTestClient] call(known)   -> An error occurred invoking 'get_order_status'.
+Unhandled exception. System.InvalidOperationException: call(CONTOSO-1003) returned an MCP error result; expected the typed success shape.
+```
+
+Server-side exception captured via `az webapp log tail` (2026-07-22; app id, trace
+id, correlation id REDACTED per this file's no-org-ids rule; the user is already
+`{EUII Hidden}` by Entra):
+
+```
+Exception: AADSTS50105: Your administrator has configured the application
+<downstream-app> ('<downstream-app-id>') to block users unless they are
+specifically granted ('assigned') access to the application. The signed in
+user '{EUII Hidden}' is blocked because they are not a direct member of a
+group with access, nor had access directly assigned by an administrator.
+...
+  at Microsoft.Identity.Client.Internal.Requests.OnBehalfOfRequest.ExecuteAsync(CancellationToken cancellationToken)
+  ...
+```
+
+The MSAL stack frame `OnBehalfOfRequest.ExecuteAsync` pins the enforcement point:
+AADSTS50105 is thrown AT the OBO token exchange, not at the user's original
+sign-in -- the exact point Microsoft Learn leaves unstated, now measured.
+
+**Why the assignment is the cause.** The positive and negative arms use the same
+non-admin user and differ only by the downstream app assignment, so the assignment
+is the isolated variable. Consent is tenant-wide
+(`azuread_service_principal_delegated_permission_grant`, all users), identical for
+both. `GetOrderStatus.Run` has NO delegated->app-only fallback and
+`AcquireTokenOnBehalfOf` is not caught (src/McpTools/Tools/GetOrderStatus.cs;
+src/McpTools/Downstream/ManagedIdentityOboTokenAcquirer.cs), so a thrown tool means
+the OBO exchange genuinely failed. Consent, principal-parsing, and code paths are
+ruled out.
+
+**Global Administrator bypass (operational rule).** A separate run showed an
+unassigned Global Administrator's delegated call still SUCCEEDS, because Global
+Administrators bypass `appRoleAssignmentRequired` entirely (VERIFIED,
+azure-docs-verifier 2026-07-22). Any manual negative test of this gate MUST
+therefore use a non-admin user, or the bypass masks the result.
+
+**Conclusion.** `appRoleAssignmentRequired` on the downstream gates the delegated
+OBO token exchange for non-admin principals (Learn-PARTIAL, live-confirmed here;
+enforcement point measured at the OBO exchange). The downstream role assignment is
+a real issuance gate on BOTH the app-only path (VERIFIED by docs) and the
+delegated path, with the standing GA-bypass caveat.
+
+- **Open / honest notes:**
+  - The exact code was captured via `az webapp log tail`; the tracer Function App
+    has no App Insights / Log Analytics wired (checked via Azure Monitor
+    2026-07-22), so the live log stream was the capture path.
+  - The exact `X-MS-CLIENT-PRINCIPAL` claim-type STRING form (short `scp` vs
+    mapped schema URI) is still not directly asserted here; unchanged from the
+    2026-07-19 run's open note.
+  - Clean teardown of the `azuread` resources was again not exercised
+    (`skip_teardown=true`); a full `skip_teardown=false` run still validates the
+    destroy path.
