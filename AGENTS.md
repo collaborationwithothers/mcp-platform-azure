@@ -15,6 +15,13 @@ implements a tool-neutral role) live in each tool's own file, not here:
 - Claude Code: CLAUDE.md and .claude/commands/*.md.
 - Codex CLI: .codex/config.toml and the Codex notes in this file.
 
+## Style precedence
+- This file and CLAUDE.md override the global ~/.claude/CLAUDE.md response style.
+- Global brevity rules do not apply to: ADRs, README content, PR descriptions,
+  commit bodies, COMPATIBILITY.md entries, or governance review output.
+- Global brevity rules do apply to: chat responses, status updates, and
+  ticket pickup confirmations.
+
 ## GOVERNANCE (maintained by Hari only; do not edit)
 
 This whole GOVERNANCE section is Hari-owned. Agents do not edit it. It was moved

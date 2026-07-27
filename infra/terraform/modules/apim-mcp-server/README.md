@@ -125,6 +125,6 @@ from this server's identity values.
 ## Out of scope (this ticket)
 
 No `terraform apply`/`destroy`; no products, subscriptions, rate-limit or
-quota policies, or content safety (S2 thickening); no REST-backed MCP server
+quota policies, or content safety (S2 thickening); no REST-export MCP server
 or tool child resources (passthrough only); no scenario composition wiring
 or backend config (the integration issue).

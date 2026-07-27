@@ -36,9 +36,27 @@ _Avoid_: passthrough module, shim
 
 **Passthrough MCP server**:
 An APIM MCP server that forwards to an external backend which owns the tool
-surface, as opposed to a REST-backed MCP server where APIM owns the tools. Modelled
+surface, as opposed to a REST-export MCP server where APIM owns the tools. Modelled
 in azapi as an api of type mcp with a serviceUrl.
 _Avoid_: proxy server, existing server
+
+**REST-export MCP server**:
+An APIM MCP server created from an existing REST API, where each tool is backed by
+a selected API operation, so APIM owns the tool surface. The counterpart of the
+passthrough MCP server.
+_Avoid_: REST-backed server, generated server, converted API
+
+**Static tool selection**:
+Controlling which tools a REST-export MCP server exposes by choosing the backing
+operations at definition time. Available only where APIM owns the tool surface;
+a passthrough server's tool surface is determined by its backend.
+_Avoid_: tool blocking (that is the runtime act), tool filtering
+
+**Per-tool authorization**:
+A runtime decision, per tool invocation, of whether this caller may invoke this
+tool, enforced at MCP server scope for both server types. Distinct from static
+tool selection, which cannot consider the caller.
+_Avoid_: operation-level authz, tool blocking
 
 **Registry projection**:
 API Center treated as a downstream inventory kept current by auto-sync from the
