@@ -304,11 +304,11 @@ backend. Denials, both authorization and content, are first-class audit events.
   policy-ordering and buffering constraints shared with #18 are designed and
   documented in whichever of #18/#19 lands second, per the standing note on
   both tickets.
-- Screening scope: harm categories plus prompt-attack detection
-  (verification-gated on the policy surface exposing shield-type checks
-  alongside category thresholds). If verification refutes shield support, the
-  outcome is categories plus a named gap stating where injection screening
-  would have to live, not silence.
+- Screening scope: harm categories plus prompt-attack detection. Shield-type
+  (prompt-attack) checking is documented as a `shield-prompt="true | false"`
+  on/off attribute, separate from and alongside the per-category severity
+  thresholds; it is an on/off switch, not itself threshold-configurable
+  (COMPATIBILITY.md, 2026-07-27).
 - Failure mode: fail-closed. A Content Safety backend failure (unreachable,
   throttled, 5xx) rejects the tool call. The two deny classes are separated in
   the audit stream: a verdict denial is a security event; an unavailability
@@ -385,9 +385,9 @@ control does, never how a policy is written.
   export tool sub-resources plus azapi expressibility (#18); gen_ai.tool.name
   availability in an inbound policy condition (#18); mid-session tools/call
   denial wire shape against the current MCP spec revision (#18);
-  llm-content-safety shield-type check support (#19); llm-content-safety
-  backend-failure behaviour and configurability (#19); whether the platform
-  challenge rewrite applies to the on-error 401 (#17, gate checklist).
+  llm-content-safety backend-failure behaviour and configurability (#19);
+  whether the platform challenge rewrite applies to the on-error 401 (#17,
+  gate checklist).
 - Documentation artifacts: ADR-006 amendment (#17); a new ADR on
   gateway-enforced versus server-enforced tool authorization (#18); the
   error-taxonomy extension (#18); the ordering/buffering note (whichever of
