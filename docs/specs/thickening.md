@@ -241,6 +241,13 @@ backend. Denials, both authorization and content, are first-class audit events.
   new ADR this ticket writes: gateway-enforced versus server-enforced tool
   authorization, defense in depth, both layers real (the MCP-layer app-role
   check from issue #45 remains the second layer).
+- Interface constraint, stated once so it does not need re-deriving per
+  provenance: the per-tool authorization fragment consumes a rendered
+  tool-name-to-claim map as an input. Map provenance is out of scope for the
+  fragment. The hand-maintained (passthrough) and derived (REST-export)
+  provenances therefore feed the same fragment unchanged, which is why the
+  REST-export server is a thickening of per-tool authorization rather than a
+  prerequisite for it.
 - Completeness is set equality, not iteration: the gate reads tools/list from
   the deployed server and compares returned names to map keys, failing on any
   difference in either direction (an extra map entry indicates a renamed or
