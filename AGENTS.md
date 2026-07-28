@@ -315,3 +315,28 @@ same pins (see COMPATIBILITY.md, "MCP config parity"); scripts/check-mcp-parity
 enforces this. The @AGENTS.md import pattern and the Codex project-config
 conventions are still churning; re-verify them quarterly (COMPATIBILITY.md,
 "Codex/Claude interop freshness").
+- `drawio` — diagram generation. Produces `.drawio` XML only.
+
+## Diagrams
+
+Location: `docs/diagrams/`. Two files per diagram:
+- `<name>.drawio` — mxGraph XML. Agent-owned, source of truth.
+- `<name>.drawio.svg` — editable SVG export. Human-owned, the file docs
+  embed. Exported with "Include a copy of my diagram" and labels
+  converted to native SVG text, never foreignObject.
+
+Agents generate and update the `.drawio` source using the drawio MCP
+server. Agents MUST NOT produce or edit `.drawio.svg`; that export is a
+human step, performed after layout is corrected by hand. A ticket that
+changes topology is not complete until the human export has landed, and
+the ticket must say so.
+
+Honesty rule extends to diagrams. A diagram is a public claim on the same
+footing as a benchmark number. Depict only what the tagged release
+actually deploys. Components owned by Proposed ADRs must not appear as
+though they exist; target-state elements belong in a separate, captioned
+diagram naming the ADR that owns each deferred piece.
+
+Icons: official Microsoft Azure Architecture Icons. The editable-SVG
+export embeds the artwork, so the icon terms of use apply to this public
+repository.

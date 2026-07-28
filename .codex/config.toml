@@ -50,6 +50,10 @@ url = "https://learn.microsoft.com/api/mcp"
 command = "docker"
 args = ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:1.0.0"]
 
+[mcp_servers.drawio]
+command = "uvx"
+args = ["drawio-mcp"]
+
 # ---------------------------------------------------------------------------
 # Profiles: the Codex analogue of the implementation/review tier split.
 #
