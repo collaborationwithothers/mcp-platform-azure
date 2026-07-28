@@ -306,8 +306,9 @@ and do not report version drift as a blocker. CI remains the merge authority.
 
 ### MCP servers and config parity
 
-Both tools use the same three MCP servers: a read-only namespaced Azure server,
-the Microsoft Learn documentation server, and the Terraform registry server.
+Both tools use the same four MCP servers: a read-only namespaced Azure server,
+the Microsoft Learn documentation server, the Terraform registry server, and
+the drawio diagram server (produces `.drawio` XML only, see Diagrams below).
 Because Claude Code and Codex read different config formats and neither reads the
 other's, the server list is declared twice: .mcp.json (Claude Code) and
 .codex/config.toml (Codex). The two files MUST declare the same servers at the
@@ -315,13 +316,12 @@ same pins (see COMPATIBILITY.md, "MCP config parity"); scripts/check-mcp-parity
 enforces this. The @AGENTS.md import pattern and the Codex project-config
 conventions are still churning; re-verify them quarterly (COMPATIBILITY.md,
 "Codex/Claude interop freshness").
-- `drawio` — diagram generation. Produces `.drawio` XML only.
 
 ## Diagrams
 
 Location: `docs/diagrams/`. Two files per diagram:
-- `<name>.drawio` — mxGraph XML. Agent-owned, source of truth.
-- `<name>.drawio.svg` — editable SVG export. Human-owned, the file docs
+- `<name>.drawio` - mxGraph XML. Agent-owned, source of truth.
+- `<name>.drawio.svg` - editable SVG export. Human-owned, the file docs
   embed. Exported with "Include a copy of my diagram" and labels
   converted to native SVG text, never foreignObject.
 
