@@ -11,7 +11,8 @@
 # COMPATIBILITY.md ("MCP config parity"). Verified against Codex CLI 0.144.6 by
 # generating the original three blocks with `codex mcp add` and confirming
 # `codex mcp list` reported all three enabled; the drawio block (added
-# 2026-07-28) has not been re-verified with `codex mcp list`.
+# 2026-07-28) verified separately on Codex CLI 0.145.0: Codex starts the
+# drawio server.
 
 # ---------------------------------------------------------------------------
 # Policy: conservative baseline for INTERACTIVE use.
