@@ -21,11 +21,9 @@
         "hashicorp/terraform-mcp-server:1.0.0"
       ]
     },
-  "mcpServers": {
     "drawio": {
       "command": "uvx",
       "args": ["drawio-mcp"]
     }
-  }
   }
 }
