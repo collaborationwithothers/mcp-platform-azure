@@ -306,8 +306,9 @@ and do not report version drift as a blocker. CI remains the merge authority.
 
 ### MCP servers and config parity
 
-Both tools use the same three MCP servers: a read-only namespaced Azure server,
-the Microsoft Learn documentation server, and the Terraform registry server.
+Both tools use the same four MCP servers: a read-only namespaced Azure server,
+the Microsoft Learn documentation server, the Terraform registry server, and
+the drawio diagram server (produces `.drawio` XML only, see Diagrams below).
 Because Claude Code and Codex read different config formats and neither reads the
 other's, the server list is declared twice: .mcp.json (Claude Code) and
 .codex/config.toml (Codex). The two files MUST declare the same servers at the
@@ -315,3 +316,27 @@ same pins (see COMPATIBILITY.md, "MCP config parity"); scripts/check-mcp-parity
 enforces this. The @AGENTS.md import pattern and the Codex project-config
 conventions are still churning; re-verify them quarterly (COMPATIBILITY.md,
 "Codex/Claude interop freshness").
+
+## Diagrams
+
+Location: `docs/diagrams/`. Two files per diagram:
+- `<name>.drawio` - mxGraph XML. Agent-owned, source of truth.
+- `<name>.drawio.svg` - editable SVG export. Human-owned, the file docs
+  embed. Exported with "Include a copy of my diagram" and labels
+  converted to native SVG text, never foreignObject.
+
+Agents generate and update the `.drawio` source using the drawio MCP
+server. Agents MUST NOT produce or edit `.drawio.svg`; that export is a
+human step, performed after layout is corrected by hand. A ticket that
+changes topology is not complete until the human export has landed, and
+the ticket must say so.
+
+Honesty rule extends to diagrams. A diagram is a public claim on the same
+footing as a benchmark number. Depict only what the tagged release
+actually deploys. Components owned by Proposed ADRs must not appear as
+though they exist; target-state elements belong in a separate, captioned
+diagram naming the ADR that owns each deferred piece.
+
+Icons: official Microsoft Azure Architecture Icons. The editable-SVG
+export embeds the artwork, so the icon terms of use apply to this public
+repository.

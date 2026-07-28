@@ -6,11 +6,13 @@
 #
 # NO credentials, tokens, or user-specific paths belong in this file, ever.
 #
-# MCP parity: the three [mcp_servers.*] blocks below MUST match .mcp.json server
-# for server, at the same pins. scripts/check-mcp-parity enforces this; see
+# MCP parity: the [mcp_servers.*] blocks below MUST match .mcp.json server for
+# server, at the same pins. scripts/check-mcp-parity enforces this; see
 # COMPATIBILITY.md ("MCP config parity"). Verified against Codex CLI 0.144.6 by
-# generating the blocks with `codex mcp add` and confirming `codex mcp list`
-# reports all three enabled.
+# generating the original three blocks with `codex mcp add` and confirming
+# `codex mcp list` reported all three enabled; the drawio block (added
+# 2026-07-28) verified separately on Codex CLI 0.145.0: Codex starts the
+# drawio server.
 
 # ---------------------------------------------------------------------------
 # Policy: conservative baseline for INTERACTIVE use.
@@ -49,6 +51,11 @@ url = "https://learn.microsoft.com/api/mcp"
 [mcp_servers.terraform]
 command = "docker"
 args = ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:1.0.0"]
+
+# Drawio diagram server, pinned PyPI version (mirror of .mcp.json).
+[mcp_servers.drawio]
+command = "uvx"
+args = ["drawio-mcp==1.0.2"]
 
 # ---------------------------------------------------------------------------
 # Profiles: the Codex analogue of the implementation/review tier split.

@@ -2,7 +2,7 @@
 """Fail if .mcp.json (Claude Code) and .codex/config.toml (Codex) disagree on
 their MCP servers.
 
-The two files declare the same three MCP servers in two different formats
+The two files declare the same set of MCP servers in two different formats
 because neither tool reads the other's config (see AGENTS.md, "MCP servers and
 config parity", and COMPATIBILITY.md, "MCP config parity"). This script is the
 mechanical guard on that parity rule: it reduces each file to a canonical
