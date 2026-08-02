@@ -10,9 +10,12 @@
 # server, at the same pins. scripts/check-mcp-parity enforces this; see
 # COMPATIBILITY.md ("MCP config parity"). Verified against Codex CLI 0.144.6 by
 # generating the original three blocks with `codex mcp add` and confirming
-# `codex mcp list` reported all three enabled; the drawio block (added
-# 2026-07-28) verified separately on Codex CLI 0.145.0: Codex starts the
-# drawio server.
+# `codex mcp list` reported all three enabled. A Codex CLI 0.145.0 start check
+# on 2026-07-28 covered the drawio block's earlier UNPINNED form; that form no
+# longer starts (upstream mcp SDK 2.0.0 removed the `mcp.server.fastmcp` module
+# drawio-mcp imports), so the block was repinned to `mcp[cli]==1.29.0`. The
+# repinned invocation is verified to start under `uvx` directly (COMPATIBILITY.md,
+# "mcp SDK for drawio-mcp"), the same command Codex launches.
 
 # ---------------------------------------------------------------------------
 # Policy: conservative baseline for INTERACTIVE use.
