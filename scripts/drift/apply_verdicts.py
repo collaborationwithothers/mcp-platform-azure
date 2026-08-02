@@ -166,8 +166,11 @@ def build_body(work_item: dict, verdict: dict) -> str:
     last_verified = work_item.get("last_verified", "") or "unknown"
     learn_url = verdict.get("learn_url", "")
     status = verdict.get("status", "")
-    evidence = verdict.get("evidence", "").strip()
-    drafted = verdict.get("drafted_body", "").strip()
+    # `or ""` (not just a get default) because the model's JSON is untrusted: a
+    # present `"evidence": null` returns None from get(), and None.strip() would
+    # crash the apply step mid-run. Coerce null/missing alike to an empty string.
+    evidence = (verdict.get("evidence") or "").strip()
+    drafted = (verdict.get("drafted_body") or "").strip()
 
     lines = [
         "> **Candidate, not a confirmed change.** Flagged by the COMPATIBILITY.md "

@@ -118,6 +118,15 @@ class RenderAndBodyTests(unittest.TestCase):
         self.assertIn("analysis prose", body)
         self.assertIn("https://learn/x", body)
 
+    def test_body_survives_null_prose_fields(self):
+        # The model's JSON is untrusted: a present `null` (not an absent key)
+        # for evidence/drafted_body/learn_url must not crash build_body.
+        item = wl("f")[0]
+        v = verdict("f", "fired", evidence=None, drafted_body=None, learn_url=None)
+        body = av.build_body(item, v)  # must not raise AttributeError
+        self.assertIn("Candidate, not a confirmed change", body)
+        self.assertIn("_(none recorded)_", body)
+
 
 if __name__ == "__main__":
     unittest.main()
