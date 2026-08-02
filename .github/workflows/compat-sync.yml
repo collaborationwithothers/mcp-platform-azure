@@ -1,0 +1,61 @@
+# compat-sync (issue #64): the required status check that keeps a pin bump and
+# its COMPATIBILITY.md "Pinned versions" row in lockstep.
+#
+# A Dependabot PR (label `dependencies`) edits only the manifest and leaves the
+# matching COMPATIBILITY.md row stale -- the manifest-vs-doc drift the table
+# exists to prevent (AGENTS.md GOVERNANCE > Truth and verification rules). This
+# job FAILS any `dependencies`-labelled PR that does not also touch
+# COMPATIBILITY.md, naming the pin row(s) to refresh.
+#
+# This is intended to be a REQUIRED status check. Like terraform-checks and
+# dotnet-build it therefore carries a stable job name (`compat-sync`) and has NO
+# trigger-level path filter: a required check skipped by a path filter reports
+# "pending" forever and blocks every PR. The job always runs and self-decides.
+# Promotion to required in branch protection is Hari's step; this workflow only
+# ships the check (AGENTS.md > Continuous integration).
+#
+# It lives in its own workflow (not ci.yml) so the `labeled`/`unlabeled`
+# triggers -- needed to re-evaluate when the `dependencies` label is added or
+# removed -- do not also re-run the heavier terraform/dotnet jobs.
+
+name: compat-sync
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+# Least privilege: read the repo to diff and read COMPATIBILITY.md. No writes.
+permissions:
+  contents: read
+
+concurrency:
+  group: compat-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compat-sync:
+    name: compat-sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the PR base commit is present for the diff.
+          fetch-depth: 0
+
+      - name: Enforce COMPATIBILITY.md sync for dependency PRs
+        shell: bash
+        env:
+          # Comma-separated PR label names. The guard keys on `dependencies`.
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Files the PR changes: merge-base(base, head)..head.
+          git diff --name-only "${BASE_SHA}...HEAD" > "${RUNNER_TEMP}/changed.txt"
+          echo "Changed files:"
+          sed 's/^/  /' "${RUNNER_TEMP}/changed.txt"
+          echo "PR labels: ${PR_LABELS:-<none>}"
+          python3 scripts/compat_sync/check_compat_sync.py \
+            --compat COMPATIBILITY.md \
+            --labels "${PR_LABELS}" \
+            --changed-files "${RUNNER_TEMP}/changed.txt"

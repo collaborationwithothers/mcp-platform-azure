@@ -1,0 +1,94 @@
+# Dependabot version updates (issue #64): registry-drift hygiene for the pinned
+# packages in COMPATIBILITY.md "Pinned versions".
+#
+# SCOPE. This owns REGISTRY drift only: a newer version of a pinned NuGet
+# package, Terraform provider, or registry module (including public-registry AVM
+# modules) has been published. SEMANTIC DOC drift (the documented behaviour of a
+# fixed pin changing under it, e.g. an ARM api-version string embedded in an
+# azapi body, a feature moving preview->GA) is issue #4's compat-drift agent,
+# NOT Dependabot. The two are complementary and must not overlap. See
+# COMPATIBILITY.md "Registry drift vs documentation drift" and AGENTS.md.
+#
+# GOVERNANCE. Dependabot PRs are NEVER auto-merge-ok. They edit files under
+# /src, /infra, or /.github, so the existing merge-class rules (AGENTS.md
+# GOVERNANCE > Merge classes) already forbid an agent merging them; they go
+# through governance review on Opus 4.8 like any other pin change. A raw bump PR
+# also edits only the manifest and leaves the COMPATIBILITY.md row stale, so the
+# required `compat-sync` status check (.github/workflows/compat-sync.yml) FAILS
+# any `dependencies`-labelled PR that does not also update COMPATIBILITY.md. The
+# reviewer brings the matching pin row along (fresh doc link + Last-verified
+# date) in the same PR before it can go green.
+#
+# HONEST LIMITS (do not overclaim; mirrored in COMPATIBILITY.md). Dependabot
+# does NOT see, and does NOT update:
+#   - ARM api-version strings inside azapi resource bodies (e.g.
+#     2025-09-01-preview). Not a provider/module version. Issue #4 / manual.
+#   - Transitive pins we do not directly PackageReference (e.g.
+#     ModelContextProtocol 0.4.0-preview.3 pulled via the Mcp.Sdk preview
+#     package). Dependabot bumps the direct parent only.
+#   - The Terraform CLI `required_version` / .terraform-version pin. The
+#     terraform ecosystem updates provider and module versions, not the CLI
+#     version (dependabot/dependabot-core#8725).
+# Prerelease NuGet pins (the `-preview` rows): Dependabot proposes a prerelease
+# update only for a dependency already on a prerelease, so the stable pins are
+# not dragged onto preview. Confirm this holds on the first real bump PR before
+# relying on it; behaviour has known edge cases for NuGet semver prereleases.
+# Exact pins (e.g. avm-res-web-site = 0.22.0) exist for a reason recorded in
+# their COMPATIBILITY.md row; grouped weekly PRs are reviewed, not rubber-stamped.
+
+version: 2
+
+updates:
+  # NuGet: every project that carries a direct PackageReference pin. The issue
+  # enumerated McpTools and McpTestClient; DownstreamOrdersApi (issue #10) landed
+  # afterwards and carries the same Worker/Worker.Sdk pins plus Extensions.Http,
+  # so it is included here for the same pin-hygiene reason.
+  - package-ecosystem: nuget
+    directories:
+      - "/src/McpTools"
+      - "/src/McpTestClient"
+      - "/src/DownstreamOrdersApi"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+    groups:
+      nuget:
+        patterns:
+          - "*"
+
+  # Terraform: provider version constraints (required_providers) and
+  # registry-module `version` args, including public-registry AVM modules, in
+  # every module and scenario. `directories` globbing (the `*`) is a
+  # `directories`-only feature. Does not touch required_version (CLI pin).
+  - package-ecosystem: terraform
+    directories:
+      - "/infra/terraform/modules/*"
+      - "/infra/terraform/scenarios/*"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+    groups:
+      terraform:
+        patterns:
+          - "*"
+
+  # GitHub Actions: pinned action versions in .github/workflows. Directory "/"
+  # is the documented value; Dependabot scans .github/workflows from there.
+  # Action pins are not in the COMPATIBILITY.md "Pinned versions" table, so an
+  # actions-only bump satisfies compat-sync via a short History note rather than
+  # a pin-row edit (see the guard's failure message).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+    groups:
+      github-actions:
+        patterns:
+          - "*"

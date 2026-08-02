@@ -31,9 +31,50 @@ Rules:
 | API Center data plane MCP registry | GA | no azurerm resource (provider issue #26200, re-confirmed still open 2026-07-12); azapi with 2024-06-01-preview API version (newest listed for services/workspaces/environments, and the only listed version for apiSources; a stable 2024-03-01 also exists for services/workspaces/environments but not for apiSources). Registry read-access mode is platform-determined (authenticated by default, anonymous requests 401) with NO azapi property in any published version; the module uses Data Reader RBAC for authenticated read, not an access-mode input. Anonymous is a portal-only opt-in, not used here. See the api-center-registry rows below and its README. | 2026-07-12 |
 | MCP Enterprise-Managed Authorization (EMA) extension | Spec stable 2026-06-18 | Okta first spec-level IdP; native Entra ID spec-level support UNVERIFIED; not built in this repo, see ADR-006 | 2026-07-08 |
 
+## Registry drift vs documentation drift
+
+The pins below can go stale in two independent ways, owned by two separate,
+non-overlapping mechanisms.
+
+- Registry drift: a newer version of a pinned package (NuGet package, Terraform
+  provider, or registry module including AVM) has been published. This is
+  Dependabot's job (`.github/dependabot.yml`, issue #64). Because a raw bump PR
+  edits only the manifest and would leave the row beside it stale, the required
+  `compat-sync` status check (`.github/workflows/compat-sync.yml`) fails any
+  `dependencies`-labelled PR that does not also update this file, naming the pin
+  row that needs a fresh doc link and Last-verified date. Dependabot PRs are
+  never `auto-merge-ok`; they touch /src, /infra, or /.github and go through
+  governance review like any other pin change.
+- Documentation drift: the documented contract of a fixed pin has changed under
+  it (a feature moved preview -> GA, an ARM api-version behaviour or payload
+  shape changed) even though the pinned version number has not moved. This is
+  the compat-drift agent's job (`.github/workflows/compat-drift.yml`, issue #4),
+  which re-checks the `Re-check trigger:` notes in this file against Microsoft
+  Learn. It never edits this file; it opens a `drift-candidate` issue.
+
+A pin can be the latest published version (Dependabot content) while its
+documented behaviour has drifted (doc-drift agent's concern), and vice versa.
+
+Honest limits of the registry-drift half (Dependabot does NOT cover these; they
+stay doc-drift-agent or manual territory):
+
+- ARM api-version strings embedded in azapi resource bodies (e.g.
+  `2025-09-01-preview`). Not a provider or module version; Dependabot cannot see
+  them.
+- Transitive pins we do not directly reference (e.g. `ModelContextProtocol
+  0.4.0-preview.3`, pulled via the preview Mcp.Sdk package). Dependabot bumps the
+  direct parent only.
+- The Terraform CLI pin (`.terraform-version` / compositions' `required_version`).
+  The terraform ecosystem updates provider and module versions, not the CLI
+  version.
+- Prerelease NuGet pins (the `-preview` rows): Dependabot proposes a prerelease
+  update only for a dependency already on a prerelease, so the stable pins are
+  not dragged onto preview. Confirm this behaviour on the first real bump PR
+  before relying on it.
+
 ## Pinned versions
 
-Populated as code lands. One row per pin.
+One row per pin.
 
 | What | Pin | Where | Rationale | Last verified | Doc link |
 |---|---|---|---|---|---|
