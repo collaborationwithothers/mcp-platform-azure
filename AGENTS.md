@@ -276,11 +276,20 @@ docs/agents/domain.md.
 .github/workflows/ci.yml runs on every pull_request and on push to main. Two of
 its jobs are required status checks and their names must stay stable:
 terraform-checks (fmt, per-directory init -backend=false + validate, tflint with
-the root .tflint.hcl, checkov) and dotnet-build (build + test). A third job,
-mcp-parity, runs scripts/check-mcp-parity but is NOT a required check (Hari may
-promote it in branch protection). There are no
-trigger-level path filters, so both jobs always run; instead each step guards
-itself with find and prints SKIPPED until real .tf / .csproj files land. Pinned
+the root .tflint.hcl, checkov) and dotnet-build (build + test). A third required
+status check, compat-sync, lives in its own workflow
+.github/workflows/compat-sync.yml (issue #64): it fails any `dependencies`-
+labelled PR that does not also update COMPATIBILITY.md, naming the pin row to
+refresh, and so keeps a Dependabot bump in lockstep with its "Pinned versions"
+row. It carries a stable job name (compat-sync) for the same branch-protection
+reason and runs on its own pull_request triggers (incl. labeled/unlabeled) so a
+label change does not re-run the heavier jobs. It is promoted to required in
+branch protection by Hari; the workflow ships the check, the promotion is Hari's
+step. Non-required jobs: mcp-parity (scripts/check-mcp-parity), drift-agent-tests
+(issue #4 harness), and compat-sync-tests (the compat-sync guard's unit tests);
+Hari may promote any of these in branch protection. There are no trigger-level
+path filters, so the required jobs always run; instead each step guards itself
+with find and prints SKIPPED until real .tf / .csproj files land. Pinned
 toolchain, verified 2026-07-11: Terraform 1.15.8 (checkpoint-api.hashicorp.com),
 .NET 10 LTS (Functions 4.x isolated worker per Microsoft Learn), tflint-ruleset-
 azurerm 0.32.0. When infra adds a required_version, keep it in step with the

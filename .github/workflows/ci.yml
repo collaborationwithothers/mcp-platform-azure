@@ -207,3 +207,26 @@ jobs:
           else
             echo "SKIPPED: no scripts/drift/tests yet."
           fi
+
+  # NOT a required status check. Unit tests for the compat-sync guard harness
+  # (issue #64): scripts/compat_sync/check_compat_sync.py, the required
+  # `compat-sync` check's decision logic. Dependency-free like drift-agent-tests:
+  # stdlib unittest on the runner's Python 3, no pip install. Self-guards with
+  # find and prints SKIPPED until the tests land. The GUARD itself is the
+  # separate required check in .github/workflows/compat-sync.yml; this job only
+  # locks down its logic. Hari may promote it to a required check if desired.
+  compat-sync-tests:
+    name: compat-sync-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run compat-sync unit tests
+        shell: bash
+        run: |
+          if [ -d scripts/compat_sync/tests ] && [ -n "$(find scripts/compat_sync/tests -type f -name 'test_*.py' -print -quit)" ]; then
+            python3 -m unittest discover -s scripts/compat_sync/tests -v
+          else
+            echo "SKIPPED: no scripts/compat_sync/tests yet."
+          fi
