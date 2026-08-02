@@ -77,7 +77,7 @@ side effect (deterministic code-only). The model never has write access or a
 cron / manual dispatch
   -> [1 extract]  scripts/drift/extract_triggers.py     (deterministic)
         reads COMPATIBILITY.md -> work-list.json
-  -> [2 judge]    anthropics/claude-code-base-action     (Opus 4.8; MCP + read only)
+  -> [2 judge]    anthropics/claude-code-action@v1       (Opus 4.8; learn MCP + read/write only)
         reads work-list.json, consults Microsoft Learn -> verdicts.json
   -> [3 apply]    scripts/drift/apply_verdicts.py        (deterministic)
         reads verdicts.json + open drift-candidate issues
@@ -99,24 +99,38 @@ repo-hygiene checker already exercised in CI). No new runtime.
   stable: same input yields byte-identical output (rows in file order).
 - Exit non-zero only on unreadable input or a malformed table row it cannot key.
 
-### 4.2 Component: judge step (`claude-code-base-action`)
+### 4.2 Component: judge step (`claude-code-action@v1`)
 
-- Action: `anthropics/claude-code-base-action`, model `claude-opus-4-8`.
-- Tools granted: the `microsoft-learn` MCP server (public HTTP endpoint
-  `https://learn.microsoft.com/api/mcp`, no auth) and read-only file access.
-  Explicitly NOT granted: any Bash/`gh`, any write, any `GITHUB_TOKEN`, the
-  `azure` MCP server.
+- Action: `anthropics/claude-code-action@v1` (the GA entrypoint; `base-action` is
+  a mirror). Driven by a direct `prompt` input plus a `claude_args` string
+  carrying `--model claude-opus-4-8`, `--mcp-config` (inline JSON declaring the
+  remote HTTP microsoft-learn server), `--allowedTools`, and `--max-turns`.
+- Tools granted via `--allowedTools "Read,Write,mcp__microsoft-learn__*"`: the
+  `microsoft-learn` MCP server (public HTTP endpoint
+  `https://learn.microsoft.com/api/mcp`, no auth; the same server already
+  declared in `.mcp.json`), file read, and file write (needed only to emit
+  `verdicts.json`). Explicitly NOT granted: any Bash/`gh`, the `azure` MCP
+  server. With no Bash or `gh` the model cannot reach `GITHUB_TOKEN` even though
+  the job holds `issues:write`; and because the job is `contents: read`, any
+  stray file write is inert (nothing is committed or pushed).
 - Prompt: committed at `scripts/drift/prompt.md`. Instructs the model to, for
   each work-list item, classify the trigger and (when it is a Microsoft-docs
   condition) consult current Learn docs and judge whether the documented contract
   now differs from the row's recorded claim.
 - Output contract: writes `verdicts.json` (see 5.2). One verdict per work-list
-  item, keyed by `key`. Every item in must appear out (no silent drops).
+  item, keyed by `key`. Every item in must appear out; the apply step enforces
+  this (a missing key fails the run) so a truncated agent run is a red run, not a
+  silent partial pass.
 
 ### 4.3 Component: `scripts/drift/apply_verdicts.py`
 
-- Inputs: `verdicts.json`; the set of currently-open issues labelled
-  `drift-candidate` (fetched via `gh issue list`, or injected for tests).
+- Inputs: `work-list.json` (from extract) and `verdicts.json` (from the judge
+  step); the set of currently-open issues labelled `drift-candidate` (fetched via
+  `gh issue list`, or injected for tests).
+- Completeness gate (before anything else): every `work-list` key must have a
+  verdict and every verdict key must be in the work-list; otherwise fail-loud.
+  This turns a truncated or malformed agent run into a red run rather than a
+  silent partial pass.
 - Behaviour:
   1. Keep only `status == fired` or `status == uncertain`. Drop `clear` and
      `not_doc_checkable` (but count them for the summary).
@@ -135,8 +149,9 @@ repo-hygiene checker already exercised in CI). No new runtime.
      open that now judges `clear` ("you may close #N").
 - `--dry-run`: perform steps 1-3 and print intended `gh` actions without calling
   `gh`. Used by unit tests and for local runs.
-- Fail-loud: malformed/absent `verdicts.json`, a verdict whose `key` is not in
-  the work-list, or any `gh` failure exits non-zero (turns the run red).
+- Fail-loud: malformed/absent `verdicts.json` or `work-list.json`, a
+  completeness-gate violation, or any `gh` failure exits non-zero (turns the run
+  red).
 
 ### 4.4 Component: `.github/workflows/compat-drift.yml`
 
@@ -224,19 +239,23 @@ slugging identically) are a hard error in extract, not a silent merge.
 
 ## 8. Testing and CI
 
-- Unit tests (pytest) for the deterministic scripts:
+- Unit tests (Python stdlib `unittest`, no third-party dependency, matching the
+  dependency-free stance of `scripts/check-mcp-parity`) for the deterministic
+  scripts:
   - `extract_triggers.py`: a fixture COMPATIBILITY.md snippet (including a
     non-trigger row, a trigger row, and a row whose trigger is an ADR reference)
     -> asserted work-list, including key-slug determinism and the collision
     error path.
-  - `apply_verdicts.py` via `--dry-run`: fixture verdicts + a mocked open-issues
-    list -> asserted intended actions for each status, the dedup skip, the 5-cap
-    suppression, and the "now clear -> you may close" summary line.
+  - `apply_verdicts.py` via `--dry-run`: fixture work-list + verdicts + a mocked
+    open-issues list -> asserted intended actions for each status, the
+    completeness gate, the dedup skip, the 5-cap suppression, and the "now clear
+    -> you may close" summary line.
 - A new **non-required** CI job in `.github/workflows/ci.yml` (stable job name,
   not added to branch protection) runs these tests. It guards itself with `find`
   and prints SKIPPED until the scripts land, consistent with the existing
-  self-guarding CI steps. The job installs Python and runs pytest over
-  `scripts/drift/`.
+  self-guarding CI steps. The job runs `python3 -m unittest discover` over
+  `scripts/drift/tests` using the runner's stdlib Python (no `pip install`),
+  mirroring the dependency-free `mcp-parity` job.
 - The model's judgement is not unit-tested (non-deterministic). The harness
   around it is fully tested.
 
@@ -265,8 +284,9 @@ slugging identically) are a hard error in extract, not a silent merge.
       `issues:write`+`contents:read`; protected environment for
       `ANTHROPIC_API_KEY`; concurrency guard; `ubuntu-latest`; model
       `claude-opus-4-8`; microsoft-learn MCP wired, no write tools.
-- [ ] pytest unit tests for `extract` and `apply` (via `--dry-run`) covering the
-      status matrix, dedup, cap, and collision path.
+- [ ] stdlib `unittest` tests for `extract` and `apply` (via `--dry-run`)
+      covering the status matrix, completeness gate, dedup, cap, and collision
+      path.
 - [ ] Non-required CI job added to `ci.yml` with a stable name, self-guarding
       with `find`, not promoted to required (PR requests Hari promote if wanted).
 - [ ] ADR-008 recording decisions and rejected alternatives.
@@ -278,19 +298,24 @@ slugging identically) are a hard error in extract, not a silent merge.
 - [ ] PR references issue #4, carries `agent:claude`, review requested from Hari,
       not merged.
 
-## 11. Implementation-time verification (tooling facts to confirm before coding)
+## 11. Tooling facts (verified 2026-08-02 via claude-code-guide against the
+action's docs; Anthropic/GitHub facts, not Azure claims)
 
-These are Anthropic/GitHub tooling facts (not Azure claims, so azure-docs-verifier
-does not apply); confirm against current docs before writing them into the
-workflow:
-
-- Exact `anthropics/claude-code-base-action` input names and MCP wiring
-  (`prompt`, `model`, `allowed_tools`/`mcp_config` or equivalent,
-  `anthropic_api_key`) and that it accepts a remote HTTP MCP server.
-- The API model identifier for Opus 4.8 accepted by the action (`claude-opus-4-8`
-  per current model IDs).
-- That the microsoft-learn HTTP MCP endpoint is reachable from an
-  `ubuntu-latest` runner without auth.
+- `anthropics/claude-code-action@v1` is the GA entrypoint (the `base-action` repo
+  is a mirror). It takes a direct `prompt` and `anthropic_api_key`, plus a
+  `claude_args` string carrying CLI flags: `--model`, `--mcp-config` (inline JSON
+  or file), `--allowedTools`, `--max-turns`. It exposes outputs `conclusion`
+  (`success`/`failure`) and `execution_file`.
+- A remote HTTP MCP server is declared as
+  `--mcp-config '{"mcpServers":{"microsoft-learn":{"type":"http","url":"https://learn.microsoft.com/api/mcp"}}}'`.
+  MCP tools are allowlisted as `mcp__<server>__*`. This is the same endpoint the
+  repo already declares in `.mcp.json` and against which dozens of
+  COMPATIBILITY.md rows were verified, so its reachability is established, not
+  assumed.
+- Opus 4.8 API id is `claude-opus-4-8` (dashes; `claude-opus-4.8` 404s).
+- First real end-to-end execution requires Hari's `ANTHROPIC_API_KEY` in the
+  protected environment; the workflow is `workflow_dispatch`-able so Hari can
+  validate it once the secret lands. Fail-loud makes a broken run visible.
 
 ## 12. Rejected alternatives (summary; full reasoning in ADR-008)
 

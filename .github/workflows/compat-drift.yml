@@ -1,0 +1,97 @@
+# Semantic doc-drift agent for COMPATIBILITY.md (issue #4).
+#
+# Weekly, read-only. It re-checks the "Re-check trigger:" notes in
+# COMPATIBILITY.md against current Microsoft Learn documentation and opens one
+# `drift-candidate` issue per row whose documented contract appears to have
+# changed - framed as a CANDIDATE for a human to verify, never as an assertion.
+#
+# Design: docs/specs/compat-drift-agent.md and ADR-008. Three steps, thin agent:
+#   1. extract  (deterministic) COMPATIBILITY.md -> work-list.json
+#   2. judge    (Opus 4.8, microsoft-learn MCP, NO write to GitHub) -> verdicts.json
+#   3. apply    (deterministic) dedup + 5-issue cap + open issues + run summary
+# The model has Read/Write + the learn MCP only: no Bash, no gh, so it cannot
+# reach GITHUB_TOKEN. Every side effect and safety rail is in the Python harness.
+#
+# Registry/version drift (a newer pinned package) is NOT this agent's job; that is
+# Dependabot under issue #64. This agent owns semantic doc drift only.
+
+name: COMPATIBILITY drift agent
+
+on:
+  schedule:
+    # Mondays 06:23 UTC. Offset from the top of the hour to dodge scheduler load.
+    - cron: "23 6 * * 1"
+  workflow_dispatch: {}
+
+# Least privilege: read the repo, write issues. No contents:write (nothing is
+# committed or pushed), no pull-requests scope.
+permissions:
+  contents: read
+  issues: write
+
+# Never run two drift passes at once, so dedup can never race two open-issue
+# creations. Queue rather than cancel, so a manual dispatch does not kill a
+# running weekly pass.
+concurrency:
+  group: compat-drift
+  cancel-in-progress: false
+
+jobs:
+  compat-drift:
+    name: compat-drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Protected environment that holds ANTHROPIC_API_KEY. The static LLM key lives
+    # here (not a repo secret) as the deliberate, ADR-008-recorded exception to the
+    # OIDC-only rule; it grants no access to the Azure estate.
+    environment: drift-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract Re-check triggers
+        shell: bash
+        run: python3 scripts/drift/extract_triggers.py COMPATIBILITY.md --out work-list.json
+
+      - name: Judge triggers against Microsoft Learn
+        id: judge
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Read scripts/drift/prompt.md and follow it exactly.
+            Input work-list JSON: ${{ github.workspace }}/work-list.json
+            Write your verdicts JSON array to: ${{ github.workspace }}/verdicts.json
+            Write ONLY the JSON array to that file.
+          # Opus 4.8 (verification tier). Tools restricted to file read/write plus
+          # the public microsoft-learn HTTP MCP server (same endpoint as .mcp.json).
+          # No Bash, no gh: the model cannot open issues or reach the token.
+          claude_args: |
+            --model claude-opus-4-8
+            --max-turns 120
+            --mcp-config '{"mcpServers":{"microsoft-learn":{"type":"http","url":"https://learn.microsoft.com/api/mcp"}}}'
+            --allowedTools "Read,Write,mcp__microsoft-learn__*"
+
+      # If the judge action errors, the step above fails and the job stops (red)
+      # by default, so we do not depend on any action output here. This guard only
+      # asserts the judge produced a JSON array; the apply step's completeness gate
+      # then verifies every work-list key has a verdict. Fail-loud on either.
+      - name: Guard - judge produced a verdicts array
+        shell: bash
+        run: |
+          if [ ! -f verdicts.json ]; then
+            echo "verdicts.json was not produced; failing loud."
+            exit 1
+          fi
+          python3 -c "import json,sys; d=json.load(open('verdicts.json')); sys.exit(0 if isinstance(d, list) and d else 1)" \
+            || { echo "verdicts.json is not a non-empty JSON array; failing loud."; exit 1; }
+
+      - name: Apply verdicts (open drift-candidate issues)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/drift/apply_verdicts.py \
+            --work-list work-list.json \
+            --verdicts verdicts.json \
+            --cap 5

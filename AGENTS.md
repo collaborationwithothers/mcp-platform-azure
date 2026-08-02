@@ -286,6 +286,35 @@ toolchain, verified 2026-07-11: Terraform 1.15.8 (checkpoint-api.hashicorp.com),
 azurerm 0.32.0. When infra adds a required_version, keep it in step with the
 setup-terraform pin here.
 
+### Drift verification agent
+
+`.github/workflows/compat-drift.yml` is a weekly, read-only agent (issue #4) that
+re-checks the `Re-check trigger:` notes in COMPATIBILITY.md against current
+Microsoft Learn docs and opens one `drift-candidate` issue (labelled
+`needs-triage`) per row whose documented contract appears to have changed. It
+flags CANDIDATES for a human to verify; it never asserts drift as fact and never
+edits COMPATIBILITY.md. Design: docs/specs/compat-drift-agent.md and ADR-008.
+
+Split so no side effect is in the model's hands: a deterministic Python harness
+(`scripts/drift/extract_triggers.py`, `apply_verdicts.py`) extracts triggers and
+does dedup, a 5-issue-per-run cap, issue creation, and a fail-loud completeness
+gate; the model (Opus 4.8, via `anthropics/claude-code-action@v1` with only the
+`microsoft-learn` MCP server and file read/write, no `gh`) only judges each
+trigger to a JSON file. The harness is unit-tested by the non-required
+`drift-agent-tests` CI job (stdlib `unittest`, dependency-free like mcp-parity).
+
+Seam with issue #64 (Dependabot): this agent owns *semantic doc drift* (the
+documented behaviour of a fixed pin changing, including ARM api-version strings
+embedded in azapi bodies that Dependabot cannot see); #64 owns *registry drift*
+(a newer version of a pinned package published). They are complementary and must
+not overlap.
+
+Operational note: the judge step needs `ANTHROPIC_API_KEY` in the protected
+`drift-agent` GitHub Environment (Hari-provisioned). This static LLM key is a
+deliberate, ADR-008-recorded exception to the OIDC-only preference; it grants no
+Azure access. The workflow is `workflow_dispatch`-able for first validation once
+the key lands.
+
 ### Skills
 
 Agent skills are a Claude Code feature (the Matt Pocock engineering skills; full
