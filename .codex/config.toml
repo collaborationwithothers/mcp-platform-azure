@@ -53,9 +53,15 @@ command = "docker"
 args = ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:1.0.0"]
 
 # Drawio diagram server, pinned PyPI version (mirror of .mcp.json).
+# The `mcp[cli]==1.29.0` constraint is load-bearing: drawio-mcp 1.0.2 declares an
+# unbounded `mcp[cli]>=1.0.0` dependency, so uvx otherwise resolves the mcp SDK
+# to its latest release (2.0.0), which removed the `mcp.server.fastmcp` module
+# drawio-mcp imports (ModuleNotFoundError at startup). 1.29.0 is the last 1.x
+# release before 2.0.0 and starts cleanly. See COMPATIBILITY.md
+# ("mcp SDK for drawio-mcp").
 [mcp_servers.drawio]
 command = "uvx"
-args = ["drawio-mcp==1.0.2"]
+args = ["--with", "mcp[cli]==1.29.0", "drawio-mcp==1.0.2"]
 
 # ---------------------------------------------------------------------------
 # Profiles: the Codex analogue of the implementation/review tier split.

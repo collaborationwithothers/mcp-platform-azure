@@ -23,7 +23,7 @@
     },
     "drawio": {
       "command": "uvx",
-      "args": ["drawio-mcp==1.0.2"]
+      "args": ["--with", "mcp[cli]==1.29.0", "drawio-mcp==1.0.2"]
     }
   }
 }
