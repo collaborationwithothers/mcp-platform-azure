@@ -74,7 +74,7 @@ stay doc-drift-agent or manual territory):
 
 ## Pinned versions
 
-Populated as code lands. One row per pin.
+One row per pin.
 
 | What | Pin | Where | Rationale | Last verified | Doc link |
 |---|---|---|---|---|---|
