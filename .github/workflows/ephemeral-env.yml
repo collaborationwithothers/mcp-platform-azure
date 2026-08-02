@@ -16,10 +16,13 @@
 # auto-exercise client-driven interactive discovery, which is validated manually
 # in VS Code and recorded in docs/demos/README.md.
 #
-# Auth pattern verified 2026-07-12 via the azure-docs-verifier subagent:
-# - azure/login@v3 with client-id/tenant-id/subscription-id (no
-#   client-secret) is Microsoft's current documented OIDC login action:
-#   https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect
+# Auth pattern re-verified 2026-08-02 via Microsoft Learn and the upstream
+# action metadata. Learn documents Azure Login OIDC with client-id, tenant-id,
+# and subscription-id, but its samples still show azure/login@v2. The v3 action
+# retains those inputs and moves its runtime to Node.js 24:
+# https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect
+# https://github.com/Azure/login/blob/v3/action.yml
+# https://github.com/Azure/login/releases/tag/v3.0.0
 # - The federated credential trusting this workflow must use an
 #   Environment-scoped subject `repo:<org>/<repo>:environment:live-test`,
 #   audience `api://AzureADTokenExchange`:

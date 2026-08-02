@@ -78,6 +78,12 @@ One row per pin.
 
 | What | Pin | Where | Rationale | Last verified | Doc link |
 |---|---|---|---|---|---|
+| actions/checkout | v7 (major tag; v7.0.1 observed) | .github/workflows/ci.yml, .github/workflows/compat-drift.yml, .github/workflows/compat-sync.yml, .github/workflows/ephemeral-env.yml | Repository checkout action. The major-tag pin intentionally receives compatible patch updates; v7 and v7.0.1 resolved to the same commit at verification. | 2026-08-02 | https://github.com/actions/checkout/releases/tag/v7.0.1 |
+| hashicorp/setup-terraform | v4 (major tag; v4.0.1 observed) | .github/workflows/ci.yml, .github/workflows/ephemeral-env.yml | Installs the separately pinned Terraform CLI in CI and the gated live-test workflow. The action major does not change the Terraform 1.15.8 toolchain pin. v4 and v4.0.1 resolved to the same commit at verification. | 2026-08-02 | https://github.com/hashicorp/setup-terraform/releases/tag/v4.0.1 |
+| terraform-linters/setup-tflint | v6 (major tag; v6.3.0 observed) | .github/workflows/ci.yml | Installs TFLint for terraform-checks. The action major and the tflint_version input are separate version surfaces. v6 and v6.3.0 resolved to the same commit at verification. | 2026-08-02 | https://github.com/terraform-linters/setup-tflint/releases/tag/v6.3.0 |
+| actions/setup-dotnet | v6 (major tag; v6.0.0 observed) | .github/workflows/ci.yml, .github/workflows/ephemeral-env.yml | Installs the separately selected .NET 10 SDK for build, test, and the gated call stage. v6 and v6.0.0 resolved to the same commit at verification. | 2026-08-02 | https://github.com/actions/setup-dotnet/releases/tag/v6.0.0 |
+| Azure/login | v3 (major tag; v3.0.0 observed) | .github/workflows/ephemeral-env.yml | Runs the workflow's existing Azure authentication steps. Microsoft Learn still shows v2 in its OIDC samples; upstream v3 retains the documented client-id, tenant-id, and subscription-id inputs and moves the action runtime to Node.js 24. v3 and v3.0.0 resolved to the same commit at verification. | 2026-08-02 | [v3.0.0 release](https://github.com/Azure/login/releases/tag/v3.0.0)<br>[OIDC inputs](https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect) |
+| actions/upload-artifact | v7 (major tag; v7.0.1 observed) | .github/workflows/ephemeral-env.yml | Uploads the gated workflow's discovery evidence. v7 and v7.0.1 resolved to the same commit at verification. | 2026-08-02 | https://github.com/actions/upload-artifact/releases/tag/v7.0.1 |
 | terraform required_version | >= 1.15.8, < 2.0.0 | infra/terraform/modules/mcp-function-host/versions.tf | Matches the spec's Terraform and state pin | 2026-07-11 | https://checkpoint-api.hashicorp.com/v1/check/terraform |
 | azurerm provider | ~> 4.80 | infra/terraform/modules/mcp-function-host/versions.tf | Matches the spec's Terraform and state pin | 2026-07-11 | https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0 |
 | azapi provider | ~> 2.10 | infra/terraform/modules/mcp-function-host/versions.tf | avm-res-web-site 0.22.0 depends on azapi ~> 2.9; pinned to the spec's floor | 2026-07-12 | https://registry.terraform.io/providers/azure/azapi/2.10.0 |
@@ -469,3 +475,11 @@ Full detail and doc citations: infra/terraform/modules/apim-gateway/README.md.
   Administrators bypass the gate, so manual negative tests MUST use a non-admin
   user. The app-only gate (row above) is unaffected and remains the VERIFIED,
   load-bearing claim. The `skip_teardown=true` destroy half remains unexercised.
+- 2026-08-02: Dependabot PR 68 updates six GitHub Actions major tags:
+  actions/checkout v4 -> v7, hashicorp/setup-terraform v3 -> v4,
+  terraform-linters/setup-tflint v4 -> v6, actions/setup-dotnet v4 -> v6,
+  Azure/login v2 -> v3, and actions/upload-artifact v4 -> v7. Each major tag
+  was checked against its official upstream release data and resolved to the
+  latest release in that major on this date. The workflow's Terraform 1.15.8,
+  .NET 10, TFLint input, Azure authentication, and evidence-upload settings are
+  unchanged; this PR updates the action runtimes and their compatibility rows.
