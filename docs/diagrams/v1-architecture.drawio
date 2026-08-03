@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17" type="device">
   <diagram name="v1-architecture" id="v1-arch">
-    <mxGraphModel dx="1400" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1560" pageHeight="960" background="#FFFFFF" math="0" shadow="0">
+    <mxGraphModel dx="1400" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1560" pageHeight="980" background="#FFFFFF" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -12,61 +12,67 @@
           <mxGeometry x="50" y="50" width="560" height="20" as="geometry" />
         </mxCell>
         <mxCell id="azure-zone" value="Azure public-demo deployment (public endpoints)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f2f7fd;strokeColor=#6c8ebf;dashed=1;strokeWidth=2;verticalAlign=top;align=left;spacingTop=10;spacingLeft=12;fontStyle=1;fontColor=#3b5a80;fontSize=13;" vertex="1" parent="1">
-          <mxGeometry x="300" y="100" width="1180" height="740" as="geometry" />
+          <mxGeometry x="300" y="100" width="1180" height="760" as="geometry" />
         </mxCell>
         <mxCell id="mcp-client" value="MCP client&lt;br&gt;delegated or app-only" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/general/Browser.svg;" vertex="1" parent="1">
-          <mxGeometry x="88" y="430" width="64" height="64" as="geometry" />
+          <mxGeometry x="88" y="452" width="64" height="64" as="geometry" />
         </mxCell>
         <mxCell id="entra-icon" value="Microsoft Entra ID&lt;br&gt;app registrations, tokens" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/identity/Azure_Active_Directory.svg;" vertex="1" parent="1">
-          <mxGeometry x="748" y="150" width="64" height="64" as="geometry" />
+          <mxGeometry x="758" y="150" width="64" height="64" as="geometry" />
         </mxCell>
         <mxCell id="apim-icon" value="API Management (Basic v2)&lt;br&gt;MCP gateway; PRM + 401" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/app_services/API_Management_Services.svg;" vertex="1" parent="1">
-          <mxGeometry x="398" y="440" width="64" height="64" as="geometry" />
+          <mxGeometry x="408" y="452" width="64" height="64" as="geometry" />
         </mxCell>
         <mxCell id="mcp-function-icon" value="MCP server Function App&lt;br&gt;Flex Consumption; Easy Auth V2" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/compute/Function_Apps.svg;" vertex="1" parent="1">
-          <mxGeometry x="728" y="440" width="64" height="64" as="geometry" />
+          <mxGeometry x="748" y="452" width="64" height="64" as="geometry" />
         </mxCell>
         <mxCell id="downstream-function-icon" value="Downstream Orders API&lt;br&gt;Function App; own Easy Auth V2" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/compute/Function_Apps.svg;" vertex="1" parent="1">
-          <mxGeometry x="1088" y="440" width="64" height="64" as="geometry" />
+          <mxGeometry x="1108" y="452" width="64" height="64" as="geometry" />
         </mxCell>
         <mxCell id="api-center-icon" value="API Center&lt;br&gt;APIM-linked inventory" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/web/API_Center.svg;" vertex="1" parent="1">
-          <mxGeometry x="398" y="720" width="64" height="64" as="geometry" />
+          <mxGeometry x="408" y="730" width="64" height="64" as="geometry" />
         </mxCell>
         <mxCell id="storage-icon" value="Storage accounts&lt;br&gt;deployment; managed identity" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/storage/Storage_Accounts.svg;" vertex="1" parent="1">
-          <mxGeometry x="728" y="720" width="64" height="64" as="geometry" />
+          <mxGeometry x="748" y="730" width="64" height="64" as="geometry" />
         </mxCell>
-        <mxCell id="a-e1" value="1. Get token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;" edge="1" parent="1" source="mcp-client" target="entra-icon">
+        <mxCell id="a-e2" value="2. MCP call + bearer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#2f5b9c;strokeWidth=2;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp-client" target="apim-icon">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="a-e2" value="2. MCP call + bearer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#2f5b9c;strokeWidth=2;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;" edge="1" parent="1" source="mcp-client" target="apim-icon">
+        <mxCell id="a-e3" value="3. Validated request" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#6c8ebf;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="apim-icon" target="mcp-function-icon">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="a-e3" value="3. Validated request" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#6c8ebf;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;" edge="1" parent="1" source="apim-icon" target="mcp-function-icon">
+        <mxCell id="a-e5" value="5. Call w/ downstream token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#82b366;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp-function-icon" target="downstream-function-icon">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="a-e4" value="4. OBO / app token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;" edge="1" parent="1" source="mcp-function-icon" target="entra-icon">
+        <mxCell id="a-e1" value="1. Get token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp-client" target="entra-icon">
+          <mxGeometry relative="1" x="-0.4" y="0" as="geometry">
+            <Array as="points"><mxPoint x="120" y="182" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="a-e4" value="4. OBO / app token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp-function-icon" target="entra-icon">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="a-e5" value="5. Call w/ downstream token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;strokeColor=#82b366;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;" edge="1" parent="1" source="mcp-function-icon" target="downstream-function-icon">
+        <mxCell id="a-e6" value="inventory sync" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;strokeColor=#6c8ebf;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="apim-icon" target="api-center-icon">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="a-e6" value="inventory sync" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;strokeColor=#6c8ebf;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;" edge="1" parent="1" source="apim-icon" target="api-center-icon">
+        <mxCell id="a-e7" value="deploy" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;strokeColor=#999999;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="storage-icon" target="mcp-function-icon">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="a-e7" value="deploy" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;strokeColor=#999999;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;" edge="1" parent="1" source="storage-icon" target="mcp-function-icon">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="a-e8" value="deploy" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;strokeColor=#999999;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="storage-icon" target="downstream-function-icon">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1140" y="762" /></Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="a-e8" value="deploy" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;strokeColor=#999999;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;" edge="1" parent="1" source="storage-icon" target="downstream-function-icon">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="a-e9" value="direct public route (Easy Auth still enforced)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;strokeColor=#b85450;strokeWidth=2;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;" edge="1" parent="1" source="mcp-client" target="mcp-function-icon">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="a-e9" value="direct public route (Easy Auth still enforced)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;dashed=1;strokeColor=#b85450;strokeWidth=2;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp-client" target="mcp-function-icon">
+          <mxGeometry relative="1" x="-0.2" y="0" as="geometry">
+            <Array as="points"><mxPoint x="120" y="820" /><mxPoint x="700" y="820" /><mxPoint x="700" y="500" /></Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="arch-legend" value="Flows:  solid = request/token   |   dashed grey = deployment/sync   |   dashed red = alternate direct route" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#000000;fontSize=11;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;" vertex="1" parent="1">
-          <mxGeometry x="300" y="872" width="700" height="46" as="geometry" />
+          <mxGeometry x="300" y="892" width="700" height="46" as="geometry" />
         </mxCell>
         <mxCell id="arch-scope-note" value="Public-demo profile: public endpoints only. Private networking is ADR-003 (v1.1), not deployed here." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9cc;strokeColor=#d6b656;fontColor=#000000;fontSize=11;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;" vertex="1" parent="1">
-          <mxGeometry x="1020" y="872" width="460" height="46" as="geometry" />
+          <mxGeometry x="1020" y="892" width="460" height="46" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
