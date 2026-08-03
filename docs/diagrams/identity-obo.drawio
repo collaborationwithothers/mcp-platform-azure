@@ -1,90 +1,90 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="drawio-mcp" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17" type="device">
   <diagram name="obo" id="id-obo">
-    <mxGraphModel dx="1200" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1370" pageHeight="866" background="#FFFFFF" math="0" shadow="0">
+    <mxGraphModel dx="1400" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1555" pageHeight="952" background="#FFFFFF" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
         <mxCell id="title" value="Delegated OBO identity flow" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=20;fontColor=#000000;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="40" y="16" width="520" height="26" />
+          <mxGeometry x="40" y="20" width="560" height="30" as="geometry" />
         </mxCell>
         <mxCell id="subtitle" value="As deployed at tag v1.0.0 | no token passthrough" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=13;fontColor=#666666;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="40" y="48" width="620" height="20" />
+          <mxGeometry x="40" y="52" width="680" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="obo-caller-head" value="&lt;b&gt;Delegated caller&lt;/b&gt;&lt;br&gt;user-context MCP client" style="shape=actor;html=1;whiteSpace=wrap;verticalLabelPosition=bottom;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="112" y="94" width="36" height="46" />
+        <mxCell id="obo-caller-head" value="Delegated caller&lt;br&gt;user-context MCP client" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/general/Browser.svg;" vertex="1" parent="1">
+          <mxGeometry x="125" y="84" width="50" height="50" as="geometry" />
         </mxCell>
         <mxCell id="obo-caller-life" style="shape=line;direction=north;strokeColor=#9aa5b1;strokeWidth=1;dashed=1;html=1;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="129" y="156" width="2" height="590" />
+          <mxGeometry x="149" y="196" width="2" height="626" as="geometry" />
         </mxCell>
-        <mxCell id="obo-entra-head" value="&lt;b&gt;Microsoft Entra ID&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;fontSize=11;verticalAlign=middle;align=center;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="256" y="94" width="168" height="54" />
+        <mxCell id="obo-entra-head" value="Microsoft Entra ID" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/identity/Azure_Active_Directory.svg;" vertex="1" parent="1">
+          <mxGeometry x="360" y="84" width="50" height="50" as="geometry" />
         </mxCell>
         <mxCell id="obo-entra-life" style="shape=line;direction=north;strokeColor=#9aa5b1;strokeWidth=1;dashed=1;html=1;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="339" y="156" width="2" height="590" />
+          <mxGeometry x="384" y="196" width="2" height="626" as="geometry" />
         </mxCell>
-        <mxCell id="obo-apim-head" value="&lt;b&gt;Azure API Management&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;fontSize=11;verticalAlign=middle;align=center;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="466" y="94" width="168" height="54" />
+        <mxCell id="obo-apim-head" value="API Management" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/app_services/API_Management_Services.svg;" vertex="1" parent="1">
+          <mxGeometry x="595" y="84" width="50" height="50" as="geometry" />
         </mxCell>
         <mxCell id="obo-apim-life" style="shape=line;direction=north;strokeColor=#9aa5b1;strokeWidth=1;dashed=1;html=1;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="549" y="156" width="2" height="590" />
+          <mxGeometry x="619" y="196" width="2" height="626" as="geometry" />
         </mxCell>
-        <mxCell id="obo-function-head" value="&lt;b&gt;MCP Function App&lt;/b&gt;&lt;br&gt;built-in auth V2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;fontSize=11;verticalAlign=middle;align=center;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="676" y="94" width="168" height="54" />
+        <mxCell id="obo-function-head" value="MCP Function App&lt;br&gt;Easy Auth V2" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/compute/Function_Apps.svg;" vertex="1" parent="1">
+          <mxGeometry x="830" y="84" width="50" height="50" as="geometry" />
         </mxCell>
         <mxCell id="obo-function-life" style="shape=line;direction=north;strokeColor=#9aa5b1;strokeWidth=1;dashed=1;html=1;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="759" y="156" width="2" height="590" />
+          <mxGeometry x="854" y="196" width="2" height="626" as="geometry" />
         </mxCell>
-        <mxCell id="obo-tool-head" value="&lt;b&gt;get_order_status&lt;/b&gt;&lt;br&gt;delegated branch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;fontSize=11;verticalAlign=middle;align=center;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="886" y="94" width="168" height="54" />
+        <mxCell id="obo-tool-head" value="get_order_status&lt;br&gt;delegated branch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#000000;fontSize=11;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1006" y="78" width="168" height="62" as="geometry" />
         </mxCell>
         <mxCell id="obo-tool-life" style="shape=line;direction=north;strokeColor=#9aa5b1;strokeWidth=1;dashed=1;html=1;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="969" y="156" width="2" height="590" />
+          <mxGeometry x="1089" y="196" width="2" height="626" as="geometry" />
         </mxCell>
-        <mxCell id="obo-downstream-head" value="&lt;b&gt;Downstream Orders API&lt;/b&gt;&lt;br&gt;built-in auth V2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;fontSize=11;verticalAlign=middle;align=center;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="1096" y="94" width="168" height="54" />
+        <mxCell id="obo-downstream-head" value="Downstream Orders API&lt;br&gt;Easy Auth V2" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;html=1;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/compute/Function_Apps.svg;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="84" width="50" height="50" as="geometry" />
         </mxCell>
         <mxCell id="obo-downstream-life" style="shape=line;direction=north;strokeColor=#9aa5b1;strokeWidth=1;dashed=1;html=1;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="1179" y="156" width="2" height="590" />
+          <mxGeometry x="1324" y="196" width="2" height="626" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m1" value="1. Delegated OAuth grant -&amp;gt; token A&lt;br&gt;aud = MCP server; scp = user_impersonation" style="html=1;endArrow=classic;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.0746;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.0746;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-caller-life" target="obo-entra-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m1" value="1. Delegated grant -&amp;gt; token A (aud = MCP server; scp = user_impersonation)" style="html=1;endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.0863;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.0863;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-caller-life" target="obo-entra-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m2" value="2. tools/call + bearer token A" style="html=1;endArrow=classic;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.1525;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.1525;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-caller-life" target="obo-apim-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m2" value="2. tools/call + bearer token A" style="html=1;endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.1629;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.1629;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-caller-life" target="obo-apim-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m3" value="3. Validate issuer, audience, allowed client; forward token A" style="html=1;endArrow=classic;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.2305;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.2305;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-apim-life" target="obo-function-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m3" value="3. Validate issuer / audience / client; forward token A" style="html=1;endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.2396;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.2396;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-apim-life" target="obo-function-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m4" value="4. Revalidate audience; inject trusted X-MS-CLIENT-PRINCIPAL" style="html=1;endArrow=classic;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.3085;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.3085;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-function-life" target="obo-tool-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m4" value="4. Revalidate audience; inject X-MS-CLIENT-PRINCIPAL" style="html=1;endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.3163;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.3163;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-function-life" target="obo-tool-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m5" value="5. scp present -&amp;gt; delegated branch&lt;br&gt;read Authorization bearer as OBO assertion" style="html=1;endArrow=classic;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.3864;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.3864;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-function-life" target="obo-tool-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m5" value="5. scp present -&amp;gt; delegated branch (read bearer as OBO assertion)" style="html=1;endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.393;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.393;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-function-life" target="obo-tool-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m6" value="6. OBO exchange: token A user assertion&lt;br&gt;+ managed-identity-backed client assertion" style="html=1;endArrow=classic;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.4644;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.4644;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-tool-life" target="obo-entra-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m6" value="6. OBO exchange: token A user assertion + MI assertion" style="html=1;endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.4696;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.4696;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-tool-life" target="obo-entra-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m7" value="7. New token B: aud = downstream; user context retained" style="html=1;endArrow=classic;rounded=0;dashed=1;strokeColor=#7f7f7f;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.5424;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.5424;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-entra-life" target="obo-tool-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m7" value="7. Token B (aud = downstream; user context retained)" style="html=1;endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#8a8f98;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.5463;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.5463;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-entra-life" target="obo-tool-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m8" value="8. GET order + bearer token B&lt;br&gt;optional X-Mcp-Caller-* audit headers" style="html=1;endArrow=classic;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.6203;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.6203;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-tool-life" target="obo-downstream-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m8" value="8. GET order + bearer token B; optional audit headers" style="html=1;endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.623;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.623;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-tool-life" target="obo-downstream-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m9" value="9. Validate downstream audience + server app allowlist&lt;br&gt;return synthetic result" style="html=1;endArrow=classic;rounded=0;dashed=1;strokeColor=#7f7f7f;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.6983;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.6983;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-downstream-life" target="obo-tool-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m9" value="9. Validate audience + allowlist; synthetic result" style="html=1;endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#8a8f98;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.6997;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.6997;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-downstream-life" target="obo-tool-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m10" value="10. MCP tool result" style="html=1;endArrow=classic;rounded=0;dashed=1;strokeColor=#7f7f7f;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.7763;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.7763;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-tool-life" target="obo-function-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m10" value="10. MCP tool result" style="html=1;endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#8a8f98;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.7764;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.7764;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-tool-life" target="obo-function-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m11" value="11. Streamed result" style="html=1;endArrow=classic;rounded=0;dashed=1;strokeColor=#7f7f7f;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.8542;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.8542;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-function-life" target="obo-apim-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m11" value="11. Streamed result" style="html=1;endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#8a8f98;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.853;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.853;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-function-life" target="obo-apim-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-m12" value="12. Result" style="html=1;endArrow=classic;rounded=0;dashed=1;strokeColor=#7f7f7f;strokeWidth=1.5;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.9322;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.9322;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-apim-life" target="obo-caller-life">
-          <mxGeometry as="geometry" relative="1" />
+        <mxCell id="obo-m12" value="12. Result" style="html=1;endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#8a8f98;strokeWidth=1.6;fontSize=11;fontColor=#1a1a1a;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0.9297;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.9297;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="obo-apim-life" target="obo-caller-life">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="obo-note0" value="&lt;b&gt;No token passthrough&lt;/b&gt;&lt;br&gt;Inbound token A is the OBO assertion only. The downstream never sees token A." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;fontSize=11;align=center;" vertex="1" parent="1">
-          <mxGeometry as="geometry" x="780" y="760" width="380" height="56" />
+        <mxCell id="obo-note0" value="No token passthrough: token A is the OBO assertion only; downstream never sees it." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;fontSize=11;align=center;verticalAlign=middle;spacingLeft=6;spacingRight=6;" vertex="1" parent="1">
+          <mxGeometry x="900" y="836" width="380" height="58" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
