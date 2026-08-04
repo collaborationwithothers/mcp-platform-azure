@@ -16,10 +16,13 @@
 # auto-exercise client-driven interactive discovery, which is validated manually
 # in VS Code and recorded in docs/demos/README.md.
 #
-# Auth pattern verified 2026-07-12 via the azure-docs-verifier subagent:
-# - azure/login@v2 with client-id/tenant-id/subscription-id (no
-#   client-secret) is Microsoft's current documented OIDC login action:
-#   https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect
+# Auth pattern re-verified 2026-08-02 via Microsoft Learn and the upstream
+# action metadata. Learn documents Azure Login OIDC with client-id, tenant-id,
+# and subscription-id, but its samples still show azure/login@v2. The v3 action
+# retains those inputs and moves its runtime to Node.js 24:
+# https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect
+# https://github.com/Azure/login/blob/v3/action.yml
+# https://github.com/Azure/login/releases/tag/v3.0.0
 # - The federated credential trusting this workflow must use an
 #   Environment-scoped subject `repo:<org>/<repo>:environment:live-test`,
 #   audience `api://AzureADTokenExchange`:
@@ -96,10 +99,10 @@ jobs:
       S2_STATE_KEY: s2-apim-mcp-gateway.tfstate
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -122,14 +125,14 @@ jobs:
           echo "object_id=${object_id}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
 
       # McpTestClient targets net10.0; the call stage runs it via `dotnet run`.
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -342,7 +345,7 @@ jobs:
       # step is NOT if: always() -- it belongs to the call path, which only runs
       # on a successful apply.
       - name: Azure re-login for call stage (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -492,7 +495,7 @@ jobs:
       # the capture step and script then).
       - name: Upload PRM discovery evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: prm-discovery-evidence
           path: gate-evidence/
@@ -532,7 +535,7 @@ jobs:
       # earlier step failed.
       - name: Azure re-login for cleanup (OIDC)
         if: always() && !inputs.skip_teardown
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}

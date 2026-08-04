@@ -78,9 +78,9 @@ updates:
 
   # GitHub Actions: pinned action versions in .github/workflows. Directory "/"
   # is the documented value; Dependabot scans .github/workflows from there.
-  # Action pins are not in the COMPATIBILITY.md "Pinned versions" table, so an
-  # actions-only bump satisfies compat-sync via a short History note rather than
-  # a pin-row edit (see the guard's failure message).
+  # Action pins are tracked in the COMPATIBILITY.md "Pinned versions" table.
+  # Each bump must update its row with a fresh official link and verification
+  # date in the same PR; compat-sync enforces that file-level lockstep.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
