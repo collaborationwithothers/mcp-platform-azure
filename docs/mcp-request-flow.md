@@ -12,7 +12,11 @@ Streamable HTTP is one such gap (see below).
 
 ## Session lifecycle
 
-<!-- diagram embed added after the human SVG export: mcp-session-lifecycle.drawio.svg -->
+![MCP session lifecycle: an MCP client performs initialize (protocol and
+capability negotiation), notifications/initialized, tools/list, and tools/call
+against the Functions-hosted MCP server through API Management passthrough over
+Streamable HTTP; server-side session-state maintenance is marked as an
+undocumented boundary.](diagrams/mcp-session-lifecycle.drawio.svg)
 
 The repo's own client (`src/McpTestClient/Program.cs`, using the official
 ModelContextProtocol C# SDK) drives a real, multi-request session:
