@@ -61,38 +61,50 @@ only its own scope in `scopes_supported`.
 
 Add the following on the same **Expose an API** and **App roles** blades used in
 steps 3 and 4; these are additional entries, not replacements for
-`user_impersonation` / `Orders.Read`:
+`user_impersonation` / `Orders.Read`.
+
+> **A scope value and an app role value must be distinct strings within the same
+> app registration, compared case-insensitively.** Entra stores both in the
+> application's `value` fields (`oauth2PermissionScopes` for scopes, `appRoles`
+> for roles) and rejects a new entry whose value duplicates any existing scope or
+> role value ignoring case, with "contains a duplicate value". So a scope
+> `orders.invoke` and a role `Orders.Invoke` collide. Use the Microsoft Graph
+> convention that keeps them distinct: a delegated scope `X.Y` and an application
+> role `X.Y.All`. `required_scope` and `required_role` are separate tfvars and
+> are never required to match, so this costs nothing.
 
 1. **Expose an API > Add a scope** for server 1. The scope's short name is the
    value the token carries in `scp`; choose a clear per-server name, e.g.
-   `mcp.orders.invoke`. Record that string as `required_scope`. The
-   full `api://<server-app-id>/mcp.orders.invoke` form is what server 1's PRM
+   `Orders.Invoke`. Record that string as `required_scope`. The
+   full `api://<server-app-id>/Orders.Invoke` form is what server 1's PRM
    advertises: put it in `prm_scopes`, and only there (server 1's PRM
    `scopes_supported` lists server 1's scope only). ([Configure an application
    to expose a web
    API](https://learn.microsoft.com/entra/identity-platform/quickstart-configure-app-expose-web-apis))
 2. **App roles > Create app role** for server 1: display name and value e.g.
-   `Mcp.Orders.Invoke`, **Allowed member types = Applications** (this is the
+   `Orders.Invoke.All` (the `.All` suffix keeps it distinct from the scope value
+   above; see the note), **Allowed member types = Applications** (this is the
    app-only, client-credentials caller path; the value appears in the token's
    `roles` claim). Record the value as `required_role`. ([Add app roles
    to your
    app](https://learn.microsoft.com/entra/identity-platform/howto-add-app-roles-in-apps))
-3. **Expose an API > Add a scope** for server 2, e.g. `mcp.catalog.invoke`.
+3. **Expose an API > Add a scope** for server 2, e.g. `Catalog.Invoke`.
    Record the string as `server_2_required_scope`; put
-   `api://<server-app-id>/mcp.catalog.invoke` in `server_2_prm_scopes` and
+   `api://<server-app-id>/Catalog.Invoke` in `server_2_prm_scopes` and
    nowhere else (server 2's PRM advertises server 2's scope only).
-4. **App roles > Create app role** for server 2, e.g. `Mcp.Catalog.Invoke`,
+4. **App roles > Create app role** for server 2, e.g. `Catalog.Invoke.All`,
    **Allowed member types = Applications**. Record the value as
    `server_2_required_role`.
 
 The example strings above are illustrative; the actual scope and role strings
-are the operator's choice. Whatever you pick, the string registered here must
-match exactly the value recorded in the corresponding tfvars key
-(`required_scope`, `required_role`, `server_2_required_scope`,
-`server_2_required_role`) and the full `api://.../<scope>` value in the matching
-`prm_scopes` / `server_2_prm_scopes` list, because the policy compares the token claim against
-the tfvars value literally. These variables have no defaults and are supplied
-out of band exactly like `allowed_client_application_ids`.
+are the operator's choice, subject to the distinct-value rule in the note above.
+Whatever you pick, the string registered here must match exactly the value
+recorded in the corresponding tfvars key (`required_scope`, `required_role`,
+`server_2_required_scope`, `server_2_required_role`) and the full
+`api://.../<scope>` value in the matching `prm_scopes` / `server_2_prm_scopes`
+list, because the policy compares the token claim against the tfvars value
+literally. These variables have no defaults and are supplied out of band exactly
+like `allowed_client_application_ids`.
 
 ## 2. Test client app (the gate's non-interactive caller)
 
@@ -158,7 +170,7 @@ is rejected at the other server.
    never in this repo or in Terraform state.
 3. **API permissions > Add a permission > My APIs**, select the server resource
    app from section 1, choose **Application permissions**, select server 1's app
-   role (`required_role`, e.g. `Mcp.Orders.Invoke`), **Add
+   role (`required_role`, e.g. `Orders.Invoke.All`), **Add
    permissions**, then **Grant admin consent for `<tenant>`**. Do NOT add
    server 2's app role or scope. (Consenting server 1's delegated scope
    (`required_scope`) instead of, or in addition to, the app role also
