@@ -42,37 +42,63 @@ locals {
 
   prm_url = "${module.apim.apim_gateway_url}/.well-known/oauth-protected-resource"
 
-  # RFC 9728 protected resource metadata document. Rendered here (not
-  # inline in the policy template) so the policy template only ever embeds
-  # one already-valid JSON value, never hand-built JSON/XML escaping.
-  prm_document_json = jsonencode({
-    resource                 = var.prm.resource
+  # Root RFC 9728 protected resource metadata document, describing the primary
+  # server, served at the gateway root well-known location. Rendered here (not
+  # inline in the policy template) so the policy template only ever embeds one
+  # already-valid JSON value, never hand-built JSON/XML escaping. Retained even
+  # in the multi-server form as the RFC 9728 s3.3 fail-closed guard: a client
+  # that falls back to root while targeting another server sees a resource
+  # mismatch and MUST discard this document.
+  prm_root_document_json = jsonencode({
+    resource                 = var.prm.root.resource
     authorization_servers    = [var.prm.authorization_server]
     bearer_methods_supported = ["header"]
-    scopes_supported         = var.prm.scopes
+    scopes_supported         = var.prm.root.scopes
   })
 
-  # Path component of the PRM resource (the MCP server URL), e.g.
-  # /orders/runtime/webhooks/mcp. RFC 9728 s3.1 serves the metadata for a
-  # path-bearing resource at the well-known path with the resource path INSERTED
-  # after it, and a spec-conformant client (VS Code) fetches THAT url and rejects
-  # the bare-root document as inconsistent with a path-bearing resource (proven
-  # by VS Code's MCP discovery trace, 2026-07-18; see prm_well_known_operation_pathed
-  # and COMPATIBILITY.md). Empty when the resource has no path (then only the root
-  # operation is created).
-  prm_resource_path = try(regex("^https?://[^/]+(.*)$", var.prm.resource)[0], "")
+  # Per-server path-inserted documents (issue 17). RFC 9728 s3.1 serves the
+  # metadata for a path-bearing resource at the well-known path with the resource
+  # path INSERTED after it, and a spec-conformant client (VS Code) fetches THAT
+  # url and rejects the bare-root document as inconsistent with a path-bearing
+  # resource (VS Code MCP discovery trace, 2026-07-18; see COMPATIBILITY.md).
+  # Each server behind this gateway whose resource carries a path therefore gets
+  # its OWN document at its own path-inserted location, served by an
+  # operation-scoped policy (a single API-level return-response cannot vary the
+  # body per operation). This is the count-guarded single-server pathed operation
+  # generalised to a per-server collection: RFC 9728's own multi-resource
+  # construction, not a workaround (ADR-006, issue 17).
+  #
+  # Keyed by a stable slug (list index) because the resource path contains
+  # slashes and cannot name an ARM resource; each.value.path drives the
+  # urlTemplate. Servers whose resource has no path are skipped (the urlTemplate
+  # would collide with the root operation).
+  prm_servers = {
+    for idx, s in var.prm.servers :
+    "server-${idx}" => {
+      resource = s.resource
+      path     = try(regex("^https?://[^/]+(.*)$", s.resource)[0], "")
+      document_json = jsonencode({
+        resource                 = s.resource
+        authorization_servers    = [var.prm.authorization_server]
+        bearer_methods_supported = ["header"]
+        scopes_supported         = s.scopes
+      })
+    }
+    if try(regex("^https?://[^/]+(.*)$", s.resource)[0], "") != ""
+  }
 }
 
-# Gateway-root protected resource metadata (PRM), RFC 9728. This singleton
-# lives in apim-gateway, not apim-mcp-server, because the root well-known
-# location is a property of the gateway: there is exactly one root path per
-# API Management service, so exactly one root PRM document. Only the
-# document's contents describe a server, and those arrive as var.prm from
-# the composition. A second MCP server added to the same gateway reuses this
-# one document; it does not create its own (the instantiate-twice test:
-# apim-mcp-server can be instantiated more than once against one gateway,
-# this cannot, so the singleton belongs in the layer whose cardinality it
-# shares). See README.md.
+# Protected resource metadata (PRM) API, RFC 9728. This single well-known API
+# lives in apim-gateway, not apim-mcp-server, because the well-known locations
+# are a property of the gateway host: there is exactly one root path per API
+# Management service. It carries one root operation (the primary server's
+# document, the s3.3 fail-closed guard) plus one path-inserted operation per
+# server behind the gateway (issue 17), each operation serving its own document
+# via an operation-scoped policy. The documents' contents arrive as var.prm from
+# the composition. apim-mcp-server is what gets instantiated once per server; the
+# per-server documents this API advertises are how the single gateway host
+# carries them all (the instantiate-twice contract: server instances multiply,
+# this well-known API does not). See README.md.
 #
 # Microsoft Learn documents no native APIM feature for serving a document at
 # the gateway root well-known path (verified 2026-07-12; see README.md "Root
@@ -114,38 +140,15 @@ resource "azapi_resource" "prm_well_known_operation" {
   }
 }
 
-# RFC 9728 s3.1 path-inserted well-known operation. A spec-conformant MCP client
-# validating a PATH-BEARING resource (var.prm.resource = the MCP server URL)
-# fetches the document at /.well-known/oauth-protected-resource<resource-path>,
-# not the bare root, and rejects a root document whose resource carries a path
-# (VS Code MCP trace, 2026-07-18). This serves the SAME document there. The
-# API-level policy below return-responses the document for every operation of this
-# API, so this operation needs no policy of its own. count guards the degenerate
-# case where the resource has no path (the urlTemplate would collide with the root
-# operation). Multi-server on one gateway would need one such operation per server
-# path -- an ADR-006 growth path, out of v1 scope.
-resource "azapi_resource" "prm_well_known_operation_pathed" {
-  count = local.prm_resource_path != "" ? 1 : 0
-
-  type      = "Microsoft.ApiManagement/service/apis/operations@2025-09-01-preview"
-  name      = "get-oauth-protected-resource-metadata-pathed"
-  parent_id = azapi_resource.prm_well_known.id
-
-  schema_validation_enabled = local.azapi_schema_validation_enabled
-
-  body = {
-    properties = {
-      displayName = "Get OAuth protected resource metadata (RFC 9728 path-inserted)"
-      method      = "GET"
-      urlTemplate = "/.well-known/oauth-protected-resource${local.prm_resource_path}"
-    }
-  }
-}
-
-resource "azapi_resource" "prm_well_known_policy" {
-  type      = "Microsoft.ApiManagement/service/apis/policies@2025-09-01-preview"
+# Root operation policy: serves the root document. Operation-scoped (not
+# API-scoped) because each path-inserted operation below serves a DIFFERENT
+# document, and an API-level return-response would terminate via <base /> before
+# an operation policy could override the body. The root operation carries the
+# primary server's document (the s3.3 fail-closed guard for misrouted clients).
+resource "azapi_resource" "prm_well_known_root_policy" {
+  type      = "Microsoft.ApiManagement/service/apis/operations/policies@2025-09-01-preview"
   name      = "policy"
-  parent_id = azapi_resource.prm_well_known.id
+  parent_id = azapi_resource.prm_well_known_operation.id
 
   schema_validation_enabled = local.azapi_schema_validation_enabled
 
@@ -153,13 +156,53 @@ resource "azapi_resource" "prm_well_known_policy" {
     properties = {
       format = "rawxml"
       value = templatefile("${path.module}/policies/prm-well-known.xml", {
-        prm_document_json = local.prm_document_json
+        prm_document_json = local.prm_root_document_json
       })
     }
   }
+}
 
-  depends_on = [
-    azapi_resource.prm_well_known_operation,
-    azapi_resource.prm_well_known_operation_pathed,
-  ]
+# RFC 9728 s3.1 path-inserted well-known operations, one per server (issue 17). A
+# spec-conformant MCP client validating a PATH-BEARING resource (a server's URL)
+# fetches the document at /.well-known/oauth-protected-resource<resource-path>,
+# not the bare root, and rejects a root document whose resource carries a path
+# (VS Code MCP trace, 2026-07-18). Each server serves ITS OWN document here via
+# the operation-scoped policy below.
+resource "azapi_resource" "prm_well_known_operation_pathed" {
+  for_each = local.prm_servers
+
+  type      = "Microsoft.ApiManagement/service/apis/operations@2025-09-01-preview"
+  name      = "get-oauth-protected-resource-metadata-${each.key}"
+  parent_id = azapi_resource.prm_well_known.id
+
+  schema_validation_enabled = local.azapi_schema_validation_enabled
+
+  body = {
+    properties = {
+      displayName = "Get OAuth protected resource metadata (RFC 9728 path-inserted, ${each.key})"
+      method      = "GET"
+      urlTemplate = "/.well-known/oauth-protected-resource${each.value.path}"
+    }
+  }
+}
+
+# Per-server operation policy: serves that server's document at its path-inserted
+# location. One per path-inserted operation.
+resource "azapi_resource" "prm_well_known_pathed_policy" {
+  for_each = local.prm_servers
+
+  type      = "Microsoft.ApiManagement/service/apis/operations/policies@2025-09-01-preview"
+  name      = "policy"
+  parent_id = azapi_resource.prm_well_known_operation_pathed[each.key].id
+
+  schema_validation_enabled = local.azapi_schema_validation_enabled
+
+  body = {
+    properties = {
+      format = "rawxml"
+      value = templatefile("${path.module}/policies/prm-well-known.xml", {
+        prm_document_json = each.value.document_json
+      })
+    }
+  }
 }

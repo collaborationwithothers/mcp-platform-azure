@@ -1,10 +1,13 @@
 <!--
-  Policy for the gateway-root well-known API (azapi_resource.prm_well_known
-  in main.tf), operation GET /.well-known/oauth-protected-resource.
-  Rendered by templatefile(); the body below is a single pre-rendered JSON
-  value (jsonencode in main.tf), substituted before this ever reaches APIM.
-  No authentication is required to fetch this document: MCP clients must be
-  able to read it before they have a token (RFC 9728).
+  Operation-scoped policy for a well-known PRM operation (the root operation, or
+  a per-server RFC 9728 s3.1 path-inserted operation; azapi_resource in main.tf).
+  Operation-scoped, not API-scoped, because each path-inserted operation serves a
+  DIFFERENT document and an API-level return-response would terminate via <base />
+  before an operation policy could override the body. Rendered by templatefile();
+  ${prm_document_json} is a single pre-rendered JSON value (jsonencode in main.tf)
+  for THIS operation's document, substituted before this ever reaches APIM. No
+  authentication is required to fetch a PRM document: MCP clients must be able to
+  read it before they have a token (RFC 9728).
 -->
 <policies>
   <inbound>

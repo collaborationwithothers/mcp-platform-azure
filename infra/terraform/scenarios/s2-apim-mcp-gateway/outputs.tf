@@ -10,17 +10,32 @@ output "gateway_url" {
 
 output "mcp_server_url" {
   value       = module.apim_mcp_server.mcp_server_url
-  description = "Client-facing MCP endpoint. The McpTestClient session/tool assertions and the demo script target this URL (docs/specs/v1-tracer-bullet.md, Testing Decisions)."
+  description = "Client-facing MCP endpoint for server 1. The McpTestClient session/tool assertions and the demo script target this URL (docs/specs/v1-tracer-bullet.md, Testing Decisions)."
+}
+
+output "mcp_server_2_url" {
+  value       = module.apim_mcp_server_2.mcp_server_url
+  description = "Client-facing MCP endpoint for server 2 (issue 17). The cross-server negative asserts the server-1-only client is rejected here (403 insufficient_scope)."
 }
 
 output "mcp_server_api_id" {
   value       = module.apim_mcp_server.mcp_server_api_id
-  description = "ARM resource ID of the passthrough MCP server API. Consumed by the live gate's call-stage diagnostics to dump the effective backendId/serviceUrl/mcpProperties."
+  description = "ARM resource ID of the passthrough MCP server API (server 1). Consumed by the live gate's call-stage diagnostics to dump the effective backendId/serviceUrl/mcpProperties."
+}
+
+output "mcp_server_2_api_id" {
+  value       = module.apim_mcp_server_2.mcp_server_api_id
+  description = "ARM resource ID of the second passthrough MCP server API (issue 17)."
 }
 
 output "prm_url" {
   value       = module.apim_gateway.prm_url
-  description = "Gateway-root protected resource metadata URL, per RFC 9728. The no-token discovery assertion checks the WWW-Authenticate challenge points here."
+  description = "Gateway-root protected resource metadata URL, per RFC 9728. Serves server 1's document; retained as the s3.3 fail-closed guard. The no-token discovery assertion checks the client-visible challenge."
+}
+
+output "prm_server_urls" {
+  value       = module.apim_gateway.prm_server_urls
+  description = "Map of RFC 9728 s3.1 path-inserted PRM URLs keyed by each server's resource URL (issue 17). The gate asserts each returns 200 with resource equal to that server's URL exactly."
 }
 
 output "registry_endpoint_url" {

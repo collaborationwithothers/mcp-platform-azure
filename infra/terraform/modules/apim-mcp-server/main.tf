@@ -29,9 +29,11 @@ locals {
 
   apim_gateway_url = data.azapi_resource.apim.output.properties.gatewayUrl
 
-  # The root protected resource metadata (PRM) document itself is owned by
-  # the apim-gateway module (one root well-known path per gateway); this
-  # module only needs the URL so its 401 challenge can point callers at it.
+  # The PRM documents themselves are owned by the apim-gateway module (the
+  # well-known locations are a property of the gateway host); this module only
+  # needs the URL so its 401 challenge can point callers at the right document.
+  # prm_url is the gateway-root well-known location (exposed as this module's
+  # prm_url output for interface stability).
   prm_url = "${local.apim_gateway_url}/.well-known/oauth-protected-resource"
   # The client MCP endpoint is <gateway>/<path><uriTemplate>: the passthrough
   # appends the endpoint's uriTemplate to both the client route and the backend
@@ -40,6 +42,18 @@ locals {
   # a single endpoint, so its uriTemplate is the suffix.
   mcp_endpoint_uri_template = var.transport.endpoints[0].uri_template
   mcp_server_url            = "${local.apim_gateway_url}/${var.server_path}${local.mcp_endpoint_uri_template}"
+  # This server's OWN RFC 9728 s3.1 path-inserted PRM location (issue 17): the
+  # gateway-root well-known URL with this server's resource path inserted after
+  # it. The 401 challenge points HERE, not at the shared root, so a client
+  # connecting to this server is led to this server's metadata and never another
+  # server's. Matches the apim-gateway module's per-server path-inserted
+  # operation urlTemplate (/.well-known/oauth-protected-resource<resource-path>).
+  # NOTE the deployed type=mcp runtime rewrites resource_metadata to a
+  # path-scoped form on the wire downstream of this policy (issue-9 trace), so
+  # the gate asserts the CLIENT-VISIBLE challenge; emitting the correct
+  # per-server value here is belt-and-braces for paths the rewrite may not cover
+  # (the on-error 401 is unestablished; live-gate checklist).
+  prm_server_url = "${local.prm_url}/${var.server_path}${local.mcp_endpoint_uri_template}"
 }
 
 # Backend wiring for type=mcp is a separate Backend entity referenced by
@@ -113,9 +127,10 @@ resource "azapi_resource" "mcp_server" {
 }
 
 # Server-scope policy: owns the 401 + WWW-Authenticate challenge for
-# unauthenticated calls, validates the Entra token (issuer via tenant-id,
-# audience, allowed client application ids) for authenticated calls, and
-# forwards to the backend. Does not read context.Response.Body (breaks MCP
+# unauthenticated calls (pointing at THIS server's path-inserted PRM), validates
+# the Entra token (issuer via tenant-id, audience, allowed client application
+# ids), enforces this server's per-server entitlement (scp OR roles, issue 17),
+# and forwards to the backend. Does not read context.Response.Body (breaks MCP
 # streaming; Microsoft Learn, expose-existing-mcp-server, verified
 # 2026-07-12). See policies/mcp-server.xml and README.md.
 resource "azapi_resource" "mcp_server_policy" {
@@ -132,7 +147,9 @@ resource "azapi_resource" "mcp_server_policy" {
         tenant_id                      = var.entra_validation.tenant_id
         audience                       = var.entra_validation.audience
         allowed_client_application_ids = var.entra_validation.allowed_client_application_ids
-        prm_url                        = local.prm_url
+        prm_challenge_url              = local.prm_server_url
+        required_scope                 = var.required_scope
+        required_role                  = var.required_role
       })
     }
   }

@@ -77,12 +77,59 @@ variable "entra_validation" {
     audience                       = string
     allowed_client_application_ids = list(string)
   })
-  description = "Inbound Entra ID token validation applied at server scope, passed straight through to apim-mcp-server. Also used to derive the gateway-root PRM document (resource = audience, authorization_server from tenant_id): see local.prm in main.tf. References the out-of-band server resource app and test client app registrations (docs/runbooks/entra-app-registrations.md); no app id is committed here or given a default."
+  description = "Inbound Entra ID token validation applied at server scope, passed straight through to both apim-mcp-server instances (shared registration and audience). Only tenant_id feeds the PRM documents, and only as the authorization_server (issuer) URL; each PRM document's resource is the MCP SERVER URL, NOT the token audience (see local.prm in main.tf and RFC 9728 s3.3). References the out-of-band server resource app and test client app registrations (docs/runbooks/entra-app-registrations.md); no app id is committed here or given a default."
 }
 
 variable "prm_scopes" {
   type        = list(string)
-  description = "OAuth scopes surfaced in the gateway-root protected resource metadata document's scopes_supported, e.g. [\"api://<server-app-id>/user_impersonation\"]."
+  description = "OAuth scopes surfaced in server 1's PRM document scopes_supported (the api://<server-app-id>/<scope> form), e.g. [\"api://<server-app-id>/user_impersonation\"]. Server 1's PRM advertises only its own scope; server 2 uses server_2_prm_scopes."
+}
+
+# Per-server entitlement (issue 17). server 1 keeps the composition's existing
+# unprefixed variable names (server_name, server_path, prm_scopes) because the
+# live gate reads those keys from the s2 tfvars and drives API Center
+# convergence by server_name; server 2 is the additive server_2_* set. required_*
+# are the claim VALUES as they appear in the token (scp short name; roles value),
+# supplied out-of-band via tfvars, never committed. See
+# docs/runbooks/entra-app-registrations.md.
+variable "required_scope" {
+  type        = string
+  description = "Server 1's per-server delegated scope value (as it appears in the token scp claim). apim-mcp-server checks scp contains this OR roles contains required_role."
+}
+
+variable "required_role" {
+  type        = string
+  description = "Server 1's per-server app role value (as it appears in the token roles claim). Checked with OR semantics against required_scope."
+}
+
+variable "server_2_name" {
+  type        = string
+  description = "Resource name of the second MCP server API (apim-mcp-server's server_name input for server 2). Unique within the API Management service."
+}
+
+variable "server_2_path" {
+  type        = string
+  description = "Path segment the second MCP server is exposed under (apim-mcp-server's server_path input for server 2). Must differ from server_path."
+
+  validation {
+    condition     = var.server_2_path != var.server_path
+    error_message = "server_2_path must differ from server_path: two servers on one gateway need distinct paths so each gets its own RFC 9728 s3.1 path-inserted PRM location (issue 17)."
+  }
+}
+
+variable "server_2_prm_scopes" {
+  type        = list(string)
+  description = "OAuth scopes surfaced in server 2's PRM document scopes_supported (the api://<server-app-id>/<scope> form). Server 2's PRM advertises only its own scope."
+}
+
+variable "server_2_required_scope" {
+  type        = string
+  description = "Server 2's per-server delegated scope value (as it appears in the token scp claim). apim-mcp-server checks scp contains this OR roles contains server_2_required_role."
+}
+
+variable "server_2_required_role" {
+  type        = string
+  description = "Server 2's per-server app role value (as it appears in the token roles claim). Checked with OR semantics against server_2_required_scope."
 }
 
 variable "registry_name" {

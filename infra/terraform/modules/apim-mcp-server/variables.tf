@@ -70,6 +70,37 @@ variable "entra_validation" {
   }
 }
 
+# Per-server entitlement (issue 17). The instantiate-twice contract carries
+# per-server entitlement, not one shared entitlement: each apim-mcp-server
+# instance requires its OWN delegated scope and app role under the shared Entra
+# registration, so a caller granted one server's scope is rejected at the other.
+# Both are the claim VALUES as they appear in the validated token, not the full
+# App ID URI: required_scope is a value of the space-delimited scp claim (the
+# short scope name, e.g. "mcp.orders.invoke"); required_role is a value of the
+# roles claim (the app role value, e.g. "Mcp.Orders.Invoke"). The server-scope
+# policy accepts a caller only if scp contains required_scope OR roles contains
+# required_role (OR, because a delegated token carries scp and no roles, an
+# app-only token the reverse). Advertised only in this server's PRM document.
+variable "required_scope" {
+  type        = string
+  description = "Delegated scope value (as it appears in the token scp claim) this server requires. Checked with OR semantics against required_role after token validation. Supplied by the composition from the shared server app's per-server scope; the value is out-of-band (tfvars), never committed. See docs/runbooks/entra-app-registrations.md."
+
+  validation {
+    condition     = length(trimspace(var.required_scope)) > 0
+    error_message = "required_scope must be a non-empty scope value (the per-server delegated scope name that appears in the token scp claim)."
+  }
+}
+
+variable "required_role" {
+  type        = string
+  description = "App role value (as it appears in the token roles claim) this server requires. Checked with OR semantics against required_scope after token validation. Supplied by the composition from the shared server app's per-server app role; the value is out-of-band (tfvars), never committed. See docs/runbooks/entra-app-registrations.md."
+
+  validation {
+    condition     = length(trimspace(var.required_role)) > 0
+    error_message = "required_role must be a non-empty app role value (the per-server app role that appears in the token roles claim)."
+  }
+}
+
 variable "product_ids" {
   type        = list(string)
   description = "Existing product resource names to bind this MCP server to. Empty in the tracer (spec: subscriptionRequired is false, no products); binding a product is additive config appended to this list, not a restructure of the server resource."

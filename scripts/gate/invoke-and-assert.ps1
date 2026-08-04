@@ -23,7 +23,13 @@
        Orders.Read, call get_order_status, and require the deterministic
        tool-level 403 result.
     4. Run the raw-HTTP discovery assertions (401 / WWW-Authenticate / PRM /
-       wrong-audience / shadow mcp_extension key).
+       wrong-audience / shadow mcp_extension key). Multi-server (issue 17): also
+       server 2's per-server discovery (its own challenge and path-inserted PRM),
+       the on-error 401 rewrite recording per server, and the cross-server
+       grant-isolation negative (server-1-only token accepted at server 1,
+       rejected at server 2 with the gateway's 403 insufficient_scope). The
+       server-2 checks run only when McpServer2Url / the server-1-only client are
+       supplied.
     5. Registry convergence ASSERTION (deterministic, Option Y). The workflow's
        "Force registry convergence" step runs `az apic import-from-apim` (a
        synchronous, idempotent LRO) before this call stage, so the MCP server is
@@ -81,6 +87,15 @@ param(
     [Parameter(Mandatory)][string]$ClientSecret,
     [Parameter(Mandatory)][string]$ClientWithoutRoleId,
     [Parameter(Mandatory)][string]$ClientWithoutRoleSecret,
+    # Multi-server composition (issue 17). Server 2's client-facing MCP endpoint
+    # (s2 output mcp_server_2_url) drives server 2's per-server discovery
+    # assertions. The server-1-only client (granted only server 1's entitlement)
+    # drives the cross-server grant-isolation negative. All optional: if empty,
+    # the corresponding server-2 checks are skipped, so this orchestrator keeps
+    # working before the second server's tfvars/secrets are provisioned.
+    [string]$McpServer2Url = '',
+    [string]$Server1OnlyClientId = '',
+    [string]$Server1OnlyClientSecret = '',
     # Resource name of the synced MCP server (s2 var server_name); the token the
     # authenticated registry poll asserts is present in the servers list.
     [Parameter(Mandatory)][string]$ServerName,
@@ -165,6 +180,19 @@ $missingRoleToken = Get-ClientCredentialToken `
 Write-Host "  server-audience token acquired for the caller without Orders.Read."
 $wrongToken = Get-ClientCredentialToken -Scope 'https://graph.microsoft.com/.default'
 Write-Host "  wrong-audience token acquired (Microsoft Graph)."
+# Issue 17: token for the least-privilege client granted only server 1's
+# entitlement, for the cross-server isolation negative. Optional.
+$server1OnlyToken = ''
+if (-not [string]::IsNullOrEmpty($Server1OnlyClientId) -and -not [string]::IsNullOrEmpty($Server1OnlyClientSecret)) {
+    $server1OnlyToken = Get-ClientCredentialToken `
+        -Scope "$Audience/.default" `
+        -TokenClientId $Server1OnlyClientId `
+        -TokenClientSecret $Server1OnlyClientSecret
+    Write-Host "  server-audience token acquired for the server-1-only client (cross-server negative)."
+}
+else {
+    Write-Host "  server-1-only client not configured; the cross-server isolation negative will be skipped."
+}
 Write-Host ''
 
 # ---------------------------------------------------------------------------
@@ -207,7 +235,10 @@ Write-Host "[4] Raw-HTTP discovery assertions"
     -ExpectedResource $McpServerUrl `
     -WrongAudienceToken $wrongToken `
     -BackendMcpUrl $BackendMcpUrl `
-    -McpExtensionKey $McpExtensionKey
+    -McpExtensionKey $McpExtensionKey `
+    -McpServer2Url $McpServer2Url `
+    -ExpectedResource2 $McpServer2Url `
+    -Server1OnlyToken $server1OnlyToken
 if ($LASTEXITCODE -ne 0) {
     throw "Discovery assertions failed (exit $LASTEXITCODE)."
 }

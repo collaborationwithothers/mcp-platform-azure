@@ -3,13 +3,17 @@
 Scenario composition for **S2**: the multi-tenant APIM MCP gateway, public-demo
 profile. Instantiates
 [`apim-gateway`](../../modules/apim-gateway) +
-[`apim-mcp-server`](../../modules/apim-mcp-server) +
+[`apim-mcp-server`](../../modules/apim-mcp-server) (TWICE, issue 17: two
+passthrough MCP servers at distinct paths behind the one gateway, sharing the
+backend and Entra registration but each with its own scope and role) +
 [`api-center-registry`](../../modules/api-center-registry), fronting the
 backend `s1-entra-mcp-server` deploys, whose `mcp_backend_base_url` this
 composition reads via `terraform_remote_state` (read-only, OIDC-authenticated,
 same backend storage account as this composition's own state, a different
 key). This is the S2 half of the
-[v1 tracer bullet](../../../../docs/specs/v1-tracer-bullet.md).
+[v1 tracer bullet](../../../../docs/specs/v1-tracer-bullet.md), thickened by
+[docs/specs/thickening.md](../../../../docs/specs/thickening.md) (multi-server
+composition, #17).
 
 ## State
 
@@ -87,9 +91,13 @@ the `live-test` environment and never run from PR CI.
 | `s1_remote_state` | object | `{ storage_account_name, container_name, key }` identifying `s1-entra-mcp-server`'s state, for `terraform_remote_state`. |
 | `apim_name` | string | BASE name of the API Management service; a per-deployment suffix is appended (see Global names and soft-delete). |
 | `publisher_name` / `publisher_email` | string | API Management publisher identity. |
-| `server_name` / `server_path` | string | MCP server resource name and path segment. |
-| `entra_validation` | object | `{ tenant_id, audience, allowed_client_application_ids }`. References the out-of-band server resource app and test client app registrations; see `docs/runbooks/entra-app-registrations.md`. Also derives the gateway-root PRM document's `resource` and `authorization_server`. |
-| `prm_scopes` | list(string) | Scopes surfaced in the PRM document's `scopes_supported`. |
+| `server_name` / `server_path` | string | Server 1's MCP server resource name and path segment. |
+| `required_scope` / `required_role` | string | Server 1's per-server entitlement (issue 17): the scope value (in `scp`) and app role value (in `roles`) the server requires, checked with OR semantics. Out-of-band tfvars values, never committed. |
+| `server_2_name` / `server_2_path` | string | Server 2's MCP server resource name and path segment (issue 17). `server_2_path` must differ from `server_path`. |
+| `server_2_prm_scopes` | list(string) | Scopes surfaced in server 2's PRM `scopes_supported`. |
+| `server_2_required_scope` / `server_2_required_role` | string | Server 2's per-server entitlement (issue 17), OR-checked. |
+| `entra_validation` | object | `{ tenant_id, audience, allowed_client_application_ids }`, shared by both servers. References the out-of-band server resource app and test client app registrations; see `docs/runbooks/entra-app-registrations.md`. Only `tenant_id` feeds the PRM documents, as the `authorization_server` issuer; each document's `resource` is the MCP SERVER URL, not the audience. |
+| `prm_scopes` | list(string) | Scopes surfaced in server 1's PRM `scopes_supported`. |
 | `registry_name` | string | BASE name of the API Center service; a per-deployment suffix is appended (see Global names and soft-delete). |
 | `registry_environment` | object | Passed straight through to `api-center-registry`. |
 | `registry_deployment` | object | Passed straight through to `api-center-registry`. Default matches the module's own default. |
@@ -101,8 +109,10 @@ the `live-test` environment and never run from PR CI.
 |---|---|
 | `apim_id` | ARM resource ID of the API Management service. |
 | `gateway_url` | Gateway URL of the API Management service. |
-| `mcp_server_url` | Client-facing MCP endpoint. The McpTestClient assertions and the demo script target this URL. |
-| `prm_url` | Gateway-root protected resource metadata URL. The no-token discovery assertion checks the challenge points here. |
+| `mcp_server_url` | Client-facing MCP endpoint for server 1. The McpTestClient assertions and the demo script target this URL. |
+| `mcp_server_2_url` | Client-facing MCP endpoint for server 2 (issue 17). The cross-server negative asserts the server-1-only client is rejected here. |
+| `prm_url` | Gateway-root PRM URL (server 1's document, the s3.3 fail-closed guard). The no-token discovery assertion checks the client-visible challenge. |
+| `prm_server_urls` | Map of RFC 9728 s3.1 path-inserted PRM URLs keyed by server resource URL (issue 17). The gate asserts each returns 200 with `resource` equal to that server's URL exactly. |
 | `registry_endpoint_url` | Data-plane MCP registry endpoint. The bounded registry poll asserts the tracer server appears here. |
 | `api_center_name` | Resource name of the API Center service. |
 

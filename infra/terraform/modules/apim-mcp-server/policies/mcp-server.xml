@@ -13,17 +13,19 @@
     <base />
     <!--
       MCP clients without a token get the OAuth 2.1 / RFC 9728 challenge
-      directly: 401 plus a WWW-Authenticate header pointing at the root
-      protected resource metadata document. This is separate from the
-      validate-azure-ad-token 401 below (an invalid/wrong-audience token),
-      whose WWW-Authenticate header is added in on-error instead.
+      directly: 401 plus a WWW-Authenticate header pointing at THIS server's
+      path-inserted protected resource metadata document (issue 17), so a client
+      connecting here is led to this server's metadata, never another server's.
+      This is separate from the validate-azure-ad-token 401 below (an
+      invalid/wrong-audience token), whose WWW-Authenticate header is added in
+      on-error instead.
     -->
     <choose>
       <when condition="@(!context.Request.Headers.ContainsKey("Authorization"))">
         <return-response>
           <set-status code="401" reason="Unauthorized" />
           <set-header name="WWW-Authenticate" exists-action="override">
-            <value>@("Bearer resource_metadata=\"${prm_url}\"")</value>
+            <value>@("Bearer resource_metadata=\"${prm_challenge_url}\"")</value>
           </set-header>
           <set-header name="Content-Type" exists-action="override">
             <value>application/json</value>
@@ -39,7 +41,7 @@
       application ids. Microsoft Learn, secure-mcp-servers and
       validate-azure-ad-token-policy, verified 2026-07-12.
     -->
-    <validate-azure-ad-token tenant-id="${tenant_id}" header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. Access token is missing or invalid.">
+    <validate-azure-ad-token tenant-id="${tenant_id}" header-name="Authorization" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. Access token is missing or invalid.">
       <client-application-ids>
 %{ for client_id in allowed_client_application_ids ~}
         <application-id>${client_id}</application-id>
@@ -49,6 +51,43 @@
         <audience>${audience}</audience>
       </audiences>
     </validate-azure-ad-token>
+    <!--
+      Per-server entitlement check (issue 17). After token validation, require
+      THIS server's delegated scope in the scp claim OR its app role in the
+      roles claim. OR, not AND: a delegated (user) token carries scp and no
+      roles, an app-only token the reverse; validate-azure-ad-token's
+      required-claims ANDs its entries and cannot express this (Microsoft Learn,
+      validate-azure-ad-token-policy, verified 2026-08-04), so the check is a
+      separate expression over the parsed token (output-token-variable-name
+      above). scp is space-delimited; whether APIM stores it as one Jwt.Claims
+      element or pre-splits it is undocumented, and GetValueOrDefault returns
+      multi-valued claims comma-joined, so split on BOTH space and comma --
+      correct under either behaviour (confirm at the live gate; COMPATIBILITY.md,
+      2026-08-04). Fails closed with RFC 6750 insufficient_scope (403): the token
+      is valid but under-entitled, so this is an authorization denial, not a
+      discovery failure, and carries no resource_metadata.
+    -->
+    <choose>
+      <when condition="@{
+        var jwt = context.Variables.GetValueOrDefault&lt;Jwt&gt;("jwt");
+        if (jwt == null) { return true; }
+        var sep = new char[] { ' ', ',' };
+        var scp = jwt.Claims.GetValueOrDefault("scp", "").Split(sep, System.StringSplitOptions.RemoveEmptyEntries);
+        var roles = jwt.Claims.GetValueOrDefault("roles", "").Split(sep, System.StringSplitOptions.RemoveEmptyEntries);
+        return !(scp.Contains("${required_scope}") || roles.Contains("${required_role}"));
+      }">
+        <return-response>
+          <set-status code="403" reason="Forbidden" />
+          <set-header name="WWW-Authenticate" exists-action="override">
+            <value>@("Bearer error=\"insufficient_scope\", error_description=\"The token is valid but lacks this server's required scope or app role.\"")</value>
+          </set-header>
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{"error":"insufficient_scope","error_description":"The token is valid but lacks this server's required scope or app role."}</set-body>
+        </return-response>
+      </when>
+    </choose>
     <!--
       Forward the caller's validated Entra token to the backend. MCP passthrough
       does not guarantee the Authorization header reaches the backend (Microsoft
@@ -72,12 +111,16 @@
       validate-azure-ad-token's own 401 does not set WWW-Authenticate;
       add it here so every 401 from this server (missing token above, or
       an invalid/wrong-audience token here) carries the same RFC 9728
-      challenge.
+      challenge pointing at THIS server's path-inserted metadata (issue 17).
+      Whether the deployed type=mcp runtime also rewrites resource_metadata on
+      this on-error path is unestablished and is on the live-gate checklist
+      (COMPATIBILITY.md, 2026-08-04); emitting the correct per-server value here
+      is the fail-safe if it does not.
     -->
     <choose>
       <when condition="@(context.Response != null && context.Response.StatusCode == 401)">
         <set-header name="WWW-Authenticate" exists-action="override">
-          <value>@("Bearer resource_metadata=\"${prm_url}\"")</value>
+          <value>@("Bearer resource_metadata=\"${prm_challenge_url}\"")</value>
         </set-header>
       </when>
     </choose>

@@ -15,7 +15,14 @@ output "gateway_url" {
 
 output "prm_url" {
   value       = local.prm_url
-  description = "Gateway-root protected resource metadata URL (https://<gateway>/.well-known/oauth-protected-resource), per RFC 9728. Served at the gateway root, not under any API subpath. apim-mcp-server's 401 challenge points callers here."
+  description = "Gateway-root protected resource metadata URL (https://<gateway>/.well-known/oauth-protected-resource), per RFC 9728. Serves the primary server's document; retained as the s3.3 fail-closed guard for clients that fall back to root while targeting another server."
+}
+
+output "prm_server_urls" {
+  value = {
+    for k, v in local.prm_servers : v.resource => "${local.prm_url}${v.path}"
+  }
+  description = "Map of RFC 9728 s3.1 path-inserted PRM URLs keyed by each server's resource URL (issue 17). Each value is the well-known location a spec client resolves for that server: the gateway-root well-known URL with the server's resource path inserted after it. The gate asserts each returns 200 with resource equal to that server's URL exactly."
 }
 
 output "identity_principal_id" {
