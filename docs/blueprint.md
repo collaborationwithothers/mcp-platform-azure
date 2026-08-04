@@ -39,6 +39,17 @@ Non-goals
 
 ## 4. Architecture
 
+![v1.0.0 architecture (public-demo profile): MCP client to API Management to the
+Functions-hosted MCP server to a downstream Orders API, with Entra ID token
+issuance, API Center inventory sync, and storage-backed deployment.](diagrams/v1-architecture.drawio.svg)
+
+The diagram above is the topology actually shipped at tag v1.0.0 (public-demo
+profile). The planes and the private-network variant described below are the
+target design; the private network plane, the Foundry/Container Apps variant,
+and the Python SDK variant are NOT in v1.0.0 (see the capability gating in
+section 11 and the Corrections in section 18). The identity sequences and the
+per-request outcome model have their own diagrams in ADR-006.
+
 ### System context
 
 Actors: MCP clients (VS Code / GitHub Copilot, MCP Inspector, later a Foundry agent), tenant admins (Entra), platform operators (Terraform + GitHub Actions).

@@ -15,6 +15,18 @@ azapi where the AzureRM provider lags. Full design reasoning:
 v1.0.0 (2026-07-22, ephemeral live gate green):
 [docs/specs/v1-tracer-bullet.md](docs/specs/v1-tracer-bullet.md).
 
+## Architecture at a glance
+
+![v1 architecture: an MCP client calls Azure API Management (the MCP gateway),
+which forwards validated requests to the Functions-hosted MCP server; the server
+calls a downstream Orders API. Microsoft Entra ID issues tokens, API Center holds
+the inventory, and storage backs deployment. Public-demo profile.](docs/diagrams/v1-architecture.drawio.svg)
+
+The topology deployed at tag v1.0.0, public-demo profile (public endpoints only).
+Private networking is deferred to v1.1 (ADR-003) and is deliberately absent here
+because it is not deployed. The identity flows (app-only and delegated OBO) and
+the per-request outcome model (HTTP status vs MCP tool errors) are in ADR-006.
+
 ## Scenario index (v1)
 
 | Scenario | What it is | Composition |
