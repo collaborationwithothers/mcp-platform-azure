@@ -75,6 +75,13 @@ updates:
       terraform:
         patterns:
           - "*"
+    # AzureRM 5 is incompatible with both latest pinned AVM modules as of
+    # 2026-08-04. Remove this ignore only after both AVM provider constraints
+    # accept AzureRM 5 and the major upgrade is validated as one change.
+    ignore:
+      - dependency-name: "hashicorp/azurerm"
+        update-types:
+          - "version-update:semver-major"
 
   # GitHub Actions: pinned action versions in .github/workflows. Directory "/"
   # is the documented value; Dependabot scans .github/workflows from there.
