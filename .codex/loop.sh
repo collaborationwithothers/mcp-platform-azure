@@ -31,7 +31,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROMPT_FILE="$REPO_ROOT/.codex/prompts/work-frontier.md"
 
-exec codex exec \
+exec codex --profile github-bot \
   --cd "$REPO_ROOT" \
   -s workspace-write \
   -c approval_policy=never \

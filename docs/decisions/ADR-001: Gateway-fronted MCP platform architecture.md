@@ -23,6 +23,15 @@ extend to them. The "expand during S2" placeholders in Consequences below were
 partially filled by the S2 build; the APIM MCP limitations they anticipate are
 recorded in ADR-006 (PRM placement) and COMPATIBILITY.md.
 
+![v1.0.0 deployed topology: all client traffic terminates at API Management,
+which forwards validated requests to the Functions-hosted MCP server; the MCP
+backend is never exposed directly to clients. The server calls a downstream
+Orders API; Entra ID issues tokens; API Center holds the inventory.](../diagrams/v1-architecture.drawio.svg)
+
+The diagram shows only the passthrough path that v1 actually built and proved
+(the acceptance scope above). The REST-API-export and external-MCP-proxy paths
+named in the Decision below are not deployed and are not drawn.
+
 ## Context
 
 MCP servers can be exposed directly to clients using built-in auth on the

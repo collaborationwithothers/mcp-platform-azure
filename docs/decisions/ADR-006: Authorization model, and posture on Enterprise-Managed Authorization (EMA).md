@@ -78,6 +78,83 @@ competing.
   EMA support verified in Microsoft documentation, or acceptance of an Okta
   dev-tenant dependency for a deep-dive scenario.
 
+## Reference diagrams (identity flows and request outcomes)
+
+These diagrams depict v1.0.0 as deployed. They illustrate the decision above and
+the sections that follow; they do not add or change any decision. Proof status
+differs by branch and is stated in the Acceptance note above, not restated in the
+captions as if uniform.
+
+### App-only branch (trusted subsystem)
+
+![App-only identity flow: a service-principal or agent caller obtains a
+client-credentials token (audience = MCP server, app role Orders.Read), calls
+get_order_status through API Management and Easy Auth; the server checks the
+Orders.Read role, then acquires its own downstream token and calls the Orders API
+as the server identity. No downstream call if the role is absent.](../diagrams/identity-app-only.drawio.svg)
+
+The caller has no user context, so the server calls the downstream as ITSELF
+(AcquireTokenForClient, `/.default`), not on the caller's behalf. Authorization is
+a fail-closed `Orders.Read` app-role check at the MCP layer: absent role gives a
+deterministic tool-level 403 and no downstream call. The downstream trusts the
+server identity, not the original agent. This branch is live-gate-proven
+(Acceptance, app-only branch).
+
+### Delegated branch (on-behalf-of)
+
+![Delegated OBO identity flow: a user-context caller's token (scp present) is
+presented by the server as an OBO assertion to Entra, which returns a
+downstream-audience token; the server calls the Orders API with that token. The
+caller's original token is never forwarded downstream.](../diagrams/identity-obo.drawio.svg)
+
+The server exchanges the caller's inbound user token for a NEW downstream-audience
+token via OBO; the caller's original token is never forwarded to the downstream
+(no token passthrough, which is what closes the confused-deputy gap described
+below). The OBO happy path is proven by unit tests plus a manual runbook, NOT by
+the automated live gate; the gate covers only the audience-mismatch negative test
+(Acceptance, delegated branch).
+
+### Request outcomes: HTTP status vs MCP errors
+
+![MCP request outcomes: a success returns HTTP 200 with a tool result; failures
+appear on three surfaces - a transport HTTP 401 (missing/invalid token), an
+HTTP 200 JSON-RPC protocol error (unknown tool/bad params), and an HTTP 200 tool
+result with isError=true (e.g. missing Orders.Read).](../diagrams/mcp-request-outcomes.drawio.svg)
+
+A caller sees three distinct failure surfaces, and only the first changes the HTTP
+status. A robust client must inspect the HTTP status, the JSON-RPC `error` object,
+and the tool result's `isError` flag independently; "forbidden" can arrive on two
+of these surfaces with different wire shapes.
+
+1. Transport (real HTTP 401). API Management (`validate-azure-ad-token`) and the
+   Function App's Easy Auth V2 reject a missing, invalid, or wrong-audience token
+   before the MCP runtime runs. A request with no `Authorization` header gets an
+   immediate 401 from the gateway policy carrying the RFC 9728 PRM challenge
+   (`WWW-Authenticate: Bearer resource_metadata="..."`); an invalid or
+   wrong-audience token fails validation with a 401 and the gateway `on-error`
+   adds the same challenge. This is the ONLY tier that changes the HTTP status.
+   (infra/terraform/modules/apim-mcp-server/policies/mcp-server.xml.)
+
+2. JSON-RPC protocol error (HTTP 200). The request authenticated and reached the
+   MCP runtime but was not a valid call: an unknown tool name or malformed
+   parameters. The Functions MCP extension returns HTTP 200 with a JSON-RPC
+   `error` object (for example code -32602, invalid params), per the MCP
+   specification's error handling. The HTTP layer is healthy; the error is in the
+   JSON-RPC envelope.
+
+3. Tool execution error (HTTP 200 + `isError`). The tool ran and failed.
+   `get_order_status` returns a `CallToolResult` with `isError = true` for a
+   missing `Orders.Read` app role (the deterministic "403 Forbidden" tool error,
+   fail-closed with no downstream call), a failed downstream call, or a
+   fail-closed principal check. The HTTP status is 200 and there is no JSON-RPC
+   `error` object; the failure sits inside the successful tool-call result.
+   (src/McpTools/Tools/GetOrderStatus.cs.)
+
+The 403 in tier 3 is an MCP tool error, not an HTTP 403 - which is why the diagram
+draws the transport reject and the tool-level `isError` as different colours: they
+both read as "forbidden" to a human but are different wire outcomes a client must
+handle differently.
+
 ## PRM discovery and placement
 
 Added 2026-07-12 recording the reasoning from the S2 gateway modules
