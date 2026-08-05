@@ -61,9 +61,10 @@
       separate expression over the parsed token (output-token-variable-name
       above). scp is space-delimited; whether APIM stores it as one Jwt.Claims
       element or pre-splits it is undocumented, and GetValueOrDefault returns
-      multi-valued claims comma-joined, so split on BOTH space and comma --
-      correct under either behaviour (confirm at the live gate; COMPATIBILITY.md,
-      2026-08-04). Fails closed with RFC 6750 insufficient_scope (403): the token
+      multi-valued claims comma-joined, so split on BOTH space and comma, which
+      is correct under either behaviour (confirm at the live gate;
+      COMPATIBILITY.md, 2026-08-04). Fails closed with RFC 6750
+      insufficient_scope (403): the token
       is valid but under-entitled, so this is an authorization denial, not a
       discovery failure, and carries no resource_metadata.
     -->
