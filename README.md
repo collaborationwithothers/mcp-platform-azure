@@ -27,6 +27,22 @@ Private networking is deferred to v1.1 (ADR-003) and is deliberately absent here
 because it is not deployed. The identity flows (app-only and delegated OBO) and
 the per-request outcome model (HTTP status vs MCP tool errors) are in ADR-006.
 
+### Phase 3.5 thickening: multi-server composition (issue #17)
+
+![Multi-server composition: two MCP server APIs (/orders and /catalog) behind one
+API Management gateway. Each server has its own RFC 9728 path-inserted
+protected-resource-metadata document, its own per-server 401 challenge that leads
+to its own metadata, and its own scope-or-role entitlement check that returns 403
+insufficient_scope otherwise. A retained root PRM document is the s3.3 fail-closed
+guard. A shared Microsoft Entra ID registration carries a per-server scope and
+role, and both servers forward to one shared backend Function App.](docs/diagrams/multi-server-composition.drawio.svg)
+
+A post-v1.0.0 thickening ([docs/specs/thickening.md](docs/specs/thickening.md)):
+a second passthrough MCP server behind the same gateway, proving per-server
+discovery and per-server entitlement (a token entitled to one server is rejected
+at the other with 403 insufficient_scope). This extends the v1.0.0 topology
+above; it is not part of the v1.0.0 tag.
+
 ## Scenario index (v1)
 
 | Scenario | What it is | Composition |
