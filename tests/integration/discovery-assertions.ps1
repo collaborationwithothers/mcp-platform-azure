@@ -638,16 +638,25 @@ function Assert-AuditEventEmitted {
     # A live run confirmed the write side is correct (Application Insights
     # portal "End-to-end transaction details" for this exact trace shows
     # Custom Properties tool=<name>, caller=<guid>, severity Error -- and the
-    # diagnostic fallback below independently found the same row), but the
-    # original dot-navigation query (tostring(Properties.tool) == '...')
-    # matched zero rows against it. Rather than guess at the exact reason
-    # (Properties may not be typed dynamic in this pipeline, or dot-navigation
-    # on it behaves differently than assumed), this uses `contains` -- a plain
-    # substring match against the property's text form, which is correct
-    # regardless of whether Properties is stored as a native dynamic value or
-    # a JSON-encoded string, since it matches literally what both the portal
-    # and the diagnostic query already proved is present in that text.
-    $kql = "AppTraces | where TimeGenerated > ago(15m) | where SeverityLevel == 3 | where Properties contains '`"tool`":`"$escapedTool`"' | where Properties contains '`"caller`":`"' | count"
+    # diagnostic fallback below independently found the same row), but two
+    # successive query attempts failed to match it. The dot-navigation
+    # attempt (tostring(Properties.tool) == '...') matched zero rows; the
+    # follow-up `Properties contains '...'` attempt ALSO matched zero rows,
+    # deterministically (round 7: both (c) and (d) failed identically, and
+    # the diagnostic fallback -- which never applies a string operator to
+    # Properties, only `project`s it -- found the exact same row both times).
+    # That ruled out ingestion latency as the cause: Kusto's `contains`
+    # operand is documented as type `string`
+    # (https://learn.microsoft.com/kusto/query/contains-operator), and
+    # `Properties` is `dynamic`; the dynamic-type docs list no string
+    # operators among what's supported over dynamic values and require an
+    # explicit `tostring()` cast first
+    # (https://learn.microsoft.com/kusto/query/scalar-data-types/dynamic,
+    # "Casting dynamic objects"; azure-docs-verifier, 2026-08-06). Every
+    # official customDimensions/Properties string-filter sample wraps the
+    # column in tostring() before contains/startswith/endswith. Fixed by
+    # doing the same here.
+    $kql = "AppTraces | where TimeGenerated > ago(15m) | where SeverityLevel == 3 | where tostring(Properties) contains '`"tool`":`"$escapedTool`"' | where tostring(Properties) contains '`"caller`":`"' | count"
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $attempt = 0
