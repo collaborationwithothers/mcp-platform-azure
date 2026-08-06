@@ -106,6 +106,21 @@ list, because the policy compares the token claim against the tfvars value
 literally. These variables have no defaults and are supplied out of band exactly
 like `allowed_client_application_ids`.
 
+### Migration note (issue #17): existing clients need each server's entitlement
+
+The per-server check (`scp` contains the server's scope OR `roles` contains its
+app role) runs in the APIM server-scope inbound policy, so it gates EVERY request
+to that server, including the MCP `initialize` handshake, and it runs BEFORE the
+request reaches the backend. It is a NEW layer in front of the backend McpTools
+app-role check (`Orders.Read`, issue #45), not a replacement for it. Consequence:
+every client that legitimately calls a server must now hold that server's
+entitlement in addition to whatever the backend requires. A token that carries
+only `Orders.Read` (the backend role) but not server 1's `Orders.Invoke.All`
+(the gateway role) is rejected at the gateway with `403 insufficient_scope`
+before it can connect. The client grants in sections 2, 3, and 4 below reflect
+this: they were written for the single-server v1 and are updated here for the
+two-layer model.
+
 ## 2. Test client app (the gate's non-interactive caller)
 
 A dedicated app for `McpTestClient` and the discovery-assertion scripts to
@@ -122,12 +137,18 @@ user identity because the SDK's interactive auth-code flow cannot run in CI
    ([Service Principal and a Client
    Secret](https://learn.microsoft.com/entra/identity-platform/quickstart-configure-app-access-web-apis))
 3. **API permissions > Add a permission > My APIs**, select the server
-   resource app from step 1, choose **Application permissions**, select the
-   `Orders.Read` app role, **Add permissions**.
+   resource app from step 1, choose **Application permissions**, and select
+   BOTH:
+   - `Orders.Read` (the backend McpTools role, issue #45), and
+   - server 1's gateway role `Orders.Invoke.All` (`required_role`, issue #17) so
+     the token passes the per-server gateway check and can even connect. Without
+     it the gateway 403s `initialize` before the backend is reached (see the
+     migration note above).
+   **Add permissions.**
 4. **Grant admin consent for `<tenant>`.** Required: application permissions
    (app roles) cannot be self-consented; a tenant administrator must grant
    consent once before the client-credentials flow can obtain a token
-   carrying the role.
+   carrying the roles.
 5. Record the **Application (client) ID**. This is
    `entra_validation.allowed_client_application_ids[0]` and the identity the
    gate's non-interactive token acquisition (client credentials) uses.
@@ -135,19 +156,26 @@ user identity because the SDK's interactive auth-code flow cannot run in CI
 ## 3. Negative-test client app (valid caller without Orders.Read)
 
 A second confidential client proves that a valid server-audience token without
-the required application role reaches the MCP tool and receives the
-deterministic 403 error. This client must not receive any application
-permission on the server resource app.
+the BACKEND role (`Orders.Read`) reaches the MCP tool and receives the
+deterministic tool-level 403. Under issue #17 this client must hold server 1's
+GATEWAY role but not the backend role: it needs `Orders.Invoke.All` so it passes
+the gateway per-server check and actually reaches the backend, and it must NOT
+have `Orders.Read` so the backend McpTools check is the thing that rejects it. If
+it lacked `Orders.Invoke.All`, the gateway would 403 it first and the test would
+no longer prove the backend layer (see the migration note above).
 
 1. **App registrations > New registration.** Single tenant. No redirect URI.
 2. **Certificates & secrets > Client secrets > New client secret.** Store the
    client id as the GitHub Environment secret
    **`TEST_CLIENT_WITHOUT_ROLE_ID`** and the secret value as
    **`TEST_CLIENT_WITHOUT_ROLE_SECRET`** on `live-test`.
-3. Do not add an API permission or app-role assignment for `Orders.Read`.
-   The server resource service principal must allow role-less app tokens to be
-   issued; authorization is enforced by the MCP application after Easy Auth
-   authenticates the token.
+3. **API permissions > Add a permission > My APIs**, select the server resource
+   app, choose **Application permissions**, select server 1's gateway role
+   `Orders.Invoke.All` (`required_role`), **Add permissions**, then **Grant admin
+   consent for `<tenant>`**. Do NOT add `Orders.Read`: the backend role's absence
+   is precisely what this client tests. (The gateway role lets it connect and
+   call the tool; the backend then returns the deterministic 403 for the missing
+   `Orders.Read`.)
 4. Add this client id to `entra_validation.allowed_client_application_ids` so
    the APIM policy admits it to the backend. The positive test client remains
    the first entry because the workflow reads index 0 for its ordinary call.
@@ -213,8 +241,12 @@ to the interactive host manually (ADR-006).
    ([Redirect URI restrictions](https://learn.microsoft.com/entra/identity-platform/reply-url))
 3. **API permissions > Add a permission > My APIs**, select the server resource
    app from section 1, choose **Delegated permissions**, select
-   `user_impersonation`, **Add permissions**, then **Grant admin consent for
-   `<tenant>`** (or let each user consent at first sign-in if the scope allows it).
+   `user_impersonation` and, to reach server 1 through the issue-#17 gateway
+   check, server 1's delegated scope `Orders.Invoke` (`required_scope`; a
+   delegated token carries it in `scp`, which satisfies the per-server check).
+   **Add permissions**, then **Grant admin consent for `<tenant>`** (or let each
+   user consent at first sign-in if the scope allows it). To reach server 2 as
+   well, also add `Catalog.Invoke` (`server_2_required_scope`).
 4. Record the **Application (client) ID**. This id MUST be added to
    `entra_validation.allowed_client_application_ids` (the `S2_TFVARS_JSON`
    live-test secret): the APIM `validate-azure-ad-token` policy checks the token's
