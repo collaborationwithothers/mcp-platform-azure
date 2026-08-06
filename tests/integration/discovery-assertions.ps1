@@ -308,7 +308,8 @@ function ConvertFrom-SseJsonRpc {
     foreach ($eventData in $events) {
         try {
             $parsed = $eventData | ConvertFrom-Json -ErrorAction Stop
-            if ($null -ne $parsed.id -and [string]$parsed.id -eq [string]$ExpectedId) {
+            $parsedId = Get-SafeProperty $parsed 'id'
+            if ($null -ne $parsedId -and [string]$parsedId -eq [string]$ExpectedId) {
                 return $parsed
             }
         } catch { continue }
@@ -394,10 +395,43 @@ function Invoke-JsonRpc {
 # throws under Set-StrictMode ("The property 'code' cannot be found on this
 # object"), which is exactly the crash a per-server-under-entitled token (as
 # opposed to a per-tool-under-entitled one) produces if not guarded against.
+# Safe property lookup for a dynamically-shaped JSON-RPC PSCustomObject
+# (from ConvertFrom-Json). Uses .PSObject.Properties[Name], a LOOKUP that
+# returns $null for a genuinely absent key, rather than dot-notation
+# (.Name), which THROWS under Set-StrictMode when the key was never present
+# in the source JSON -- not just when it is null. This is the root cause
+# behind two separate crashes in this file: a JSON-RPC success response has
+# no "error" key at all (result/error are mutually exclusive and the absent
+# one is OMITTED, not present-as-null), and an error response has no
+# "result" key; dot-access on the absent one throws every time, not
+# sometimes. Every access to a parsed JSON-RPC body's top-level or nested
+# fields in this file goes through this, with no exceptions.
+function Get-SafeProperty($Object, [string]$Name) {
+    if ($null -eq $Object) { return $null }
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($null -eq $prop) { return $null }
+    return $prop.Value
+}
+
+# The parsed body's "error" value, or $null if absent (see Get-SafeProperty).
+function Get-JsonRpcError($parsedBody) {
+    return Get-SafeProperty $parsedBody 'error'
+}
+
 function Get-JsonRpcErrorCode($parsedBody) {
-    if ($null -eq $parsedBody -or $null -eq $parsedBody.error) { return $null }
-    if ($parsedBody.error -is [string]) { return $null }
-    return $parsedBody.error.code
+    $err = Get-JsonRpcError $parsedBody
+    if ($null -eq $err -or $err -is [string]) { return $null }
+    return Get-SafeProperty $err 'code'
+}
+
+# The parsed body's error MESSAGE, safe regardless of whether .error is the
+# legacy string shape (mcp-server.xml's HTTP-layer denials, error_description
+# carries the message there) or the JSON-RPC object shape (.error.message).
+function Get-JsonRpcErrorMessage($parsedBody) {
+    $err = Get-JsonRpcError $parsedBody
+    if ($null -eq $err) { return $null }
+    if ($err -is [string]) { return Get-SafeProperty $parsedBody 'error_description' }
+    return Get-SafeProperty $err 'message'
 }
 
 # Companion to Get-JsonRpcErrorCode: true when .error exists but is the OLD,
@@ -406,7 +440,8 @@ function Get-JsonRpcErrorCode($parsedBody) {
 # one layer before the per-tool fragment ever runs, per-tool result therefore
 # undetermined rather than failed).
 function Test-LegacyHttpDenial($parsedBody) {
-    return ($null -ne $parsedBody -and $null -ne $parsedBody.error -and $parsedBody.error -is [string])
+    $err = Get-JsonRpcError $parsedBody
+    return ($null -ne $err -and $err -is [string])
 }
 
 # True when the parsed JSON-RPC body is the per-tool gateway denial shape:
@@ -464,18 +499,20 @@ function Assert-ToolAuthorization {
         # below shares this token (or a variant of it) and would hit the same
         # wall, so report it ONCE, clearly, and stop for this server rather
         # than cascading into confusing or crashing downstream results.
-        & $assertFail "tools/list was rejected before reaching the per-tool gate: '$($listResult.error)' ($($listResult.error_description)). This token is not entitled at the PER-SERVER layer for $ServerUrl; per-tool results for this server are UNDETERMINED, not tested. Skipping (b)/(c)/(d) for $Label."
+        & $assertFail "tools/list was rejected before reaching the per-tool gate: '$(Get-JsonRpcError $listResult)' ($(Get-JsonRpcErrorMessage $listResult)). This token is not entitled at the PER-SERVER layer for $ServerUrl; per-tool results for this server are UNDETERMINED, not tested. Skipping (b)/(c)/(d) for $Label."
         Write-Host ''
         return
     }
+    $listResultResult = Get-SafeProperty $listResult 'result'
+    $listResultTools = Get-SafeProperty $listResultResult 'tools'
     if ($null -eq $listResult) {
         & $assertFail "tools/list response was not valid JSON (the request may have been rejected upstream of the per-tool gate; check token entitlement for this server)."
-    } elseif ($null -ne $listResult.error) {
-        & $assertFail "tools/list with the entitled token returned a JSON-RPC error (code $(Get-JsonRpcErrorCode $listResult)): $($listResult.error.message). The per-tool gate must not block tools/list (gate fires only on tools/call)."
-    } elseif ($null -eq $listResult.result -or $null -eq $listResult.result.tools) {
+    } elseif ($null -ne (Get-JsonRpcError $listResult)) {
+        & $assertFail "tools/list with the entitled token returned a JSON-RPC error (code $(Get-JsonRpcErrorCode $listResult)): $(Get-JsonRpcErrorMessage $listResult). The per-tool gate must not block tools/list (gate fires only on tools/call)."
+    } elseif ($null -eq $listResultResult -or $null -eq $listResultTools) {
         & $assertFail "tools/list response did not contain a result.tools array (unexpected response shape)."
     } else {
-        $listedTools = @($listResult.result.tools | ForEach-Object { $_.name })
+        $listedTools = @($listResultTools | ForEach-Object { Get-SafeProperty $_ 'name' })
         $inListNotMap = @($listedTools | Where-Object { $_ -notin $ExpectedMapKeys })
         $inMapNotList = @($ExpectedMapKeys | Where-Object { $_ -notin $listedTools })
         if ($inListNotMap.Count -gt 0) {
@@ -502,10 +539,10 @@ function Assert-ToolAuthorization {
     if ($null -eq $callResult) {
         & $assertFail "tools/call '$MappedToolName' with the entitled token: response was not valid JSON."
     } elseif (Test-LegacyHttpDenial $callResult) {
-        & $assertFail "tools/call '$MappedToolName' with the entitled token was rejected before reaching the per-tool gate: '$($callResult.error)'; this token is not entitled at the per-server layer."
-    } elseif ($null -ne $callResult.error) {
-        & $assertFail "tools/call '$MappedToolName' with the entitled token returned an unexpected JSON-RPC error (code $(Get-JsonRpcErrorCode $callResult)): $($callResult.error.message). Expected a successful result, not any error."
-    } elseif ($null -eq $callResult.result) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token was rejected before reaching the per-tool gate: '$(Get-JsonRpcError $callResult)'; this token is not entitled at the per-server layer."
+    } elseif ($null -ne (Get-JsonRpcError $callResult)) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token returned an unexpected JSON-RPC error (code $(Get-JsonRpcErrorCode $callResult)): $(Get-JsonRpcErrorMessage $callResult). Expected a successful result, not any error."
+    } elseif ($null -eq (Get-SafeProperty $callResult 'result')) {
         & $assertFail "tools/call '$MappedToolName' with the entitled token returned neither a result nor an error (unexpected response shape)."
     } else {
         Pass "${Label}: tools/call '$MappedToolName' succeeded with the entitled token (per-tool check passed, result returned)."
@@ -524,7 +561,7 @@ function Assert-ToolAuthorization {
     if (-not (Test-ToolAuthDenial $probeResult)) {
         & $assertFail "tools/call '$UnmappedProbeToolName' was NOT denied with -32001; an unmapped tool name must be default-denied by the gateway."
     } else {
-        $echoedId = [string]($probeResult.id)
+        $echoedId = [string](Get-SafeProperty $probeResult 'id')
         if ($echoedId -ne [string]$probeId) {
             & $assertFail "tools/call '$UnmappedProbeToolName' returned -32001 but echoed id '$echoedId'; expected '$probeId' (top-level JSON-RPC envelope id field, not nested under error)."
         } else {
