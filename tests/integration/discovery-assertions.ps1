@@ -268,19 +268,75 @@ function Assert-ServerDiscovery {
     Write-Host ''
 }
 
+# Parses a Streamable HTTP SSE response body into the JSON-RPC message it
+# carries. The MCP spec (2025-06-18, "Streamable HTTP", "Sending Messages to
+# the Server", item 5) lets the server answer a JSON-RPC request with EITHER
+# Content-Type: application/json OR text/event-stream, entirely at the
+# server's discretion -- not conditioned on the operation being long-running
+# or "streaming" in any user-visible sense (verified directly against the
+# spec, 2026-08-06). It defers the wire grammar to the WHATWG SSE living
+# standard: "data:" lines, a blank line dispatches/terminates one event,
+# consecutive "data:" lines within one event are concatenated with LF. A
+# stream may carry more than one event (e.g. an intermediate notification
+# ahead of the real response), so this returns the FIRST event whose parsed
+# "id" matches $ExpectedId, falling back to the first parseable event if none
+# match (a response with no id to compare, or a single-event stream).
+function ConvertFrom-SseJsonRpc {
+    param(
+        [string]$Raw,
+        [int]$ExpectedId
+    )
+    $dataLines = New-Object System.Collections.Generic.List[string]
+    $events = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($Raw -split "`n")) {
+        $trimmed = $line.TrimEnd("`r")
+        if ($trimmed -eq '') {
+            if ($dataLines.Count -gt 0) {
+                $events.Add(($dataLines -join "`n"))
+                $dataLines.Clear()
+            }
+            continue
+        }
+        if ($trimmed.StartsWith('data:')) {
+            $value = $trimmed.Substring(5)
+            if ($value.StartsWith(' ')) { $value = $value.Substring(1) }
+            $dataLines.Add($value)
+        }
+    }
+    if ($dataLines.Count -gt 0) { $events.Add(($dataLines -join "`n")) }
+
+    foreach ($eventData in $events) {
+        try {
+            $parsed = $eventData | ConvertFrom-Json -ErrorAction Stop
+            if ($null -ne $parsed.id -and [string]$parsed.id -eq [string]$ExpectedId) {
+                return $parsed
+            }
+        } catch { continue }
+    }
+    foreach ($eventData in $events) {
+        try { return ($eventData | ConvertFrom-Json -ErrorAction Stop) } catch { continue }
+    }
+    return $null
+}
+
 # Thin JSON-RPC wrapper over Invoke-Raw: POSTs a JSON-RPC 2.0 envelope and
-# returns the parsed response body, or $null if the response body is not valid
-# JSON. Accept: application/json, text/event-stream is REQUIRED on every POST
-# to a Streamable HTTP MCP endpoint (MCP spec 2025-06-18, "Streamable HTTP",
-# "Sending Messages to the Server", item 2: "The client MUST include an Accept
-# header, listing both application/json and text/event-stream as supported
-# content types" -- verified directly against the spec, not Microsoft Learn,
-# 2026-08-06). One header, both media types comma-joined in a single string
-# value (not an array -- some PowerShell HTTP client versions mis-serialize an
-# array-valued Accept header). Omitting it is why the live gate's first pass
-# got back a JSON-RPC error (code -32000, "Not Acceptable: Client must accept
-# both application/json and text/event-stream") instead of a real tools/list
-# result -- a bug in this helper, not in the server or the per-tool fragment.
+# returns the parsed response body, or $null if neither plain-JSON nor SSE
+# parsing succeeds. Accept: application/json, text/event-stream is REQUIRED
+# on every POST to a Streamable HTTP MCP endpoint (MCP spec 2025-06-18, item
+# 2: "The client MUST include an Accept header, listing both application/json
+# and text/event-stream as supported content types" -- there is no
+# JSON-only-response opt-out; the spec never describes server behaviour for a
+# client that omits text/event-stream, so doing so is undefined-by-spec, not
+# a documented fallback -- verified 2026-08-06). One header, both media types
+# comma-joined in a single string value (not an array -- some PowerShell HTTP
+# client versions mis-serialize an array-valued Accept header). Omitting it
+# is why an earlier pass got back a JSON-RPC error (code -32000, "Not
+# Acceptable"). Because the client must offer text/event-stream, it must also
+# be prepared to receive it: this repo's own APIM-authored deny responses are
+# always plain JSON (this policy writes the body directly, never touching the
+# backend), but the real Azure Functions backend answers ordinary,
+# non-erroring tools/call and tools/list requests via SSE -- both shapes are
+# normal and this helper must handle both, not treat SSE as a failure.
 function Invoke-JsonRpc {
     param(
         [string]$Uri,
@@ -297,7 +353,7 @@ function Invoke-JsonRpc {
     try {
         return $resp.Content | ConvertFrom-Json -ErrorAction Stop
     } catch {
-        return $null
+        return ConvertFrom-SseJsonRpc -Raw $resp.Content -ExpectedId $Id
     }
 }
 
