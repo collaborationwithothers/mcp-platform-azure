@@ -83,7 +83,31 @@ param(
     # (issue 17): accepted at server 1, rejected at server 2 with 403
     # insufficient_scope. Optional; the cross-server negative runs only when both
     # this and McpServer2Url are supplied.
-    [string]$Server1OnlyToken = ''
+    [string]$Server1OnlyToken = '',
+
+    # --- Per-tool authorization (issue 18) -----------------------------------
+    # Server 1's tool_authorization_map keys, comma-joined (Terraform output
+    # tool_authorization_map_keys). Used for set-equality against tools/list
+    # and the allow/deny assertions. Optional: when empty the per-tool checks
+    # are skipped so earlier gate invocations work unchanged.
+    [string]$ToolAuthorizationMapKeys = '',
+    # Server 2's tool_authorization_map keys, comma-joined (Terraform output
+    # server_2_tool_authorization_map_keys).
+    [string]$Server2ToolAuthorizationMapKeys = '',
+    # Reuse of $mcpToken from invoke-and-assert.ps1: the same server-audience
+    # token already used for step 2 McpTestClient and tools/call successes.
+    [string]$EntitledToken = '',
+    # Reuse of $missingRoleToken from invoke-and-assert.ps1: the token for the
+    # client missing Orders.Read; now asserted at the gateway per-tool layer
+    # (one layer earlier than the backend check in step 3).
+    [string]$UnderEntitledToken = '',
+    # The mapped tool name for allow/deny assertions. Defaults to
+    # get_order_status (server 1's only tool today). A parameter so a future
+    # second mapped tool requires only a call-site change, not a script edit.
+    [string]$MappedToolName = 'get_order_status',
+    # A synthetic tool name guaranteed absent from any map; used for the
+    # unmapped-probe-denied assertion (default-deny branch).
+    [string]$UnmappedProbeToolName = 'issue18_unmapped_probe_tool'
 )
 
 Set-StrictMode -Version Latest
@@ -235,6 +259,156 @@ function Assert-ServerDiscovery {
         }
     }
     Write-Host ''
+}
+
+# Thin JSON-RPC wrapper over Invoke-Raw: POSTs a JSON-RPC 2.0 envelope and
+# returns the parsed response body, or $null if the response body is not valid JSON.
+function Invoke-JsonRpc {
+    param(
+        [string]$Uri,
+        [string]$Token,
+        [string]$Method,
+        [int]$Id,
+        [string]$ParamsJson = '{}'
+    )
+    $body = "{`"jsonrpc`":`"2.0`",`"id`":$Id,`"method`":`"$Method`",`"params`":$ParamsJson}"
+    $resp = Invoke-Raw -Uri $Uri -Headers @{ Authorization = "Bearer $Token" } -Body $body
+    try {
+        return $resp.Content | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return $null
+    }
+}
+
+# True when the parsed JSON-RPC body is the per-tool gateway denial shape:
+# HTTP 200 with error.code == -32001 (issue 18). Distinguishes the per-tool
+# deny from HTTP 401/403 (per-session/per-server checks) and from a normal
+# tools/call result.
+function Test-ToolAuthDenial($parsedBody) {
+    return ($null -ne $parsedBody -and
+            $null -ne $parsedBody.error -and
+            $null -ne $parsedBody.error.code -and
+            [int]$parsedBody.error.code -eq -32001)
+}
+
+# Per-tool authorization (issue 18): set-equality between tools/list and the
+# map keys (both directions), mapped-tool callable, unmapped probe denied, and
+# (if UnderEntitledToken supplied) mapped-tool denied for the under-entitled
+# caller. Generic: same code path for every server instance (issue-18
+# acceptance criterion "expressed as a loop over the server instances").
+# WarnOnly converts Fail calls to ::warning:: (used for server 2 where token
+# entitlement is out-of-band and results may be inconclusive).
+function Assert-ToolAuthorization {
+    param(
+        [string]$Label,
+        [string]$ServerUrl,
+        [string]$Token,
+        [string[]]$ExpectedMapKeys,
+        [string]$MappedToolName,
+        [string]$UnmappedProbeToolName,
+        [string]$UnderEntitledToken = '',
+        [switch]$WarnOnly
+    )
+
+    $assertFail = if ($WarnOnly) {
+        { param([string]$msg) Write-Host "::warning::[$Label non-fatal] $msg" }
+    } else {
+        { param([string]$msg) Fail "${Label}: $msg" }
+    }
+
+    # (a) Set-equality: tools/list vs map keys, both directions.
+    # Token is the pinned fully-granted identity: same entitled client already
+    # used for the McpTestClient session (step 2 of invoke-and-assert) and the
+    # existing get_order_status calls. It passes both the per-server entitlement
+    # check and each mapped tool's role/scope check, so tools/list returns the
+    # full server surface without hitting the per-tool gate (which fires only on
+    # tools/call, per mcp-server.xml).
+    Write-Host "[$Label-a] $ServerUrl tools/list set equals tool_authorization_map keys"
+    $listResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/list' -Id 1 -ParamsJson '{}'
+    if ($null -eq $listResult) {
+        & $assertFail "tools/list response was not valid JSON (the request may have been rejected upstream of the per-tool gate; check token entitlement for this server)."
+    } elseif ($null -ne $listResult.error) {
+        & $assertFail "tools/list with the entitled token returned a JSON-RPC error (code $($listResult.error.code)): $($listResult.error.message). The per-tool gate must not block tools/list (gate fires only on tools/call)."
+    } elseif ($null -eq $listResult.result -or $null -eq $listResult.result.tools) {
+        & $assertFail "tools/list response did not contain a result.tools array (unexpected response shape)."
+    } else {
+        $listedTools = @($listResult.result.tools | ForEach-Object { $_.name })
+        $inListNotMap = @($listedTools | Where-Object { $_ -notin $ExpectedMapKeys })
+        $inMapNotList = @($ExpectedMapKeys | Where-Object { $_ -notin $listedTools })
+        if ($inListNotMap.Count -gt 0) {
+            & $assertFail "tool(s) returned by tools/list but absent from tool_authorization_map -- would be silently default-denied in production: $($inListNotMap -join ', ')."
+        }
+        if ($inMapNotList.Count -gt 0) {
+            & $assertFail "tool_authorization_map key(s) with no matching tool in tools/list -- dead policy branch, renamed or removed tool: $($inMapNotList -join ', ')."
+        }
+        if ($inListNotMap.Count -eq 0 -and $inMapNotList.Count -eq 0) {
+            Pass "${Label}: tools/list and tool_authorization_map key set are equal ($($listedTools.Count) tool(s))."
+        }
+    }
+    Write-Host ''
+
+    # (b) Mapped tool callable: entitled token must NOT be denied by the per-tool
+    # gate. The policy falls through to the backend for a mapped+entitled call, so
+    # any response other than the -32001 error shape proves the gate did not fire.
+    Write-Host "[$Label-b] $ServerUrl tools/call '$MappedToolName' with entitled token is NOT denied by the gateway"
+    $callResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/call' -Id 2 `
+        -ParamsJson "{`"name`":`"$MappedToolName`",`"arguments`":{}}"
+    if (Test-ToolAuthDenial $callResult) {
+        & $assertFail "gateway denied tools/call '$MappedToolName' with the entitled token (error -32001); the entitled caller must not be denied by the per-tool check."
+    } else {
+        Pass "${Label}: gateway did not deny tools/call '$MappedToolName' with the entitled token (per-tool check passed)."
+    }
+    Write-Host ''
+
+    # (c) Unmapped probe denied: the default-deny branch fires for a tool name
+    # absent from the map. The deny response is HTTP 200 + JSON-RPC -32001, with
+    # the request id echoed at the TOP LEVEL of the JSON-RPC envelope (not nested
+    # under error): per mcp-server.xml the body is
+    # {"jsonrpc":"2.0","id":<echoed>,"error":{"code":-32001,"message":"..."}}.
+    $probeId = 42
+    Write-Host "[$Label-c] $ServerUrl tools/call '$UnmappedProbeToolName' IS denied (-32001, id=$probeId echoed)"
+    $probeResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/call' -Id $probeId `
+        -ParamsJson "{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}"
+    if (-not (Test-ToolAuthDenial $probeResult)) {
+        & $assertFail "tools/call '$UnmappedProbeToolName' was NOT denied with -32001; an unmapped tool name must be default-denied by the gateway."
+    } else {
+        $echoedId = [string]($probeResult.id)
+        if ($echoedId -ne [string]$probeId) {
+            & $assertFail "tools/call '$UnmappedProbeToolName' returned -32001 but echoed id '$echoedId'; expected '$probeId' (top-level JSON-RPC envelope id field, not nested under error)."
+        } else {
+            Pass "${Label}: tools/call '$UnmappedProbeToolName' denied with -32001 and id=$probeId echoed correctly at the envelope top level."
+        }
+    }
+    Write-Host ''
+
+    # (d) Under-entitled caller denied on a mapped tool (optional). Runs only when
+    # UnderEntitledToken is supplied. Same -32001 error shape as (c): the policy
+    # uses a single deny path for both the unmapped and the under-entitled cases
+    # (non-concealment; the audit event carries the tool name for operators who
+    # need to distinguish them).
+    if (-not [string]::IsNullOrEmpty($UnderEntitledToken)) {
+        Write-Host "[$Label-d] $ServerUrl tools/call '$MappedToolName' with under-entitled token IS denied (-32001)"
+        $denyResult = Invoke-JsonRpc -Uri $ServerUrl -Token $UnderEntitledToken -Method 'tools/call' -Id 3 `
+            -ParamsJson "{`"name`":`"$MappedToolName`",`"arguments`":{}}"
+        if (-not (Test-ToolAuthDenial $denyResult)) {
+            & $assertFail "tools/call '$MappedToolName' with the under-entitled token was NOT denied with -32001; a caller missing the required role/scope must be denied by the per-tool check."
+        } else {
+            Pass "${Label}: tools/call '$MappedToolName' with the under-entitled token denied with -32001 (per-tool check enforced)."
+        }
+        Write-Host ''
+    }
+}
+
+# Placeholder (issue #18): not yet implemented; wired in a follow-up commit once
+# the observability companion change reports its query mechanism (KQL against Log
+# Analytics or the Application Insights REST API, and the resource/workspace id).
+function Assert-AuditEventEmitted {
+    param(
+        [string]$ServerLabel,
+        [string]$CallerIdentity,
+        [string]$ToolName
+    )
+    throw "Assert-AuditEventEmitted is not yet implemented (issue #18, pending observability companion change)."
 }
 
 # Default server 2's expected resource to its URL when not given explicitly.
@@ -586,6 +760,47 @@ foreach ($cname in $chTargets.Keys) {
     }
 }
 Write-Host ''
+
+# ---------------------------------------------------------------------------
+# 9. Per-tool authorization (issue 18): set-equality between tools/list and the
+#    map keys (both directions), mapped-tool callable, unmapped-probe denied
+#    (HTTP 200 + JSON-RPC -32001 Protocol Error, id echoed at the envelope top
+#    level), and under-entitled-denied. Expressed as a loop over configured
+#    server instances (issue-18 acceptance criterion). Server 2 uses WarnOnly:
+#    its token entitlement is out-of-band and results may be inconclusive.
+# ---------------------------------------------------------------------------
+Write-Host "::warning::Audit-event assertion not yet wired (issue 18, pending observability companion change)."
+$perToolServers = [System.Collections.Generic.List[hashtable]]::new()
+if (-not [string]::IsNullOrEmpty($ToolAuthorizationMapKeys) -and -not [string]::IsNullOrEmpty($EntitledToken)) {
+    $perToolServers.Add(@{
+        Label    = '9 (server 1)'; Url = $McpServerUrl
+        MapKeys  = @(($ToolAuthorizationMapKeys -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+        WarnOnly = $false
+    })
+}
+if (-not [string]::IsNullOrEmpty($McpServer2Url) -and
+    -not [string]::IsNullOrEmpty($Server2ToolAuthorizationMapKeys) -and
+    -not [string]::IsNullOrEmpty($EntitledToken)) {
+    $perToolServers.Add(@{
+        Label    = '9 (server 2)'; Url = $McpServer2Url
+        MapKeys  = @(($Server2ToolAuthorizationMapKeys -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+        WarnOnly = $true
+    })
+}
+if ($perToolServers.Count -gt 0) {
+    Write-Host "[9] Per-tool authorization (issue 18)"
+    foreach ($srv in $perToolServers) {
+        Assert-ToolAuthorization `
+            -Label $srv.Label `
+            -ServerUrl $srv.Url `
+            -Token $EntitledToken `
+            -ExpectedMapKeys $srv.MapKeys `
+            -MappedToolName $MappedToolName `
+            -UnmappedProbeToolName $UnmappedProbeToolName `
+            -UnderEntitledToken $UnderEntitledToken `
+            -WarnOnly:$srv.WarnOnly
+    }
+}
 
 # ---------------------------------------------------------------------------
 if ($script:Failures -gt 0) {

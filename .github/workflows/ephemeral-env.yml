@@ -413,6 +413,9 @@ jobs:
           mcp_server_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_url)"
           # Issue 17: server 2's endpoint for the per-server discovery + cross-server assertions.
           mcp_server_2_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_2_url)"
+          # Issue 18: per-tool authorization map keys for the set-equality gate assertion.
+          tool_authorization_map_keys="$(terraform -chdir="$s2_dir" output -raw tool_authorization_map_keys)"
+          server_2_tool_authorization_map_keys="$(terraform -chdir="$s2_dir" output -raw server_2_tool_authorization_map_keys)"
           prm_url="$(terraform -chdir="$s2_dir" output -raw prm_url)"
           registry_url="$(terraform -chdir="$s2_dir" output -raw registry_endpoint_url)"
           api_center_id="$(terraform -chdir="$s2_dir" output -raw api_center_id)"
@@ -495,6 +498,8 @@ jobs:
             -McpServer2Url "$mcp_server_2_url" \
             -Server1OnlyClientId "${TEST_CLIENT_SERVER1_ONLY_ID:-}" \
             -Server1OnlyClientSecret "${TEST_CLIENT_SERVER1_ONLY_SECRET:-}" \
+            -ToolAuthorizationMapKeys "$tool_authorization_map_keys" \
+            -Server2ToolAuthorizationMapKeys "$server_2_tool_authorization_map_keys" \
             -EvidenceDir "${GITHUB_WORKSPACE}/gate-evidence"
 
       # Always upload whatever PRM evidence was captured above, even when the

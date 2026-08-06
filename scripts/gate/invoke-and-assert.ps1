@@ -48,6 +48,17 @@
        path -- see docs/decisions/ADR-006, "OBO exchange: the inbound-token
        gap" and "Testing strategy: the user-context token problem" for why
        that is validated manually, not here.
+    7. Per-tool authorization (issue 18): threads $mcpToken (step 1, the
+       entitled caller) and $missingRoleToken (step 1, the under-entitled
+       caller) into the discovery-assertions.ps1 script as -EntitledToken and
+       -UnderEntitledToken respectively, alongside the Terraform-output
+       -ToolAuthorizationMapKeys and -Server2ToolAuthorizationMapKeys strings.
+       The discovery script runs the set-equality, mapped-callable, unmapped-
+       probe-denied, and under-entitled-denied assertions for each configured
+       server. Wire shape: HTTP 200 + JSON-RPC -32001 Protocol Error with the
+       id echoed at the envelope top level (mcp-server.xml, COMPATIBILITY.md
+       2026-08-06). Tool-name resolution: gen_ai.tool.name context variable,
+       falling back to the parsed body params.name (COMPATIBILITY.md 2026-08-06).
 
   Exits non-zero if the MCP client, the discovery assertions, or the registry
   convergence assertion fail. Registry convergence is made deterministic by the
@@ -122,7 +133,15 @@ param(
     # Optional dir to write the captured /v0.1/servers response body plus a
     # summary, uploaded as a gate artifact so the (doc-UNVERIFIABLE) live
     # response shape can be pinned in a follow-up. Empty => log only.
-    [string]$EvidenceDir = ''
+    [string]$EvidenceDir = '',
+    # Issue 18: server 1's tool_authorization_map keys, comma-joined (Terraform
+    # output tool_authorization_map_keys). Passed through to discovery-assertions
+    # for the per-tool authorization checks. Optional: when empty, per-tool checks
+    # are skipped.
+    [string]$ToolAuthorizationMapKeys = '',
+    # Issue 18: server 2's tool_authorization_map keys, comma-joined (Terraform
+    # output server_2_tool_authorization_map_keys).
+    [string]$Server2ToolAuthorizationMapKeys = ''
 )
 
 Set-StrictMode -Version Latest
@@ -238,7 +257,11 @@ Write-Host "[4] Raw-HTTP discovery assertions"
     -McpExtensionKey $McpExtensionKey `
     -McpServer2Url $McpServer2Url `
     -ExpectedResource2 $McpServer2Url `
-    -Server1OnlyToken $server1OnlyToken
+    -Server1OnlyToken $server1OnlyToken `
+    -ToolAuthorizationMapKeys $ToolAuthorizationMapKeys `
+    -Server2ToolAuthorizationMapKeys $Server2ToolAuthorizationMapKeys `
+    -EntitledToken $mcpToken `
+    -UnderEntitledToken $missingRoleToken
 if ($LASTEXITCODE -ne 0) {
     throw "Discovery assertions failed (exit $LASTEXITCODE)."
 }
