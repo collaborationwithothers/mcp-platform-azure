@@ -146,6 +146,8 @@ module "apim_mcp_server" {
   # accepts a caller only if scp contains this scope OR roles contains this role.
   required_scope = var.required_scope
   required_role  = var.required_role
+
+  tool_authorization_map = var.tool_authorization_map
 }
 
 # Second passthrough MCP server (issue 17): a second instance of the same module
@@ -169,6 +171,8 @@ module "apim_mcp_server_2" {
 
   required_scope = var.server_2_required_scope
   required_role  = var.server_2_required_role
+
+  tool_authorization_map = var.server_2_tool_authorization_map
 }
 
 module "api_center_registry" {

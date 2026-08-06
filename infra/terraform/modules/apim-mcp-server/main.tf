@@ -158,6 +158,11 @@ resource "azapi_resource" "mcp_server_policy" {
         prm_server_url                 = local.prm_server_url
         required_scope                 = var.required_scope
         required_role                  = var.required_role
+        # Issue 18: rendered into the fragment's per-tool <choose> once that
+        # block lands. Passed through unconsumed until then -- templatefile()
+        # does not require every supplied variable to be referenced by the
+        # template, so this keeps validate green ahead of the fragment change.
+        tool_authorization_map = var.tool_authorization_map
       })
     }
   }

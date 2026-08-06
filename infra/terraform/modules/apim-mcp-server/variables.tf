@@ -106,3 +106,37 @@ variable "product_ids" {
   description = "Existing product resource names to bind this MCP server to. Empty in the tracer (spec: subscriptionRequired is false, no products); binding a product is additive config appended to this list, not a restructure of the server resource."
   default     = []
 }
+
+# Per-tool authorization (issue 18). A TOTAL map: every tool name this server
+# exposes must have exactly one entry, or the fragment default-denies it. This
+# is the hand-maintained (passthrough) provenance -- the backend owns the tool
+# surface, so this copy can drift from it; the live gate's per-server
+# set-equality assertion (tools/list vs this map's keys, both directions) is
+# what catches that drift, not this variable. See docs/specs/thickening.md,
+# "Per-tool authorization and tool blocking (#18)", and ADR-009.
+variable "tool_authorization_map" {
+  type = map(object({
+    # Claim VALUES as they appear in the validated token, matching
+    # required_scope/required_role above: scope is a value of the
+    # space/comma-delimited scp claim, role is a value of the roles claim.
+    # Checked with OR semantics (a delegated token carries scp and no roles,
+    # an app-only token the reverse), same as the per-server entitlement
+    # check this fragment runs after.
+    scope = optional(string)
+    role  = optional(string)
+    # Explicit escape hatch for a tool that is deliberately open to any
+    # caller who already cleared the per-server entitlement check. Not a
+    # default -- every entry sets this true or supplies scope/role, so an
+    # entry can never accidentally fall through unrestricted.
+    unrestricted = optional(bool, false)
+  }))
+  description = "Total map of MCP tool name to required scope, required role, or an explicit unrestricted marker. Gates tools/call only; any tool name not present as a key is default-denied by the fragment. See ADR-009."
+
+  validation {
+    condition = alltrue([
+      for name, claim in var.tool_authorization_map :
+      claim.unrestricted || claim.scope != null || claim.role != null
+    ])
+    error_message = "Every tool_authorization_map entry must set unrestricted = true, or a non-null scope, or a non-null role."
+  }
+}

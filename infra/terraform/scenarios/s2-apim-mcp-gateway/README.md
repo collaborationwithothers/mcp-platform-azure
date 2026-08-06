@@ -93,9 +93,11 @@ the `live-test` environment and never run from PR CI.
 | `publisher_name` / `publisher_email` | string | API Management publisher identity. |
 | `server_name` / `server_path` | string | Server 1's MCP server resource name and path segment. |
 | `required_scope` / `required_role` | string | Server 1's per-server entitlement (issue 17): the scope value (in `scp`) and app role value (in `roles`) the server requires, checked with OR semantics. Out-of-band tfvars values, never committed. |
+| `tool_authorization_map` | map(object) | Server 1's total map of MCP tool name to required scope, role, or an explicit unrestricted marker (issue 18). Gates `tools/call` only; any tool name not a key is default-denied. See ADR-009. |
 | `server_2_name` / `server_2_path` | string | Server 2's MCP server resource name and path segment (issue 17). `server_2_path` must differ from `server_path`. |
 | `server_2_prm_scopes` | list(string) | Scopes surfaced in server 2's PRM `scopes_supported`. |
 | `server_2_required_scope` / `server_2_required_role` | string | Server 2's per-server entitlement (issue 17), OR-checked. |
+| `server_2_tool_authorization_map` | map(object) | Server 2's total map of MCP tool name to required scope, role, or an explicit unrestricted marker (issue 18). |
 | `entra_validation` | object | `{ tenant_id, audience, allowed_client_application_ids }`, shared by both servers. References the out-of-band server resource app and test client app registrations; see `docs/runbooks/entra-app-registrations.md`. Only `tenant_id` feeds the PRM documents, as the `authorization_server` issuer; each document's `resource` is the MCP SERVER URL, not the audience. |
 | `prm_scopes` | list(string) | Scopes surfaced in server 1's PRM `scopes_supported`. |
 | `registry_name` | string | BASE name of the API Center service; a per-deployment suffix is appended (see Global names and soft-delete). |

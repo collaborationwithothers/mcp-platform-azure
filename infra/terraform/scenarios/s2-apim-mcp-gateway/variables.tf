@@ -132,6 +132,31 @@ variable "server_2_required_role" {
   description = "Server 2's per-server app role value (as it appears in the token roles claim). Checked with OR semantics against server_2_required_scope."
 }
 
+# Per-tool authorization (issue 18). Same unprefixed/server_2_* convention as
+# required_scope/required_role above. Each map is the hand-maintained
+# passthrough provenance for that server's tool surface (currently one tool,
+# get_order_status -- src/McpTools/Tools/GetOrderStatus.cs -- gated on the
+# Orders.Read app role, matching the issue-45 MCP-layer check it sits in front
+# of). The live gate's per-server set-equality assertion is what proves this
+# map has not drifted from the deployed server's tools/list; ADR-009.
+variable "tool_authorization_map" {
+  type = map(object({
+    scope        = optional(string)
+    role         = optional(string)
+    unrestricted = optional(bool, false)
+  }))
+  description = "Server 1's total map of MCP tool name to required scope, role, or unrestricted marker (apim-mcp-server's tool_authorization_map input)."
+}
+
+variable "server_2_tool_authorization_map" {
+  type = map(object({
+    scope        = optional(string)
+    role         = optional(string)
+    unrestricted = optional(bool, false)
+  }))
+  description = "Server 2's total map of MCP tool name to required scope, role, or unrestricted marker (apim-mcp-server's tool_authorization_map input for server 2)."
+}
+
 variable "registry_name" {
   type        = string
   description = "Base name (prefix) of the API Center service. The composition appends a short suffix derived from resource_group_name to form the actual, globally-unique service name (api-center-registry's name input), because API Center names form a global data-plane DNS label and, once soft-deleted, stay reserved with no working purge. Keep this short enough that base + '-' + 8 chars stays within the 63-char DNS label and 90-char API Center name limits."
