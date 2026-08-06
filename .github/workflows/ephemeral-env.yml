@@ -182,9 +182,8 @@ jobs:
             --tags expiry="${{ steps.rg.outputs.expiry }}" scenario=v1-tracer-bullet
 
       # Written from the live-test environment's S1_TFVARS_JSON/S2_TFVARS_JSON
-      # secrets (docs/runbooks/entra-app-registrations.md's out-of-band
-      # values: entra_auth/entra_validation, prm_scope/prm_scopes,
-      # name_prefix, storage_account_name, apim_name, registry_name, tags).
+      # secrets. Full key reference (kept in sync when a required variable is
+      # added to either composition): docs/runbooks/live-test-tfvars-reference.md.
       # Secrets rather than variables because tenant/client ids are
       # org-identifying, even though they are not credentials.
       - name: Write composition tfvars
