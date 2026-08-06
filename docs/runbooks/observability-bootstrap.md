@@ -11,13 +11,15 @@ requires Azure Contributor privilege on the target subscription.
 
 The Application Insights resource id produced by this runbook is not committed to
 this repo. It is supplied to the live-test workflow as a GitHub Environment
-variable on the `live-test` environment, passed into Terraform as
-`TF_VAR_audit_application_insights_id`, exactly like `TF_STATE_STORAGE_ACCOUNT`
-is today (see `.github/workflows/ephemeral-env.yml`, `env:` block). No connection
-string, instrumentation key, or other secret is committed or stored as a GitHub
-Environment secret; the Terraform module reads the connection string at apply time
-from the ARM resource, and auth to Application Insights uses APIM's system-assigned
-managed identity (Monitoring Metrics Publisher role, granted by Terraform).
+variable on the `live-test` environment and explicitly named in
+`.github/workflows/ephemeral-env.yml`'s `env:` block as
+`TF_VAR_audit_application_insights_id: ${{ vars.TF_VAR_audit_application_insights_id }}`,
+following the same pattern as `TF_STATE_STORAGE_ACCOUNT` and the other explicitly
+wired environment variables in that block. No connection string, instrumentation
+key, or other secret is committed or stored as a GitHub Environment secret; the
+Terraform module reads the connection string at apply time from the ARM resource,
+and auth to Application Insights uses APIM's system-assigned managed identity
+(Monitoring Metrics Publisher role, granted by Terraform).
 
 Steps below reference the Azure portal
 (https://portal.azure.com) and the Azure CLI; both create the same resources.
@@ -136,10 +138,15 @@ identity, and no key-shaped value needs to be stored anywhere.
 2. Under **Environment variables** (NOT secrets), add a new variable:
    - **Name**: `TF_VAR_audit_application_insights_id`
    - **Value**: the ARM resource id from step 4.
-3. Save. The workflow's `env:` block picks up all `TF_VAR_*` environment
-   variables automatically (see `.github/workflows/ephemeral-env.yml`,
-   `env:` block, where `TF_VAR_*` from the environment are listed alongside
-   `TF_STATE_STORAGE_ACCOUNT`).
+3. Save. Note that `.github/workflows/ephemeral-env.yml` names every
+   `TF_VAR_*` variable explicitly in its `env:` block -- they are NOT
+   picked up automatically. The workflow must include an entry for this
+   variable:
+   ```yaml
+   TF_VAR_audit_application_insights_id: ${{ vars.TF_VAR_audit_application_insights_id }}
+   ```
+   This line is added to the workflow as a separate step; adding the
+   GitHub Environment variable here is the prerequisite.
 
 The variable is NOT a secret: the ARM resource id is not sensitive (it is a
 stable identifier, not a key or credential). Storing it as a variable (not a
