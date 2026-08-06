@@ -107,7 +107,14 @@ param(
     [string]$MappedToolName = 'get_order_status',
     # A synthetic tool name guaranteed absent from any map; used for the
     # unmapped-probe-denied assertion (default-deny branch).
-    [string]$UnmappedProbeToolName = 'issue18_unmapped_probe_tool'
+    [string]$UnmappedProbeToolName = 'issue18_unmapped_probe_tool',
+    # ARM resource ID of the Log Analytics workspace underlying the out-of-band
+    # Application Insights audit resource (Terraform output audit_workspace_id).
+    # Resolved to the workspace's own GUID once, below, since
+    # az monitor log-analytics query's --workspace expects that GUID, not this
+    # ARM resource ID (verified 2026-08-06). Optional: when empty the
+    # audit-event assertion is skipped with a warning.
+    [string]$AuditWorkspaceId = ''
 )
 
 Set-StrictMode -Version Latest
@@ -307,6 +314,7 @@ function Assert-ToolAuthorization {
         [string]$MappedToolName,
         [string]$UnmappedProbeToolName,
         [string]$UnderEntitledToken = '',
+        [string]$WorkspaceCustomerId = '',
         [switch]$WarnOnly
     )
 
@@ -377,6 +385,7 @@ function Assert-ToolAuthorization {
             & $assertFail "tools/call '$UnmappedProbeToolName' returned -32001 but echoed id '$echoedId'; expected '$probeId' (top-level JSON-RPC envelope id field, not nested under error)."
         } else {
             Pass "${Label}: tools/call '$UnmappedProbeToolName' denied with -32001 and id=$probeId echoed correctly at the envelope top level."
+            Assert-AuditEventEmitted -ServerLabel "$Label-c" -WorkspaceCustomerId $WorkspaceCustomerId -ToolName $UnmappedProbeToolName -WarnOnly:$WarnOnly
         }
     }
     Write-Host ''
@@ -394,21 +403,87 @@ function Assert-ToolAuthorization {
             & $assertFail "tools/call '$MappedToolName' with the under-entitled token was NOT denied with -32001; a caller missing the required role/scope must be denied by the per-tool check."
         } else {
             Pass "${Label}: tools/call '$MappedToolName' with the under-entitled token denied with -32001 (per-tool check enforced)."
+            Assert-AuditEventEmitted -ServerLabel "$Label-d" -WorkspaceCustomerId $WorkspaceCustomerId -ToolName $MappedToolName -WarnOnly:$WarnOnly
         }
         Write-Host ''
     }
 }
 
-# Placeholder (issue #18): not yet implemented; wired in a follow-up commit once
-# the observability companion change reports its query mechanism (KQL against Log
-# Analytics or the Application Insights REST API, and the resource/workspace id).
+# Asserts a per-tool deny emitted its audit event (issue 18), by querying the
+# Log Analytics workspace the APIM <trace> element writes into. Bounded poll:
+# Application Insights ingestion has no documented latency SLA -- the closest
+# public number is the FAQ's informal "most data has a latency of under 5
+# minutes; some data can take longer" (Microsoft Learn, application-insights-faq,
+# verified 2026-08-06) -- so a single immediate query is not safe. Default
+# timeout is sized to that number with headroom, not a guarantee; this is an
+# accepted flake-risk tradeoff, not a hidden one (COMPATIBILITY.md, 2026-08-06).
+#
+# The KQL deliberately does NOT filter on the <trace> element's "source"
+# attribute: which AppTraces column it lands in is UNVERIFIABLE from Microsoft
+# Learn (neither the trace-policy page nor the Application Insights data-model
+# page documents it -- only "message" and "severityLevel" are named as
+# trace-specific fields). Encoding an unconfirmed column mapping into a gate
+# assertion is exactly the kind of guess this repo's verification discipline
+# forbids, so the query keys off what IS verified instead: SeverityLevel == 3
+# (the documented enum value for the policy's severity="error"), and the
+# <metadata name="tool"/name="caller"/> values, which are verified to land in
+# the dynamic Properties column. This also directly proves the "dimensioned by
+# caller and tool" acceptance wording, not just "an event of some kind fired".
 function Assert-AuditEventEmitted {
     param(
         [string]$ServerLabel,
-        [string]$CallerIdentity,
-        [string]$ToolName
+        [string]$WorkspaceCustomerId,
+        [string]$ToolName,
+        [int]$TimeoutSeconds = 300,
+        [int]$IntervalSeconds = 20,
+        [switch]$WarnOnly
     )
-    throw "Assert-AuditEventEmitted is not yet implemented (issue #18, pending observability companion change)."
+
+    if ([string]::IsNullOrEmpty($WorkspaceCustomerId)) {
+        Write-Host "::warning::[$ServerLabel] audit-event assertion skipped: no workspace id supplied."
+        return
+    }
+
+    $assertFail = if ($WarnOnly) {
+        { param([string]$msg) Write-Host "::warning::[$ServerLabel non-fatal] $msg" }
+    } else {
+        { param([string]$msg) Fail "${ServerLabel}: $msg" }
+    }
+
+    # Escaped for KQL string-literal context (single quotes double up), not for
+    # shell context -- $ToolName values here are fixed script constants
+    # (MappedToolName / UnmappedProbeToolName), never external input.
+    $escapedTool = $ToolName -replace "'", "''"
+    $kql = "AppTraces | where TimeGenerated > ago(15m) | where SeverityLevel == 3 | where tostring(Properties.tool) == '$escapedTool' | where isnotempty(tostring(Properties.caller)) | count"
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $attempt = 0
+    $eventCount = 0
+    while ((Get-Date) -lt $deadline -and $eventCount -eq 0) {
+        $attempt++
+        $raw = (az monitor log-analytics query --workspace $WorkspaceCustomerId --analytics-query $kql -o json 2>$null) -join "`n"
+        if (-not [string]::IsNullOrEmpty($raw)) {
+            try {
+                $rows = $raw | ConvertFrom-Json -ErrorAction Stop
+                if ($rows -is [array] -and $rows.Count -gt 0) {
+                    $eventCount = [int]$rows[0].Count
+                }
+            } catch { $eventCount = 0 }
+        }
+        if ($eventCount -eq 0) {
+            $remaining = [int]($deadline - (Get-Date)).TotalSeconds
+            if ($remaining -gt 0) {
+                Write-Host "  [$ServerLabel] audit event for '$ToolName' not yet queryable (attempt $attempt); ${remaining}s left (Application Insights ingestion latency)."
+                Start-Sleep -Seconds $IntervalSeconds
+            }
+        }
+    }
+
+    if ($eventCount -eq 0) {
+        & $assertFail "no audit trace found for tool '$ToolName' (SeverityLevel=error, Properties.tool match, Properties.caller present) in the audit workspace within ${TimeoutSeconds}s. Either the deny did not emit its trace, the severity/verbosity coupling is broken (ADR-009), or ingestion took longer than this poll window."
+    } else {
+        Pass "${ServerLabel}: audit trace found for tool '$ToolName', dimensioned by caller and tool ($eventCount matching row(s))."
+    }
 }
 
 # Default server 2's expected resource to its URL when not given explicitly.
@@ -765,11 +840,26 @@ Write-Host ''
 # 9. Per-tool authorization (issue 18): set-equality between tools/list and the
 #    map keys (both directions), mapped-tool callable, unmapped-probe denied
 #    (HTTP 200 + JSON-RPC -32001 Protocol Error, id echoed at the envelope top
-#    level), and under-entitled-denied. Expressed as a loop over configured
-#    server instances (issue-18 acceptance criterion). Server 2 uses WarnOnly:
-#    its token entitlement is out-of-band and results may be inconclusive.
+#    level), under-entitled-denied, and (Assert-AuditEventEmitted, called from
+#    within each deny check) that deny emitted its audit trace, queried back
+#    via KQL against the audit Log Analytics workspace with a bounded poll for
+#    Application Insights ingestion latency. Expressed as a loop over
+#    configured server instances (issue-18 acceptance criterion). Server 2
+#    uses WarnOnly throughout: its token entitlement is out-of-band and
+#    results may be inconclusive.
 # ---------------------------------------------------------------------------
-Write-Host "::warning::Audit-event assertion not yet wired (issue 18, pending observability companion change)."
+# Resolve the workspace's own GUID once (az monitor log-analytics query's
+# --workspace expects this, not the ARM resource ID -- verified 2026-08-06),
+# reused for every per-server audit-event assertion below.
+$auditWorkspaceCustomerId = ''
+if (-not [string]::IsNullOrEmpty($AuditWorkspaceId)) {
+    $auditWorkspaceCustomerId = (az monitor log-analytics workspace show --ids $AuditWorkspaceId --query customerId -o tsv 2>$null)
+    if ([string]::IsNullOrEmpty($auditWorkspaceCustomerId)) {
+        Write-Host "::warning::Could not resolve the audit workspace's customerId from '$AuditWorkspaceId'; audit-event assertions will be skipped."
+    }
+} else {
+    Write-Host "::warning::AuditWorkspaceId not supplied; audit-event assertions will be skipped."
+}
 $perToolServers = [System.Collections.Generic.List[hashtable]]::new()
 if (-not [string]::IsNullOrEmpty($ToolAuthorizationMapKeys) -and -not [string]::IsNullOrEmpty($EntitledToken)) {
     $perToolServers.Add(@{
@@ -798,6 +888,7 @@ if ($perToolServers.Count -gt 0) {
             -MappedToolName $MappedToolName `
             -UnmappedProbeToolName $UnmappedProbeToolName `
             -UnderEntitledToken $UnderEntitledToken `
+            -WorkspaceCustomerId $auditWorkspaceCustomerId `
             -WarnOnly:$srv.WarnOnly
     }
 }

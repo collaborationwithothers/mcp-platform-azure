@@ -52,13 +52,19 @@
        entitled caller) and $missingRoleToken (step 1, the under-entitled
        caller) into the discovery-assertions.ps1 script as -EntitledToken and
        -UnderEntitledToken respectively, alongside the Terraform-output
-       -ToolAuthorizationMapKeys and -Server2ToolAuthorizationMapKeys strings.
-       The discovery script runs the set-equality, mapped-callable, unmapped-
-       probe-denied, and under-entitled-denied assertions for each configured
-       server. Wire shape: HTTP 200 + JSON-RPC -32001 Protocol Error with the
-       id echoed at the envelope top level (mcp-server.xml, COMPATIBILITY.md
-       2026-08-06). Tool-name resolution: gen_ai.tool.name context variable,
-       falling back to the parsed body params.name (COMPATIBILITY.md 2026-08-06).
+       -ToolAuthorizationMapKeys, -Server2ToolAuthorizationMapKeys, and
+       -AuditWorkspaceId strings. The discovery script runs the set-equality,
+       mapped-callable, unmapped-probe-denied, and under-entitled-denied
+       assertions for each configured server, and (from within each deny
+       check) asserts that deny emitted its audit trace via a bounded-poll KQL
+       query against the audit Log Analytics workspace (Application Insights
+       ingestion has no documented latency SLA; the FAQ's informal "usually
+       under 5 minutes" is the only public number, COMPATIBILITY.md
+       2026-08-06 -- an accepted flake-risk tradeoff, not a hidden one). Wire
+       shape: HTTP 200 + JSON-RPC -32001 Protocol Error with the id echoed at
+       the envelope top level (mcp-server.xml, COMPATIBILITY.md 2026-08-06).
+       Tool-name resolution: gen_ai.tool.name context variable, falling back
+       to the parsed body params.name (COMPATIBILITY.md 2026-08-06).
 
   Exits non-zero if the MCP client, the discovery assertions, or the registry
   convergence assertion fail. Registry convergence is made deterministic by the
@@ -141,7 +147,12 @@ param(
     [string]$ToolAuthorizationMapKeys = '',
     # Issue 18: server 2's tool_authorization_map keys, comma-joined (Terraform
     # output server_2_tool_authorization_map_keys).
-    [string]$Server2ToolAuthorizationMapKeys = ''
+    [string]$Server2ToolAuthorizationMapKeys = '',
+    # Issue 18: ARM resource ID of the Log Analytics workspace underlying the
+    # audit Application Insights resource (Terraform output audit_workspace_id).
+    # Passed through so discovery-assertions can query back the per-tool deny
+    # audit trace. Optional: when empty, the audit-event assertion is skipped.
+    [string]$AuditWorkspaceId = ''
 )
 
 Set-StrictMode -Version Latest
@@ -261,7 +272,8 @@ Write-Host "[4] Raw-HTTP discovery assertions"
     -ToolAuthorizationMapKeys $ToolAuthorizationMapKeys `
     -Server2ToolAuthorizationMapKeys $Server2ToolAuthorizationMapKeys `
     -EntitledToken $mcpToken `
-    -UnderEntitledToken $missingRoleToken
+    -UnderEntitledToken $missingRoleToken `
+    -AuditWorkspaceId $AuditWorkspaceId
 if ($LASTEXITCODE -ne 0) {
     throw "Discovery assertions failed (exit $LASTEXITCODE)."
 }

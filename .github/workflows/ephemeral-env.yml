@@ -421,6 +421,8 @@ jobs:
           # Issue 18: per-tool authorization map keys for the set-equality gate assertion.
           tool_authorization_map_keys="$(terraform -chdir="$s2_dir" output -raw tool_authorization_map_keys)"
           server_2_tool_authorization_map_keys="$(terraform -chdir="$s2_dir" output -raw server_2_tool_authorization_map_keys)"
+          # Issue 18: audit Log Analytics workspace ARM id, for the audit-event KQL assertion.
+          audit_workspace_id="$(terraform -chdir="$s2_dir" output -raw audit_workspace_id)"
           prm_url="$(terraform -chdir="$s2_dir" output -raw prm_url)"
           registry_url="$(terraform -chdir="$s2_dir" output -raw registry_endpoint_url)"
           api_center_id="$(terraform -chdir="$s2_dir" output -raw api_center_id)"
@@ -505,6 +507,7 @@ jobs:
             -Server1OnlyClientSecret "${TEST_CLIENT_SERVER1_ONLY_SECRET:-}" \
             -ToolAuthorizationMapKeys "$tool_authorization_map_keys" \
             -Server2ToolAuthorizationMapKeys "$server_2_tool_authorization_map_keys" \
+            -AuditWorkspaceId "$audit_workspace_id" \
             -EvidenceDir "${GITHUB_WORKSPACE}/gate-evidence"
 
       # Always upload whatever PRM evidence was captured above, even when the
