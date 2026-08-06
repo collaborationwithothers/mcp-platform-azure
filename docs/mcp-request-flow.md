@@ -123,7 +123,83 @@ is the `Authorization` fallback: the bearer API Management forwards, read via
 - Authenticated, valid call, missing `Orders.Read` -> HTTP 200 with a
   `CallToolResult` where `isError = true` ("403 Forbidden ..."), no downstream
   call (tool tier).
+- Valid token, but it lacks this server's delegated scope and its app role ->
+  HTTP 403 + `WWW-Authenticate: Bearer error="insufficient_scope"` at the
+  gateway, no backend call (gateway tier, HTTP-shaped; issue 17).
+- Valid token, entitled to the server, but not to the tool named in a
+  `tools/call` (or naming a tool with no entry in this server's authorization
+  map) -> HTTP 200 with a JSON-RPC `error` object, code `-32001`, request `id`
+  echoed, no backend call (gateway tier, JSON-RPC-shaped; issue 18).
 
 The three response tiers (transport 401 vs JSON-RPC error vs tool `isError`) are
 diagrammed and explained in ADR-006, "Reference diagrams" and "Request outcomes".
 The identity flows (app-only vs delegated OBO) are also in ADR-006.
+
+### The fourth surface: gateway denial, before the backend
+
+The three tiers above classify a response by its wire shape. That is the right
+axis for a client, which sees only the wire, but it is the wrong axis for an
+operator, who also needs to know how far the request travelled. There is a
+fourth error surface that the three tiers do not name: a denial issued by API
+Management itself, entirely inside the server-scope policy's `<inbound>` section,
+before `<backend><forward-request />` ever runs. The Function host is never
+invoked, so nothing about such a request appears in the backend's logs, and no
+`X-MS-CLIENT-PRINCIPAL` is ever minted for it.
+
+Two instances of this surface exist in the repo, and they do NOT share a wire
+shape. The property they share is where they happen, not what they look like:
+
+| Denial | Wire shape | Where |
+| --- | --- | --- |
+| Per-server entitlement (issue 17) | HTTP 403, `WWW-Authenticate: Bearer error="insufficient_scope"` (RFC 6750), JSON body `{"error":"insufficient_scope", ...}`, deliberately no `resource_metadata` | `<inbound>`, after `validate-azure-ad-token` |
+| Per-tool authorization (issue 18) | HTTP 200, JSON-RPC 2.0 error object, code `-32001`, request `id` echoed, over the normal response channel | `<inbound>`, after the per-server check, gated on `method == "tools/call"` |
+
+Both are in `infra/terraform/modules/apim-mcp-server/policies/mcp-server.xml`.
+
+Why the shapes differ, precisely:
+
+- The per-server denial is an HTTP-layer rejection. It is transport-shaped, like
+  tier 1, but it is a different case from tier 1 and should not be filed under
+  it: tier 1's 401 means the token is missing or invalid, whereas this 403 means
+  the token is valid, correctly audienced, and issued to an allowed client, and
+  is merely under-entitled for this server. A client that retries acquisition
+  will get the same 403; the fix is an entitlement grant, not a fresh token. That
+  is also why the challenge carries `error="insufficient_scope"` and no
+  `resource_metadata`: there is nothing to discover.
+- The per-tool denial is a JSON-RPC-layer rejection. It is NOT an HTTP-layer
+  rejection at all. The MCP specification (2025-06-18) defines exactly two error
+  categories for `tools/call`: Protocol Errors, which are standard JSON-RPC 2.0
+  error objects, and Tool Execution Errors, which are `CallToolResult` with
+  `isError: true` and are reserved for failures during actual tool execution. A
+  gateway-side authorization denial is access control, not a business-logic
+  failure during execution, so it is a Protocol Error: HTTP 200, an error object
+  with the request `id` echoed, delivered over the normal request/response
+  channel. HTTP 401/403 ahead of any JSON-RPC envelope is reserved for
+  transport and session violations, which this is not. See COMPATIBILITY.md,
+  "MCP tools/call denial wire shape", verified 2026-08-06 against the MCP spec
+  directly rather than against Microsoft Learn, since this is a protocol
+  contract and not an Azure one.
+
+The consequence worth internalising is that "which tier" and "how far did it get"
+are independent questions. A JSON-RPC error object on the wire no longer implies
+the request reached the MCP server: since issue 18 it may equally be the gateway
+refusing a `tools/call` it never forwarded. The two are not distinguishable from
+the response alone, and that is intentional (the per-tool deny path is the same
+for a tool the caller is not entitled to and a tool absent from the map, so the
+response does not reveal which). The discriminator is server-side, not on the
+wire: every per-tool deny emits exactly one `<trace>` audit event, dimensioned by
+caller and tool, into Application Insights. An operator asked "was this denied at
+the gateway or by the server?" should answer from that telemetry, not by
+inspecting the client's copy of the response.
+
+The spec does not mandate a numeric code for "not authorized for this tool".
+`-32001` is a custom code in the MCP-reserved range (-32000 to -32099), chosen
+over reusing the spec's `-32602` "Unknown tool" example because that label would
+misdescribe a mapped-but-under-entitled caller.
+
+Note on issue #52. Issue #52 ("MCP (JSON-RPC 2.0) vs REST through an APIM
+gateway: what transfers, what breaks") has no document in this repo yet
+(confirmed 2026-08-06). This section is the canonical home for the
+gateway-denial-as-fourth-surface framing. When #52 is written it should link
+here rather than restate the taxonomy, so the two documents cannot drift into
+disagreeing about it.
