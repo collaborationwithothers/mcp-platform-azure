@@ -181,6 +181,11 @@ variable "registry_deployment" {
   default     = {}
 }
 
+variable "audit_application_insights_id" {
+  type        = string
+  description = "ARM resource ID of the out-of-band Application Insights resource that receives per-tool deny audit events (issue 18). See docs/runbooks/observability-bootstrap.md for the one-time bootstrap procedure. Passed straight through to module.apim_gateway. Supplied as TF_VAR_audit_application_insights_id on the live-test GitHub Environment; never committed."
+}
+
 variable "data_reader_principal_ids" {
   type        = list(string)
   description = "Object ids of Entra principals to grant Azure API Center Data Reader on the registry instance, passed straight through to api-center-registry. The tracer passes the gated live-test OIDC principal that runs ticket 5's bounded poll."

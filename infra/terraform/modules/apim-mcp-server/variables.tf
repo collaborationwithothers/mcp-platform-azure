@@ -114,6 +114,14 @@ variable "product_ids" {
 # set-equality assertion (tools/list vs this map's keys, both directions) is
 # what catches that drift, not this variable. See docs/specs/thickening.md,
 # "Per-tool authorization and tool blocking (#18)", and ADR-009.
+# Per-tool deny audit logger (issue 18). One logger is shared across all
+# apim-mcp-server instances behind the same gateway; this variable threads the
+# logger's ARM resource ID into each instance from the composition.
+variable "audit_logger_id" {
+  type        = string
+  description = "ARM resource ID of the Application Insights audit logger (apim-gateway's audit_logger_id output). The diagnostic setting on this MCP server API references this logger with verbosity = 'error', matching the policy fragment's <trace severity='error'> that emits per-tool deny events (issue 18)."
+}
+
 variable "tool_authorization_map" {
   type = map(object({
     # Claim VALUES as they appear in the validated token, matching

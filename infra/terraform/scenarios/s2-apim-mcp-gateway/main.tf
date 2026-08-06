@@ -121,6 +121,8 @@ module "apim_gateway" {
   publisher_email = var.publisher_email
   tenant_id       = var.entra_validation.tenant_id
   prm             = local.prm
+
+  audit_application_insights_id = var.audit_application_insights_id
 }
 
 module "apim_mcp_server" {
@@ -148,6 +150,8 @@ module "apim_mcp_server" {
   required_role  = var.required_role
 
   tool_authorization_map = var.tool_authorization_map
+
+  audit_logger_id = module.apim_gateway.audit_logger_id
 }
 
 # Second passthrough MCP server (issue 17): a second instance of the same module
@@ -173,6 +177,8 @@ module "apim_mcp_server_2" {
   required_role  = var.server_2_required_role
 
   tool_authorization_map = var.server_2_tool_authorization_map
+
+  audit_logger_id = module.apim_gateway.audit_logger_id
 }
 
 module "api_center_registry" {

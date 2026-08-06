@@ -30,3 +30,8 @@ output "identity_principal_id" {
   description = "Principal ID of the API Management service's system-assigned managed identity. Unused in the tracer; present for the thick interface (e.g. future RBAC wiring)."
   sensitive   = true
 }
+
+output "audit_logger_id" {
+  value       = azapi_resource.audit_logger.id
+  description = "ARM resource ID of the Application Insights audit logger (issue 18). Passed to apim-mcp-server instances as audit_logger_id for the per-API diagnostic setting that captures per-tool deny events at verbosity = error."
+}

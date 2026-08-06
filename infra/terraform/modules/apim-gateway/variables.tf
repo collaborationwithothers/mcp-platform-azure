@@ -61,6 +61,16 @@ variable "tenant_id" {
   description = "Microsoft Entra tenant ID this gateway's callers authenticate against. Not consumed by this module today (Entra token validation is owned by apim-mcp-server's server-scope policy, not the gateway resource itself); present for thick-interface completeness and any future management-plane Entra wiring."
 }
 
+variable "audit_application_insights_id" {
+  type        = string
+  description = "ARM resource ID of the out-of-band Application Insights resource that receives per-tool deny audit events (issue 18). Must be created before the first live run per docs/runbooks/observability-bootstrap.md; lives in a stable resource group never tagged for the ephemeral-env cleanup sweep. Supplied as TF_VAR_audit_application_insights_id on the live-test GitHub Environment; never committed."
+
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Ii]nsights/components/[^/]+$", var.audit_application_insights_id))
+    error_message = "audit_application_insights_id must be a valid Microsoft.Insights/components ARM resource ID."
+  }
+}
+
 variable "prm" {
   type = object({
     authorization_server = string

@@ -40,6 +40,18 @@ locals {
   # adds the schema. See COMPATIBILITY.md.
   azapi_schema_validation_enabled = false
 
+  # Subscription hosting the out-of-band Application Insights resource, derived
+  # from its ARM resource ID for the subscription-scoped role definition reference.
+  audit_appinsights_subscription_id = split("/", var.audit_application_insights_id)[2]
+
+  # Monitoring Metrics Publisher (3913510d-...): built-in role with
+  # Microsoft.Insights/Telemetry/Write and Microsoft.Insights/Metrics/Write
+  # DataActions. Required for APIM's system-assigned managed identity to ingest
+  # telemetry without an instrumentation key (managed-identity credential mode).
+  # GUID verified 2026-08-06:
+  # https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/monitor
+  monitoring_metrics_publisher_role_id = "/subscriptions/${local.audit_appinsights_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/3913510d-42f4-4e42-8a64-420c390055eb"
+
   prm_url = "${module.apim.apim_gateway_url}/.well-known/oauth-protected-resource"
 
   # Root RFC 9728 protected resource metadata document, describing the primary
@@ -205,4 +217,68 @@ resource "azapi_resource" "prm_well_known_pathed_policy" {
       })
     }
   }
+}
+
+# Read-only lookup of the out-of-band Application Insights connection string.
+# The connection string is NOT a committed value or GitHub Environment secret:
+# it is derived at plan/apply time from the ARM resource ID. In managed-identity
+# credential mode the connection string identifies the ingestion endpoint only;
+# actual auth to Application Insights uses APIM's system-assigned identity token,
+# not the instrumentation key embedded in the string. Microsoft Learn,
+# api-management-howto-app-insights (credential types), verified 2026-08-06:
+# https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights
+data "azapi_resource" "audit_appinsights" {
+  type                   = "Microsoft.Insights/components@2020-02-02"
+  resource_id            = var.audit_application_insights_id
+  response_export_values = ["properties.ConnectionString"]
+}
+
+# Monitoring Metrics Publisher on the out-of-band Application Insights resource,
+# granted to the APIM service's system-assigned managed identity. This is the
+# prerequisite for managed-identity credential mode: Microsoft.Insights/Telemetry/Write
+# (a DataAction) lets the identity publish telemetry without the instrumentation key.
+# Verified 2026-08-06:
+# https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights#prerequisites
+# Authoring pattern mirrors api-center-registry's apim_reader/data_reader role
+# assignments: Microsoft.Authorization/roleAssignments@2022-04-01, deterministic
+# name via uuidv5(scope|roleDef|principal), principalType = ServicePrincipal.
+resource "azapi_resource" "monitoring_metrics_publisher" {
+  type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
+  name      = uuidv5("url", "${var.audit_application_insights_id}|${local.monitoring_metrics_publisher_role_id}|${module.apim.resource.identity[0].principal_id}")
+  parent_id = var.audit_application_insights_id
+
+  body = {
+    properties = {
+      roleDefinitionId = local.monitoring_metrics_publisher_role_id
+      principalId      = module.apim.resource.identity[0].principal_id
+      principalType    = "ServicePrincipal"
+    }
+  }
+}
+
+# Application Insights logger for per-tool deny audit events (issue 18).
+# Uses managed-identity credential mode: credentials.connectionString provides
+# the ingestion endpoint; credentials.identityClientId = "SystemAssigned" directs
+# APIM to authenticate via its system-assigned identity rather than the key.
+# The out-of-band Application Insights resource lives in a stable resource group
+# not tagged for the ephemeral-env cleanup sweep. Verified 2026-08-06:
+# https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights
+resource "azapi_resource" "audit_logger" {
+  type      = "Microsoft.ApiManagement/service/loggers@2022-08-01"
+  name      = "audit-appinsights"
+  parent_id = module.apim.resource_id
+
+  body = {
+    properties = {
+      loggerType  = "applicationInsights"
+      description = "Out-of-band Application Insights logger for per-tool deny audit events (issue 18). Managed-identity credential mode; see docs/runbooks/observability-bootstrap.md."
+      resourceId  = var.audit_application_insights_id
+      credentials = {
+        connectionString = data.azapi_resource.audit_appinsights.output.properties.ConnectionString
+        identityClientId = "SystemAssigned"
+      }
+    }
+  }
+
+  depends_on = [azapi_resource.monitoring_metrics_publisher]
 }
