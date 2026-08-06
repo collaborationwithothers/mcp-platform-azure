@@ -33,6 +33,16 @@ output "prm_url" {
   description = "Gateway-root protected resource metadata URL, per RFC 9728. Serves server 1's document; retained as the s3.3 fail-closed guard. The no-token discovery assertion checks the client-visible challenge."
 }
 
+output "tool_authorization_map_keys" {
+  value       = join(",", keys(var.tool_authorization_map))
+  description = "Server 1's tool_authorization_map key set, comma-joined (issue 18). The live gate's per-server set-equality assertion compares this against the deployed server's own tools/list, failing on any difference in either direction."
+}
+
+output "server_2_tool_authorization_map_keys" {
+  value       = join(",", keys(var.server_2_tool_authorization_map))
+  description = "Server 2's tool_authorization_map key set, comma-joined (issue 18)."
+}
+
 output "prm_server_urls" {
   value       = module.apim_gateway.prm_server_urls
   description = "Map of RFC 9728 s3.1 path-inserted PRM URLs keyed by each server's resource URL (issue 17). The gate asserts each returns 200 with resource equal to that server's URL exactly."
