@@ -44,15 +44,22 @@ locals {
   mcp_server_url            = "${local.apim_gateway_url}/${var.server_path}${local.mcp_endpoint_uri_template}"
   # This server's OWN RFC 9728 s3.1 path-inserted PRM location (issue 17): the
   # gateway-root well-known URL with this server's resource path inserted after
-  # it. The 401 challenge points HERE, not at the shared root, so a client
-  # connecting to this server is led to this server's metadata and never another
-  # server's. Matches the apim-gateway module's per-server path-inserted
-  # operation urlTemplate (/.well-known/oauth-protected-resource<resource-path>).
-  # NOTE the deployed type=mcp runtime rewrites resource_metadata to a
-  # path-scoped form on the wire downstream of this policy (issue-9 trace), so
-  # the gate asserts the CLIENT-VISIBLE challenge; emitting the correct
-  # per-server value here is belt-and-braces for paths the rewrite may not cover
-  # (the on-error 401 is unestablished; live-gate checklist).
+  # it. Matches the apim-gateway module's per-server path-inserted operation
+  # urlTemplate (/.well-known/oauth-protected-resource<resource-path>).
+  #
+  # The two 401 sites emit DIFFERENT values because the deployed type=mcp runtime
+  # rewrites the no-token challenge but not the on-error one (established at the
+  # live gate, issue 17; COMPATIBILITY.md):
+  #   - No-token 401 emits prm_url (the gateway ROOT well-known). The runtime
+  #     rewrites it by inserting this server's path after the host, so the
+  #     CLIENT-VISIBLE challenge becomes <gateway>/<server_path>/.well-known/...
+  #     -- per-server automatically. Emitting the path-inserted form there would
+  #     be double-prefixed by the rewrite into a broken URL.
+  #   - On-error 401 emits prm_server_url (this path-inserted value). The runtime
+  #     does NOT rewrite this path, so the literal per-server value reaches the
+  #     client, ensuring a second server's on-error points at its OWN metadata
+  #     and never the shared root (server 1's document). This is the #17 fix for
+  #     the on-error path.
   prm_server_url = "${local.prm_url}/${var.server_path}${local.mcp_endpoint_uri_template}"
 }
 
@@ -147,7 +154,8 @@ resource "azapi_resource" "mcp_server_policy" {
         tenant_id                      = var.entra_validation.tenant_id
         audience                       = var.entra_validation.audience
         allowed_client_application_ids = var.entra_validation.allowed_client_application_ids
-        prm_challenge_url              = local.prm_server_url
+        prm_root_url                   = local.prm_url
+        prm_server_url                 = local.prm_server_url
         required_scope                 = var.required_scope
         required_role                  = var.required_role
       })

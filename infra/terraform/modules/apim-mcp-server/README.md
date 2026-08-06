@@ -73,15 +73,23 @@ This module owns the **challenge**: `azapi_resource.mcp_server_policy` (the
 MCP server's own server-scope policy) handles the two 401 paths -- a
 `return-response` for a missing `Authorization` header, and an `on-error`
 `WWW-Authenticate` header for a token that `validate-azure-ad-token` rejects.
-Both point at this server's **own** RFC 9728 s3.1 path-inserted PRM location
-(`local.prm_server_url` = the gateway-root well-known URL with this server's
-resource path inserted after it; issue 17), so a client connecting to this
-server is led to this server's metadata and never another server's. The
-deployed `type=mcp` runtime rewrites `resource_metadata` to a path-scoped form
-on the wire downstream of this policy (issue-9 trace), so the gate asserts the
-client-visible challenge; emitting the correct per-server value here is the
-fail-safe for paths the rewrite may not cover (the on-error 401 is
-unestablished; live-gate checklist, COMPATIBILITY.md).
+The two paths emit **different** `resource_metadata` values because the deployed
+`type=mcp` runtime rewrites one and not the other (established at the issue-17
+live gate; COMPATIBILITY.md):
+
+- **No-token 401** emits the gateway-**root** well-known URL (`local.prm_url`).
+  The runtime rewrites it by inserting this server's path after the host, so the
+  client-visible challenge becomes `<gateway>/<server_path>/.well-known/...` --
+  already per-server. Emitting the path-inserted form here would be
+  double-prefixed by the rewrite into a broken URL.
+- **On-error 401** emits this server's **path-inserted** PRM URL
+  (`local.prm_server_url`). The runtime does not rewrite this path, so the
+  literal per-server value reaches the client, ensuring a second server's
+  on-error points at its own metadata and never the shared root (server 1's
+  document). This is the issue-17 fix for the on-error path.
+
+Either way, a client connecting to this server is led to this server's metadata,
+never another server's; the gate asserts the client-visible value on both paths.
 
 This module also owns the **per-server entitlement check** (issue 17). After
 `validate-azure-ad-token` succeeds, the policy requires this server's delegated

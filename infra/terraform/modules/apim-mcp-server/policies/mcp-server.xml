@@ -13,19 +13,22 @@
     <base />
     <!--
       MCP clients without a token get the OAuth 2.1 / RFC 9728 challenge
-      directly: 401 plus a WWW-Authenticate header pointing at THIS server's
-      path-inserted protected resource metadata document (issue 17), so a client
-      connecting here is led to this server's metadata, never another server's.
-      This is separate from the validate-azure-ad-token 401 below (an
-      invalid/wrong-audience token), whose WWW-Authenticate header is added in
-      on-error instead.
+      directly: 401 plus a WWW-Authenticate header. This emits the gateway-ROOT
+      well-known URL, NOT this server's path-inserted one, because the deployed
+      type=mcp runtime rewrites the no-token challenge by inserting this server's
+      path after the host (issue-9 / issue-17 live gate): the CLIENT sees
+      <gateway>/<server_path>/.well-known/oauth-protected-resource, which is
+      already per-server. Emitting the path-inserted form here would be
+      double-prefixed by that rewrite into a broken URL. The on-error 401 below
+      is NOT rewritten, so it emits the path-inserted value instead. See
+      COMPATIBILITY.md and the prm_server_url comment in main.tf.
     -->
     <choose>
       <when condition="@(!context.Request.Headers.ContainsKey("Authorization"))">
         <return-response>
           <set-status code="401" reason="Unauthorized" />
           <set-header name="WWW-Authenticate" exists-action="override">
-            <value>@("Bearer resource_metadata=\"${prm_challenge_url}\"")</value>
+            <value>@("Bearer resource_metadata=\"${prm_root_url}\"")</value>
           </set-header>
           <set-header name="Content-Type" exists-action="override">
             <value>application/json</value>
@@ -109,19 +112,21 @@
   <on-error>
     <base />
     <!--
-      validate-azure-ad-token's own 401 does not set WWW-Authenticate;
-      add it here so every 401 from this server (missing token above, or
-      an invalid/wrong-audience token here) carries the same RFC 9728
-      challenge pointing at THIS server's path-inserted metadata (issue 17).
-      Whether the deployed type=mcp runtime also rewrites resource_metadata on
-      this on-error path is unestablished and is on the live-gate checklist
-      (COMPATIBILITY.md, 2026-08-04); emitting the correct per-server value here
-      is the fail-safe if it does not.
+      validate-azure-ad-token's own 401 does not set WWW-Authenticate; add it
+      here so every 401 from this server (missing token above, or an
+      invalid/wrong-audience token here) carries the RFC 9728 challenge. This
+      path emits THIS server's path-inserted PRM URL (prm_server_url), because
+      the deployed type=mcp runtime does NOT rewrite the on-error challenge
+      (established at the issue-17 live gate; COMPATIBILITY.md): the literal
+      value reaches the client, so a second server's on-error points at its OWN
+      metadata and never the shared root (server 1's document). The no-token 401
+      above emits the root value instead, since the runtime rewrites THAT one
+      into a per-server URL.
     -->
     <choose>
       <when condition="@(context.Response != null && context.Response.StatusCode == 401)">
         <set-header name="WWW-Authenticate" exists-action="override">
-          <value>@("Bearer resource_metadata=\"${prm_challenge_url}\"")</value>
+          <value>@("Bearer resource_metadata=\"${prm_server_url}\"")</value>
         </set-header>
       </when>
     </choose>

@@ -473,40 +473,43 @@ if (-not [string]::IsNullOrEmpty($McpServer2Url)) {
 }
 
 # ---------------------------------------------------------------------------
-# 6. On-error 401 challenge recording (acceptance: on-error rewrite behaviour
-#    recorded). A wrong-audience token drives the validate-azure-ad-token 401,
-#    whose WWW-Authenticate is added in the policy's on-error handler. Whether
-#    the deployed type=mcp runtime ALSO rewrites resource_metadata on this
-#    on-error path (as it does on the no-token path) is UNESTABLISHED
-#    (COMPATIBILITY.md, 2026-08-04). This RECORDS the observed value per server;
-#    it is intentionally not a hard assertion, so the gate captures the evidence
-#    without pre-deciding the answer.
+# 6. On-error 401 challenge, per server (acceptance: on-error rewrite behaviour
+#    recorded, and per-server correctness asserted). A wrong-audience token
+#    drives the validate-azure-ad-token 401, whose WWW-Authenticate is added in
+#    the policy's on-error handler. Established at the issue-17 live gate: the
+#    deployed type=mcp runtime does NOT rewrite the on-error challenge (unlike
+#    the no-token path), so the policy's literal value reaches the client. The
+#    policy emits THIS server's path-inserted PRM URL there, so the on-error
+#    challenge must equal that URL -- proving a second server's on-error points
+#    at its OWN metadata and never the shared root (server 1's document). The
+#    actual value is logged either way (the "recorded" half of the acceptance
+#    item); if the platform ever starts rewriting on-error, this assertion trips
+#    so the change is caught (COMPATIBILITY.md).
 # ---------------------------------------------------------------------------
 if (-not [string]::IsNullOrEmpty($WrongAudienceToken)) {
-    Write-Host "[6] On-error 401 challenge recording (rewrite behaviour, per server)"
+    Write-Host "[6] On-error 401 challenge points at each server's own metadata"
+    $gwBase = Get-GatewayBase $PrmUrl
     $onErrTargets = @{ 'server 1' = $McpServerUrl }
     if (-not [string]::IsNullOrEmpty($McpServer2Url)) { $onErrTargets['server 2'] = $McpServer2Url }
     foreach ($name in $onErrTargets.Keys) {
         $url = $onErrTargets[$name]
-        $gwBase = Get-GatewayBase $PrmUrl
-        $expectedPerServer = Get-ObservedChallengeUrl $url $gwBase
+        $expectedOwn = Get-PathInsertedPrmUrl $url $PrmUrl $gwBase
+        $rootPrm = $PrmUrl
         $oe = Invoke-Raw -Uri $url -Headers @{ Authorization = "Bearer $WrongAudienceToken" } -Body $initBody
         if ($oe.StatusCode -ne 401) {
-            Write-Host "  [INFO] $name on-error path returned $($oe.StatusCode), not 401; skipping challenge recording."
+            Fail "$name on-error path returned $($oe.StatusCode), not 401; cannot assert the on-error challenge."
+            continue
+        }
+        $oeWww = Get-HeaderValue -Response $oe -Name 'WWW-Authenticate'
+        Write-Host "  [INFO] $name on-error 401 WWW-Authenticate: '$oeWww'"
+        if ($oeWww -match [regex]::Escape("resource_metadata=`"$expectedOwn`"")) {
+            Pass "$name on-error challenge points at this server's own path-inserted metadata ($expectedOwn)."
+        }
+        elseif ($oeWww -match [regex]::Escape("resource_metadata=`"$rootPrm`"")) {
+            Fail "$name on-error challenge points at the SHARED ROOT PRM ($rootPrm), not this server's own metadata -- a client on this server would be sent to another server's document. Expected '$expectedOwn'."
         }
         else {
-            $oeWww = Get-HeaderValue -Response $oe -Name 'WWW-Authenticate'
-            Write-Host "  [INFO] $name on-error 401 WWW-Authenticate: '$oeWww'"
-            Write-Host "  [INFO] $name expected per-server (path-scoped) resource_metadata if rewritten: '$expectedPerServer'"
-            if ($oeWww -match [regex]::Escape("resource_metadata=`"$expectedPerServer`"")) {
-                Write-Host "  [INFO] $name on-error challenge is path-scoped to this server (rewrite applies on the on-error path too)."
-            }
-            elseif ($oeWww -match 'resource_metadata=') {
-                Write-Host "  [INFO] $name on-error challenge carries a DIFFERENT resource_metadata (rewrite may not apply on on-error; record and reconcile with COMPATIBILITY.md)."
-            }
-            else {
-                Write-Host "  [INFO] $name on-error challenge carries no resource_metadata (record)."
-            }
+            Fail "$name on-error challenge resource_metadata is neither this server's own path-inserted URL ('$expectedOwn') nor the shared root; the on-error emit or the platform's on-error behaviour changed. Got: '$oeWww'. Reconcile with COMPATIBILITY.md."
         }
     }
     Write-Host ''
