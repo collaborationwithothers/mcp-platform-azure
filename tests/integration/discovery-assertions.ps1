@@ -269,7 +269,18 @@ function Assert-ServerDiscovery {
 }
 
 # Thin JSON-RPC wrapper over Invoke-Raw: POSTs a JSON-RPC 2.0 envelope and
-# returns the parsed response body, or $null if the response body is not valid JSON.
+# returns the parsed response body, or $null if the response body is not valid
+# JSON. Accept: application/json, text/event-stream is REQUIRED on every POST
+# to a Streamable HTTP MCP endpoint (MCP spec 2025-06-18, "Streamable HTTP",
+# "Sending Messages to the Server", item 2: "The client MUST include an Accept
+# header, listing both application/json and text/event-stream as supported
+# content types" -- verified directly against the spec, not Microsoft Learn,
+# 2026-08-06). One header, both media types comma-joined in a single string
+# value (not an array -- some PowerShell HTTP client versions mis-serialize an
+# array-valued Accept header). Omitting it is why the live gate's first pass
+# got back a JSON-RPC error (code -32000, "Not Acceptable: Client must accept
+# both application/json and text/event-stream") instead of a real tools/list
+# result -- a bug in this helper, not in the server or the per-tool fragment.
 function Invoke-JsonRpc {
     param(
         [string]$Uri,
@@ -279,7 +290,10 @@ function Invoke-JsonRpc {
         [string]$ParamsJson = '{}'
     )
     $body = "{`"jsonrpc`":`"2.0`",`"id`":$Id,`"method`":`"$Method`",`"params`":$ParamsJson}"
-    $resp = Invoke-Raw -Uri $Uri -Headers @{ Authorization = "Bearer $Token" } -Body $body
+    $resp = Invoke-Raw -Uri $Uri -Headers @{
+        Authorization = "Bearer $Token"
+        Accept        = 'application/json, text/event-stream'
+    } -Body $body
     try {
         return $resp.Content | ConvertFrom-Json -ErrorAction Stop
     } catch {
@@ -287,15 +301,40 @@ function Invoke-JsonRpc {
     }
 }
 
+# Safely extracts the JSON-RPC error code from a parsed body, or $null if
+# there is no error, the body is $null, or (issue 18 live-gate finding) the
+# body is one of THIS repo's pre-existing, non-JSON-RPC HTTP-layer denials
+# (the no-token 401 and the per-server entitlement 403 both predate issue 18
+# and return {"error":"insufficient_scope",...} with error as a plain STRING,
+# not the JSON-RPC {"error":{"code":...,"message":...}} object shape -- see
+# mcp-server.xml). Accessing .error.code directly on a string-shaped error
+# throws under Set-StrictMode ("The property 'code' cannot be found on this
+# object"), which is exactly the crash a per-server-under-entitled token (as
+# opposed to a per-tool-under-entitled one) produces if not guarded against.
+function Get-JsonRpcErrorCode($parsedBody) {
+    if ($null -eq $parsedBody -or $null -eq $parsedBody.error) { return $null }
+    if ($parsedBody.error -is [string]) { return $null }
+    return $parsedBody.error.code
+}
+
+# Companion to Get-JsonRpcErrorCode: true when .error exists but is the OLD,
+# non-JSON-RPC string shape (an HTTP-layer denial from a check that predates
+# issue 18 -- most likely this token failed the PER-SERVER entitlement check,
+# one layer before the per-tool fragment ever runs, per-tool result therefore
+# undetermined rather than failed).
+function Test-LegacyHttpDenial($parsedBody) {
+    return ($null -ne $parsedBody -and $null -ne $parsedBody.error -and $parsedBody.error -is [string])
+}
+
 # True when the parsed JSON-RPC body is the per-tool gateway denial shape:
 # HTTP 200 with error.code == -32001 (issue 18). Distinguishes the per-tool
 # deny from HTTP 401/403 (per-session/per-server checks) and from a normal
-# tools/call result.
+# tools/call result. Uses Get-JsonRpcErrorCode so a legacy string-shaped
+# .error (see above) safely resolves to "not a -32001 deny" rather than
+# throwing.
 function Test-ToolAuthDenial($parsedBody) {
-    return ($null -ne $parsedBody -and
-            $null -ne $parsedBody.error -and
-            $null -ne $parsedBody.error.code -and
-            [int]$parsedBody.error.code -eq -32001)
+    $code = Get-JsonRpcErrorCode $parsedBody
+    return ($null -ne $code -and [int]$code -eq -32001)
 }
 
 # Per-tool authorization (issue 18): set-equality between tools/list and the
@@ -333,10 +372,23 @@ function Assert-ToolAuthorization {
     # tools/call, per mcp-server.xml).
     Write-Host "[$Label-a] $ServerUrl tools/list set equals tool_authorization_map keys"
     $listResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/list' -Id 1 -ParamsJson '{}'
+    if (Test-LegacyHttpDenial $listResult) {
+        # This token failed the PER-SERVER entitlement check (issue 17), one
+        # layer before the per-tool fragment (issue 18) ever runs -- e.g. the
+        # "entitled" token supplied is entitled at a DIFFERENT server, not this
+        # one (a real possibility for server 2, whose entitlement this gate
+        # cannot independently provision -- see the call site). Every check
+        # below shares this token (or a variant of it) and would hit the same
+        # wall, so report it ONCE, clearly, and stop for this server rather
+        # than cascading into confusing or crashing downstream results.
+        & $assertFail "tools/list was rejected before reaching the per-tool gate: '$($listResult.error)' ($($listResult.error_description)). This token is not entitled at the PER-SERVER layer for $ServerUrl; per-tool results for this server are UNDETERMINED, not tested. Skipping (b)/(c)/(d) for $Label."
+        Write-Host ''
+        return
+    }
     if ($null -eq $listResult) {
         & $assertFail "tools/list response was not valid JSON (the request may have been rejected upstream of the per-tool gate; check token entitlement for this server)."
     } elseif ($null -ne $listResult.error) {
-        & $assertFail "tools/list with the entitled token returned a JSON-RPC error (code $($listResult.error.code)): $($listResult.error.message). The per-tool gate must not block tools/list (gate fires only on tools/call)."
+        & $assertFail "tools/list with the entitled token returned a JSON-RPC error (code $(Get-JsonRpcErrorCode $listResult)): $($listResult.error.message). The per-tool gate must not block tools/list (gate fires only on tools/call)."
     } elseif ($null -eq $listResult.result -or $null -eq $listResult.result.tools) {
         & $assertFail "tools/list response did not contain a result.tools array (unexpected response shape)."
     } else {
@@ -356,15 +408,24 @@ function Assert-ToolAuthorization {
     Write-Host ''
 
     # (b) Mapped tool callable: entitled token must NOT be denied by the per-tool
-    # gate. The policy falls through to the backend for a mapped+entitled call, so
-    # any response other than the -32001 error shape proves the gate did not fire.
+    # gate. A POSITIVE check (a real result.tools/call succeeded), not merely
+    # "the response wasn't a -32001 error" -- that weaker check would silently
+    # pass on ANY other failure (e.g. it did, once, when the response was
+    # actually a DIFFERENT JSON-RPC error the gate never checked for; see the
+    # Accept-header fix on Invoke-JsonRpc above).
     Write-Host "[$Label-b] $ServerUrl tools/call '$MappedToolName' with entitled token is NOT denied by the gateway"
     $callResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/call' -Id 2 `
         -ParamsJson "{`"name`":`"$MappedToolName`",`"arguments`":{}}"
-    if (Test-ToolAuthDenial $callResult) {
-        & $assertFail "gateway denied tools/call '$MappedToolName' with the entitled token (error -32001); the entitled caller must not be denied by the per-tool check."
+    if ($null -eq $callResult) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token: response was not valid JSON."
+    } elseif (Test-LegacyHttpDenial $callResult) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token was rejected before reaching the per-tool gate: '$($callResult.error)'; this token is not entitled at the per-server layer."
+    } elseif ($null -ne $callResult.error) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token returned an unexpected JSON-RPC error (code $(Get-JsonRpcErrorCode $callResult)): $($callResult.error.message). Expected a successful result, not any error."
+    } elseif ($null -eq $callResult.result) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token returned neither a result nor an error (unexpected response shape)."
     } else {
-        Pass "${Label}: gateway did not deny tools/call '$MappedToolName' with the entitled token (per-tool check passed)."
+        Pass "${Label}: tools/call '$MappedToolName' succeeded with the entitled token (per-tool check passed, result returned)."
     }
     Write-Host ''
 
@@ -480,7 +541,30 @@ function Assert-AuditEventEmitted {
     }
 
     if ($eventCount -eq 0) {
-        & $assertFail "no audit trace found for tool '$ToolName' (SeverityLevel=error, Properties.tool match, Properties.caller present) in the audit workspace within ${TimeoutSeconds}s. Either the deny did not emit its trace, the severity/verbosity coupling is broken (ADR-009), or ingestion took longer than this poll window."
+        # Diagnostic fallback, evidence only, never itself a pass/fail signal:
+        # a BROADER query (no SeverityLevel/Properties.tool/Properties.caller
+        # filters, just "any AppTraces row from this source in the last 15
+        # minutes") distinguishes a WRITE-side problem (nothing landed at all
+        # -- the trace did not fire, or the severity/verbosity coupling is
+        # broken, ADR-009) from a QUERY-side problem (rows exist but with a
+        # different shape than this assertion assumed -- e.g. Properties.tool
+        # is not where the metadata actually landed). Logged either way so a
+        # failure carries real evidence, not just a timeout.
+        # Filters ONLY on SeverityLevel (verified: severity="error" -> 3). Does
+        # NOT filter on the <trace> element's "source" attribute -- which
+        # AppTraces column that lands in is UNVERIFIABLE from Microsoft Learn
+        # (COMPATIBILITY.md, 2026-08-06); a wrong column name in a diagnostic
+        # query could itself error and produce a misleading empty result,
+        # exactly the failure mode this fallback exists to distinguish from.
+        $diagKql = "AppTraces | where TimeGenerated > ago(15m) | where SeverityLevel == 3 | project TimeGenerated, SeverityLevel, Message, Properties | take 5"
+        $diagRaw = (az monitor log-analytics query --workspace $WorkspaceCustomerId --analytics-query $diagKql -o json 2>$null) -join "`n"
+        if ([string]::IsNullOrEmpty($diagRaw) -or $diagRaw -eq '[]') {
+            Write-Host "  [$ServerLabel] diagnostic: no AppTraces row at ANY severity=error in the last 15m -- this points at the WRITE side (trace not firing, or the severity/verbosity coupling is broken, ADR-009), not the query."
+        } else {
+            Write-Host "  [$ServerLabel] diagnostic: found severity=error row(s) but not matching this assertion's tool/caller filters -- raw rows follow (points at the QUERY side, e.g. a wrong assumption about where Properties.tool/caller land):"
+            Write-Host "  $diagRaw"
+        }
+        & $assertFail "no audit trace found for tool '$ToolName' (SeverityLevel=error, Properties.tool match, Properties.caller present) in the audit workspace within ${TimeoutSeconds}s. Either the deny did not emit its trace, the severity/verbosity coupling is broken (ADR-009), or ingestion took longer than this poll window. See the diagnostic query output above."
     } else {
         Pass "${ServerLabel}: audit trace found for tool '$ToolName', dimensioned by caller and tool ($eventCount matching row(s))."
     }
