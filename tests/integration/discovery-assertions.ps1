@@ -350,10 +350,37 @@ function Invoke-JsonRpc {
         Authorization = "Bearer $Token"
         Accept        = 'application/json, text/event-stream'
     } -Body $body
+
+    # Invoke-WebRequest's .Content is not guaranteed to be a string for every
+    # response Content-Type -- PowerShell may hand back raw bytes for a type
+    # it does not recognize as text (a documented Invoke-WebRequest quirk that
+    # varies by PowerShell version), and text/event-stream is exactly the kind
+    # of less-common type that can trip this. Coerce explicitly rather than
+    # relying on ConvertFrom-SseJsonRpc's [string]$Raw parameter to do it: an
+    # implicit [string] cast on a byte[] calls .ToString(), which produces the
+    # literal, useless text "System.Byte[]", not the decoded content -- a
+    # silent failure that would look identical to "the server sent nothing
+    # parseable" with no way to tell the two apart.
+    $rawText = if ($resp.Content -is [byte[]]) {
+        [System.Text.Encoding]::UTF8.GetString($resp.Content)
+    } else {
+        [string]$resp.Content
+    }
+
     try {
-        return $resp.Content | ConvertFrom-Json -ErrorAction Stop
+        return $rawText | ConvertFrom-Json -ErrorAction Stop
     } catch {
-        return ConvertFrom-SseJsonRpc -Raw $resp.Content -ExpectedId $Id
+        $sseResult = ConvertFrom-SseJsonRpc -Raw $rawText -ExpectedId $Id
+        if ($null -eq $sseResult) {
+            # Neither parse worked. Log real evidence instead of a bare
+            # $null -- content type, length, and a bounded preview -- so a
+            # failure here is diagnosable from the next run's log rather than
+            # another round of guessing.
+            $contentType = try { (Get-HeaderValue -Response $resp -Name 'Content-Type') } catch { '(unknown)' }
+            $preview = if ($rawText.Length -gt 300) { $rawText.Substring(0, 300) + '...(truncated)' } else { $rawText }
+            Write-Host "  [Invoke-JsonRpc] neither plain-JSON nor SSE parsing matched. Content-Type: '$contentType', original .Content type: $($resp.Content.GetType().Name), decoded length: $($rawText.Length). Preview: $preview"
+        }
+        return $sseResult
     }
 }
 
@@ -571,7 +598,19 @@ function Assert-AuditEventEmitted {
     # shell context -- $ToolName values here are fixed script constants
     # (MappedToolName / UnmappedProbeToolName), never external input.
     $escapedTool = $ToolName -replace "'", "''"
-    $kql = "AppTraces | where TimeGenerated > ago(15m) | where SeverityLevel == 3 | where tostring(Properties.tool) == '$escapedTool' | where isnotempty(tostring(Properties.caller)) | count"
+    # A live run confirmed the write side is correct (Application Insights
+    # portal "End-to-end transaction details" for this exact trace shows
+    # Custom Properties tool=<name>, caller=<guid>, severity Error -- and the
+    # diagnostic fallback below independently found the same row), but the
+    # original dot-navigation query (tostring(Properties.tool) == '...')
+    # matched zero rows against it. Rather than guess at the exact reason
+    # (Properties may not be typed dynamic in this pipeline, or dot-navigation
+    # on it behaves differently than assumed), this uses `contains` -- a plain
+    # substring match against the property's text form, which is correct
+    # regardless of whether Properties is stored as a native dynamic value or
+    # a JSON-encoded string, since it matches literally what both the portal
+    # and the diagnostic query already proved is present in that text.
+    $kql = "AppTraces | where TimeGenerated > ago(15m) | where SeverityLevel == 3 | where Properties contains '`"tool`":`"$escapedTool`"' | where Properties contains '`"caller`":`"' | count"
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $attempt = 0
