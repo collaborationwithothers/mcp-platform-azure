@@ -548,6 +548,46 @@ if (-not [string]::IsNullOrEmpty($Server1OnlyToken) -and -not [string]::IsNullOr
 }
 
 # ---------------------------------------------------------------------------
+# 8. No-token challenge URL resolution, RECORDED per server (coverage). Checks 1
+#    and 5-a assert the client-visible no-token challenge STRING; this GETs that
+#    exact URL to record what a client literally following resource_metadata
+#    receives. It is the platform-rewritten path-scoped form
+#    <gateway>/<server_path>/.well-known/oauth-protected-resource. Known from
+#    issue 9 (see COMPATIBILITY.md, ADR-006): this location does NOT serve the PRM
+#    document -- it routes into the MCP server API, which has no such operation --
+#    so it 401s/404s. A spec client therefore relies on the RFC 9728 s3.1
+#    path-inserted location instead, which IS served (checks 2b / 5-b, GET-200 +
+#    resource verified). This step is RECORDED, not asserted: making the literal
+#    no-token challenge URL resolve is the interactive-discovery gap owned by
+#    issue #42, not closed by #17. Recording it makes the coverage explicit and
+#    flags a change if a future platform/design ever makes it serve the document.
+# ---------------------------------------------------------------------------
+Write-Host "[8] No-token challenge URL resolution (recorded; issue 9 / issue 42 gap)"
+$chGwBase = Get-GatewayBase $PrmUrl
+$chTargets = @{ 'server 1' = $McpServerUrl }
+if (-not [string]::IsNullOrEmpty($McpServer2Url)) { $chTargets['server 2'] = $McpServer2Url }
+foreach ($cname in $chTargets.Keys) {
+    $curl = $chTargets[$cname]
+    $expectedRes = if ($cname -eq 'server 2') { $ExpectedResource2 } else { $ExpectedResource }
+    $chUrl = Get-ObservedChallengeUrl $curl $chGwBase
+    $cg = Invoke-Raw -Uri $chUrl -Method 'GET'
+    if ($cg.StatusCode -eq 200) {
+        $served = $false
+        try { $served = (($cg.Content | ConvertFrom-Json -ErrorAction Stop).resource -eq $expectedRes) } catch { $served = $false }
+        if ($served) {
+            Write-Host "  [INFO] $cname no-token challenge URL ($chUrl) now SERVES this server's document (200, resource matches). The issue-9/#42 gap has closed for the literal challenge; update COMPATIBILITY.md and ADR-006."
+        }
+        else {
+            Write-Host "  [INFO] $cname no-token challenge URL ($chUrl) returned 200 but not this server's document; record and reconcile."
+        }
+    }
+    else {
+        Write-Host "  [INFO] $cname no-token challenge URL ($chUrl) returned $($cg.StatusCode) and does NOT serve a document (expected: issue-9/#42 gap). Working discovery is the RFC 9728 s3.1 path-inserted location asserted in checks 2b/5-b."
+    }
+}
+Write-Host ''
+
+# ---------------------------------------------------------------------------
 if ($script:Failures -gt 0) {
     Write-Host "== Discovery assertions FAILED: $script:Failures check(s) failed =="
     exit 1

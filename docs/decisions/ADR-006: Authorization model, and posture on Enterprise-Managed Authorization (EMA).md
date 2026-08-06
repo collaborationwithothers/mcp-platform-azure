@@ -323,20 +323,46 @@ only against the root authority, a second server needs hostname-per-server
 (or stays on its own gateway); if clients have gained path-suffix support,
 the path-suffixed router becomes available.
 
-Resolved by issue 17 (2026-08-04): the re-test ran, and the second server was
-added on the per-server path-INSERTED (RFC 9728 s3.1) form rather than
-hostname-per-server. The prediction above ("a second server needs
-hostname-per-server") is superseded for that reason; see "Multi-server
-composition (issue 17)" below.
+Resolved by issue 17: the re-test was satisfied by INHERITANCE, not a fresh
+interactive run. Issue 9's VS Code discovery trace (2026-07-18) already
+established that a spec client fetches and accepts the RFC 9728 s3.1
+path-inserted location; issue 17's live gate (2026-08-06) then confirmed, at the
+raw-HTTP layer, that each server's path-inserted location serves that server's
+document (200, resource match). On that basis the second server was added on the
+path-INSERTED form rather than hostname-per-server, and the prediction above ("a
+second server needs hostname-per-server") is superseded. What was NOT done is a
+fresh interactive-client (VS Code / MCP Inspector) discovery run against the
+two-server gateway: an actual client following the no-token challenge end to end
+is the interactive-discovery work owned by issue #42 (see the no-token-challenge
+note in "Multi-server composition (issue 17)" below). See that section for the
+full decision.
 
 ## Multi-server composition (issue 17)
 
-Added 2026-08-04 recording the multi-server decision from ticket 17: how a
-second MCP server behind the one gateway discovers, authenticates, and is
-isolated. This section refines the PRM placement and the trusted-subsystem
-identity mechanics above for the two-server case; it does not change the v1
-Decision. It also resolves the "Growth paths"/"Trigger" prediction above (the
-re-test landed on path-inserted, not hostname-per-server).
+Added 2026-08-04 recording the multi-server decision from ticket 17 (live-gate
+findings appended 2026-08-06): how a second MCP server behind the one gateway
+discovers, authenticates, and is isolated. This section refines the PRM
+placement and the trusted-subsystem identity mechanics above for the two-server
+case; it does not change the v1 Decision. It also resolves the
+"Growth paths"/"Trigger" prediction above (the re-test was satisfied by
+inheritance from issue 9 plus the issue-17 raw-HTTP gate, landing on
+path-inserted, not hostname-per-server; a fresh interactive re-test is #42).
+
+Live-gate honesty note (no-token challenge resolution, NOT closed by #17). The
+deployed type=mcp runtime rewrites the no-token 401 challenge to the path-scoped
+form `<gateway>/<server_path>/.well-known/oauth-protected-resource` (issue 9;
+COMPATIBILITY.md). That URL does NOT itself serve a PRM document -- it routes
+into the MCP server API, which has no well-known operation. Working discovery
+therefore rests on a spec client using the RFC 9728 s3.1 path-inserted location
+(which IS served, GET-200 asserted per server at the gate), NOT on the client
+literally following the rewritten no-token challenge. Issue 17 generalises this
+issue-9 gap to a second server and PROVES the s3.1 served location for both; it
+does not close the literal-no-token-challenge resolution, which needs an
+interactive-client trace and belongs to #42. The gate records the no-token
+challenge URL's response each run (discovery-assertions.ps1 check 8) so the gap
+is visible and any future closure is caught. The on-error path, by contrast, is
+fully closed: its emitted value equals the served path-inserted location and is
+not rewritten (GET-200 asserted).
 
 ### Per-server path-inserted PRM (RFC 9728 s3.1), served at the gateway root
 
