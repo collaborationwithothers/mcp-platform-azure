@@ -35,3 +35,8 @@ output "audit_logger_id" {
   value       = azapi_resource.audit_logger.id
   description = "ARM resource ID of the Application Insights audit logger (issue 18). Passed to apim-mcp-server instances as audit_logger_id for the per-API diagnostic setting that captures per-tool deny events at verbosity = error."
 }
+
+output "audit_workspace_id" {
+  value       = local.audit_workspace_id
+  description = "ARM resource ID of the Log Analytics workspace underlying the out-of-band Application Insights resource (issue 18). The live gate resolves this to the workspace's own GUID (az monitor log-analytics workspace show --query customerId) before running its audit-event KQL assertion."
+}

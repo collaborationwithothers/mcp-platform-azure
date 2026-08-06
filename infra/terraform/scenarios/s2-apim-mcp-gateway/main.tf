@@ -123,6 +123,7 @@ module "apim_gateway" {
   prm             = local.prm
 
   audit_application_insights_id = var.audit_application_insights_id
+  data_reader_principal_ids     = var.data_reader_principal_ids
 }
 
 module "apim_mcp_server" {

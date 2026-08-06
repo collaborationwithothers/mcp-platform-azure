@@ -188,6 +188,6 @@ variable "audit_application_insights_id" {
 
 variable "data_reader_principal_ids" {
   type        = list(string)
-  description = "Object ids of Entra principals to grant Azure API Center Data Reader on the registry instance, passed straight through to api-center-registry. The tracer passes the gated live-test OIDC principal that runs ticket 5's bounded poll."
+  description = "Object ids of Entra principals to grant Azure API Center Data Reader on the registry instance (passed to api-center-registry) AND Log Analytics Data Reader on the audit workspace (passed to apim-gateway, issue 18), so the same principal can both run the ticket-5 bounded registry poll and the live gate's audit-event KQL assertion."
   default     = []
 }

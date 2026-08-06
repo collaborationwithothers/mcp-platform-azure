@@ -103,7 +103,7 @@ the `live-test` environment and never run from PR CI.
 | `registry_name` | string | BASE name of the API Center service; a per-deployment suffix is appended (see Global names and soft-delete). |
 | `registry_environment` | object | Passed straight through to `api-center-registry`. |
 | `registry_deployment` | object | Passed straight through to `api-center-registry`. Default matches the module's own default. |
-| `data_reader_principal_ids` | list(string) | Principals granted Azure API Center Data Reader on the registry instance. The tracer passes the live-test OIDC principal that runs ticket 5's bounded poll. Empty by default. |
+| `data_reader_principal_ids` | list(string) | Principals granted Azure API Center Data Reader on the registry instance AND Log Analytics Data Reader on the audit workspace (issue 18). The tracer passes the live-test OIDC principal that runs ticket 5's bounded poll and the live gate's audit-event KQL assertion. Empty by default. |
 | `audit_application_insights_id` | string | ARM resource ID of the out-of-band Application Insights resource that receives per-tool deny audit events (issue 18). See `docs/runbooks/observability-bootstrap.md`; supplied as `TF_VAR_audit_application_insights_id` on the `live-test` GitHub Environment, never committed. |
 
 ## Outputs

@@ -38,6 +38,11 @@ output "tool_authorization_map_keys" {
   description = "Server 1's tool_authorization_map key set, comma-joined (issue 18). The live gate's per-server set-equality assertion compares this against the deployed server's own tools/list, failing on any difference in either direction."
 }
 
+output "audit_workspace_id" {
+  value       = module.apim_gateway.audit_workspace_id
+  description = "ARM resource ID of the Log Analytics workspace underlying the out-of-band Application Insights audit resource (issue 18). The live gate resolves this to the workspace's own GUID before running its audit-event KQL assertion."
+}
+
 output "server_2_tool_authorization_map_keys" {
   value       = join(",", keys(var.server_2_tool_authorization_map))
   description = "Server 2's tool_authorization_map key set, comma-joined (issue 18)."
