@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17" type="device">
+  <diagram name="multi-server-composition" id="multi-server">
+    <mxGraphModel dx="1400" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1560" pageHeight="980" background="#FFFFFF" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Multi-server composition: two MCP servers behind one gateway" style="text;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=20;fontColor=#000000;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="50" y="18" width="900" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Phase 3.5 thickening (issue #17), ADR-006. Extends v1.0.0; proven at the live gate 2026-08-06, pending merge. NOT part of the v1.0.0 tag." style="text;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=13;fontColor=#666666;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="50" y="50" width="1000" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="azure-zone" value="Azure public-demo deployment (public endpoints)" style="rounded=1;fillColor=#f2f7fd;strokeColor=#6c8ebf;dashed=1;strokeWidth=2;verticalAlign=top;align=left;spacingTop=10;spacingLeft=12;fontStyle=1;fontColor=#3b5a80;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="300" y="100" width="1200" height="820" as="geometry" />
+        </mxCell>
+        <mxCell id="mcp-client" value="MCP client&#10;delegated or app-only" style="sketch=0;points=[[0,0,0],[1,0,0],[0,1,0],[1,1,0],[0,0.5,0],[1,0.5,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/general/Browser.svg;" vertex="1" parent="1">
+          <mxGeometry x="120" y="470" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="entra-icon" value="Microsoft Entra ID&#10;shared app registration; per-server scope + role" style="sketch=0;points=[[0,0,0],[1,0,0],[0,1,0],[1,1,0],[0,0.5,0],[1,0.5,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/identity/Azure_Active_Directory.svg;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="150" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="gateway-zone" value="API Management (Basic v2): one MCP gateway" style="rounded=1;fillColor=#eef7ee;strokeColor=#82b366;dashed=1;strokeWidth=2;verticalAlign=top;align=left;spacingTop=10;spacingLeft=12;fontStyle=1;fontColor=#4a7a3b;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="340" y="250" width="620" height="560" as="geometry" />
+        </mxCell>
+        <mxCell id="apim-icon" value="MCP gateway&#10;PRM + 401 + per-server entitlement" style="sketch=0;points=[[0,0,0],[1,0,0],[0,1,0],[1,1,0],[0,0.5,0],[1,0.5,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/app_services/API_Management_Services.svg;" vertex="1" parent="1">
+          <mxGeometry x="372" y="286" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="root-prm" value="Root PRM document (RFC 9728): describes the primary server.&#10;Retained as the s3.3 fail-closed guard: a client that falls back here while&#10;targeting another server sees a resource mismatch and MUST discard it." style="rounded=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontColor=#1a1a1a;fontSize=11;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=8;" vertex="1" parent="1">
+          <mxGeometry x="470" y="284" width="470" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="orders-api" value="MCP server API:  /orders&#10;&#10;- Own path-inserted PRM document (RFC 9728 s3.1)&#10;- 401 challenge leads to ITS OWN metadata&#10;   (no-token rewritten by APIM to the server path;&#10;    on-error emits the path-inserted URL)&#10;- Entitlement check (after token validation):&#10;   scp 'Orders.Invoke'  OR  roles 'Orders.Invoke.All'&#10;- else 403 insufficient_scope" style="rounded=1;fillColor=#ffffff;strokeColor=#2f5b9c;strokeWidth=1.6;fontColor=#1a1a1a;fontSize=11;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;spacingRight=8;" vertex="1" parent="1">
+          <mxGeometry x="372" y="374" width="560" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="catalog-api" value="MCP server API:  /catalog   (2nd instance of the same module)&#10;&#10;- Own path-inserted PRM document (RFC 9728 s3.1)&#10;- 401 challenge leads to ITS OWN metadata&#10;   (never /orders' document)&#10;- Entitlement check (after token validation):&#10;   scp 'Catalog.Invoke'  OR  roles 'Catalog.Invoke.All'&#10;- else 403 insufficient_scope" style="rounded=1;fillColor=#ffffff;strokeColor=#2f5b9c;strokeWidth=1.6;fontColor=#1a1a1a;fontSize=11;align=left;verticalAlign=top;spacingLeft=10;spacingTop=8;spacingRight=8;" vertex="1" parent="1">
+          <mxGeometry x="372" y="574" width="560" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="mcp-function-icon" value="MCP server Function App (shared backend)&#10;Easy Auth V2; Orders.Read app-role check (issue #45)" style="sketch=0;points=[[0,0,0],[1,0,0],[0,1,0],[1,1,0],[0,0.5,0],[1,0.5,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/compute/Function_Apps.svg;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="470" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="api-center-icon" value="API Center&#10;both servers synced" style="sketch=0;points=[[0,0,0],[1,0,0],[0,1,0],[1,1,0],[0,0.5,0],[1,0.5,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/web/API_Center.svg;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="700" width="64" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="e-token" value="get token&#10;(per-server scope/role)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp-client" target="entra-icon">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="152" y="182" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-call" value="MCP call + bearer" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=classic;strokeColor=#2f5b9c;strokeWidth=2;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp-client" target="apim-icon">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-fwd1" value="forward (same backend host)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=classic;strokeColor=#6c8ebf;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;" edge="1" parent="1" source="orders-api" target="mcp-function-icon">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-fwd2" value="forward (same backend host)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=classic;strokeColor=#6c8ebf;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.6;entryDx=0;entryDy=0;" edge="1" parent="1" source="catalog-api" target="mcp-function-icon">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-sync" value="inventory sync (both servers)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=classic;dashed=1;strokeColor=#6c8ebf;strokeWidth=1.6;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="apim-icon" target="api-center-icon">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1000" y="318" /><mxPoint x="1192" y="318" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="isolation-note" value="Per-server isolation: a token entitled to /orders only is ACCEPTED at /orders and&#10;REJECTED at /catalog (403 insufficient_scope). Shared audience; isolation is per GRANT,&#10;not per token. Audience-per-server is deferred to issue #42." style="rounded=1;fillColor=#fdeeee;strokeColor=#b85450;fontColor=#000000;fontSize=11;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;" vertex="1" parent="1">
+          <mxGeometry x="340" y="830" width="620" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="scope-note" value="Deliberately NOT here (issue #17): the REST-export server (#58/#18), per-tool authorization (#18),&#10;content safety (#19), hostname-per-server and audience-per-server (#42). No backend change.&#10;Challenge-rewrite behaviour is undocumented APIM; see COMPATIBILITY.md (re-verify each run)." style="rounded=1;fillColor=#fff9cc;strokeColor=#d6b656;fontColor=#000000;fontSize=11;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;" vertex="1" parent="1">
+          <mxGeometry x="980" y="830" width="500" height="72" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
