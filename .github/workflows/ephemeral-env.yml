@@ -292,6 +292,11 @@ jobs:
           TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
           TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
           TF_VAR_data_reader_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
+          # Issue 18: out-of-band Application Insights resource id, provisioned
+          # once per docs/runbooks/observability-bootstrap.md. Required (no
+          # default); the GitHub Environment variable name already carries the
+          # TF_VAR_ prefix per that runbook's step 5.
+          TF_VAR_audit_application_insights_id: ${{ vars.TF_VAR_audit_application_insights_id }}
         run: |
           terraform init -input=false \
             -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
@@ -524,6 +529,7 @@ jobs:
           TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
           TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
           TF_VAR_data_reader_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
+          TF_VAR_audit_application_insights_id: ${{ vars.TF_VAR_audit_application_insights_id }}
         run: |
           terraform destroy -input=false -auto-approve \
             -var-file="${{ github.workspace }}/s2.tfvars.json" \
