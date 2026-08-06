@@ -2,37 +2,50 @@
 
 Wraps [`Azure/avm-res-apimanagement-service/azurerm` 0.9.0](https://registry.terraform.io/modules/Azure/avm-res-apimanagement-service/azurerm/0.9.0)
 to provision the API Management instance that fronts the Functions MCP
-server, at the Basic v2 SKU with a system-assigned managed identity, and to
-serve the single gateway-root protected resource metadata (PRM) document.
-This is the S2 gateway module in the [v1 tracer bullet](../../../../docs/specs/v1-tracer-bullet.md).
+server(s), at the Basic v2 SKU with a system-assigned managed identity, and to
+serve their RFC 9728 protected resource metadata (PRM) documents: one root
+document plus one path-inserted document per server behind the gateway
+(issue 17). This is the S2 gateway module in the [v1 tracer bullet](../../../../docs/specs/v1-tracer-bullet.md).
 
 No deployment happens in this ticket: the module is proven by `terraform fmt`,
 `init -backend=false`, `validate`, `tflint`, and `checkov` only. The live
 apply-call-destroy proof is the integration issue (issue 5 of the tracer
 epic, per the spec's Delivery shape).
 
-## Root PRM document lives here (the instantiate-twice test)
+## PRM documents live here (the per-server collection)
 
-The RFC 9728 PRM document is served at the gateway root well-known path
-`/.well-known/oauth-protected-resource`. That location is a property of the
-gateway: an API Management service has exactly one root path
-(`path = ""`), so exactly one root PRM document. Only the document's
-*contents* describe a specific MCP server, and those arrive as the `prm`
-input from the composition.
+The RFC 9728 PRM documents are served by a single well-known API mounted at the
+gateway root (`path = ""`). The well-known *locations* are a property of the
+gateway host, so this one API carries them all:
 
-The singleton lives in this module rather than in `apim-mcp-server` because
-of the instantiate-twice test: `apim-mcp-server` can be instantiated more
-than once against one gateway (several MCP servers behind one APIM), but the
-root PRM document cannot -- a second module trying to create a second API at
-`path = ""` would collide. The singleton belongs in the layer whose
-cardinality it shares (one per gateway), so a second MCP server added later
-reuses this one document instead of fighting over the root path. The
-multi-server, path-suffixed PRM form (metadata scoped per resource path) is
-a documented ADR growth path, not this interface.
+- **Root** (`/.well-known/oauth-protected-resource`): the primary server's
+  document. Retained as the RFC 9728 s3.3 fail-closed guard -- a client that
+  falls back to root while targeting another server sees a `resource` mismatch
+  and MUST discard the document, so a misrouted discovery is rejected rather
+  than silently binding to the wrong resource.
+- **Path-inserted** (`/.well-known/oauth-protected-resource<resource-path>`, RFC
+  9728 s3.1): one operation per server behind the gateway, each serving THAT
+  server's document. A spec-conformant client validating a path-bearing resource
+  (a server's URL) fetches the document at the path-inserted location and rejects
+  a bare-root document whose `resource` carries a path (VS Code MCP trace,
+  2026-07-18). This is the count-guarded single-server pathed operation of v1
+  generalised to a per-server collection: RFC 9728's own multi-resource
+  construction, not a workaround (ADR-006, issue 17).
 
-`apim-mcp-server` still owns the 401 plus `WWW-Authenticate` **challenge**
-in its server-scope policy; this module owns the **document** the challenge
-points at, exposed as the `prm_url` output.
+Each operation carries its own **operation-scoped** policy serving its document.
+Operation-scoped rather than one API-level policy because each path-inserted
+operation returns a different body, and an API-level `<return-response>` would
+terminate via `<base />` before an operation policy could override it.
+
+The documents' *contents* describe specific servers and arrive as the `prm`
+input from the composition. `apim-mcp-server` is what gets instantiated once per
+server; this well-known API does not multiply. That is the instantiate-twice
+contract: server instances multiply, the PRM API stays one.
+
+`apim-mcp-server` still owns the 401 plus `WWW-Authenticate` **challenge** in its
+server-scope policy (now emitting each server's own path-inserted URL); this
+module owns the **documents** the challenges point at, exposed as the `prm_url`
+(root) and `prm_server_urls` (path-inserted, per server) outputs.
 
 Serving mechanics: as of 2026-07-12 Microsoft Learn documents no native APIM
 feature for serving a document at the gateway root well-known path (the
@@ -100,7 +113,7 @@ See COMPATIBILITY.md for the full pin table and doc links.
 | `publisher_name` | string | API Management publisher/company name. |
 | `publisher_email` | string | API Management publisher email. |
 | `tenant_id` | string | Entra tenant ID callers authenticate against. Not consumed by this module (Entra token validation is owned by `apim-mcp-server`'s server-scope policy); present for thick-interface completeness. |
-| `prm` | object | `{ resource, authorization_server, scopes }` -- the contents of the single root PRM document. Singular values for one document (not a map): `resource` is the protected resource identifier, `authorization_server` is the OAuth authorization server (issuer) URL rendered into `authorization_servers[0]`, `scopes` becomes `scopes_supported`. Supplied by the composition from the MCP server's identity values. |
+| `prm` | object | `{ authorization_server, root = { resource, scopes }, servers = [{ resource, scopes }] }` -- the per-server PRM collection (issue 17). `authorization_server` is the shared OAuth authorization server (issuer) URL rendered into `authorization_servers[0]` of every document. `root` describes the primary server, served at the gateway root well-known location (the s3.3 fail-closed guard). `servers` is the full set of servers behind the gateway; each whose `resource` carries a path gets its own document at its RFC 9728 s3.1 path-inserted location. `resource` is the MCP server URL, not the token audience; `scopes` becomes that server's `scopes_supported`. Supplied by the composition. |
 
 ## Outputs
 
@@ -109,7 +122,8 @@ See COMPATIBILITY.md for the full pin table and doc links.
 | `apim_id` | ARM resource ID of the API Management service. |
 | `apim_name` | Name of the API Management service. |
 | `gateway_url` | Gateway URL (`https://<name>.azure-api.net`). |
-| `prm_url` | Gateway-root PRM URL (`https://<gateway>/.well-known/oauth-protected-resource`), per RFC 9728. Served at the gateway root, not under any API subpath. `apim-mcp-server`'s 401 challenge points callers here. |
+| `prm_url` | Gateway-root PRM URL (`https://<gateway>/.well-known/oauth-protected-resource`), per RFC 9728. Serves the primary server's document; retained as the s3.3 fail-closed guard for clients that fall back to root while targeting another server. |
+| `prm_server_urls` | Map of RFC 9728 s3.1 path-inserted PRM URLs keyed by each server's resource URL (issue 17). Each value is the well-known location a spec client resolves for that server. The gate asserts each returns 200 with `resource` equal to that server's URL exactly. |
 | `identity_principal_id` | Principal ID of the system-assigned managed identity. Unused in the tracer; present for the thick interface. |
 
 ## Out of scope (this ticket)

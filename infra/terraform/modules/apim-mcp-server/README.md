@@ -63,29 +63,52 @@ Learn, not recalled from training data:
   [Expose and govern an existing MCP server](https://learn.microsoft.com/azure/api-management/expose-existing-mcp-server#configure-policies-for-the-mcp-server).
   This module's policies never reference it.
 
-## The 401 challenge, and where the PRM document lives
+## The 401 challenge, per-server entitlement, and where the PRM lives
 
 The spec's acceptance criteria require APIM to own the 401 plus
 `WWW-Authenticate` challenge for unauthenticated MCP calls, pointing callers
-at the protected resource metadata (PRM) document served at the gateway root
-well-known path (`/.well-known/oauth-protected-resource`).
+at this server's protected resource metadata (PRM) document.
 
 This module owns the **challenge**: `azapi_resource.mcp_server_policy` (the
 MCP server's own server-scope policy) handles the two 401 paths -- a
 `return-response` for a missing `Authorization` header, and an `on-error`
 `WWW-Authenticate` header for a token that `validate-azure-ad-token` rejects.
-Both point at `prm_url` (this module derives that URL from the gateway
-hostname it reads via the `azapi_resource.apim` data source).
+The two paths emit **different** `resource_metadata` values because the deployed
+`type=mcp` runtime rewrites one and not the other (established at the issue-17
+live gate; COMPATIBILITY.md):
 
-The **PRM document itself** is served by the `apim-gateway` module, not this
-one. The root well-known location is a property of the gateway (one root
-path per API Management service, so one root document), whereas this module
-can be instantiated more than once against a single gateway. The singleton
-therefore belongs in the gateway, whose cardinality it shares; a second MCP
-server added to the same gateway reuses the gateway's single PRM document.
-`apim-gateway`'s README documents the instantiate-twice rationale and the
-`blackchoey/remote-mcp-apim-oauth-prm` reference pattern the document
-serving follows.
+- **No-token 401** emits the gateway-**root** well-known URL (`local.prm_url`).
+  The runtime rewrites it by inserting this server's path after the host, so the
+  client-visible challenge becomes `<gateway>/<server_path>/.well-known/...` --
+  already per-server. Emitting the path-inserted form here would be
+  double-prefixed by the rewrite into a broken URL.
+- **On-error 401** emits this server's **path-inserted** PRM URL
+  (`local.prm_server_url`). The runtime does not rewrite this path, so the
+  literal per-server value reaches the client, ensuring a second server's
+  on-error points at its own metadata and never the shared root (server 1's
+  document). This is the issue-17 fix for the on-error path.
+
+Either way, a client connecting to this server is led to this server's metadata,
+never another server's; the gate asserts the client-visible value on both paths.
+
+This module also owns the **per-server entitlement check** (issue 17). After
+`validate-azure-ad-token` succeeds, the policy requires this server's delegated
+scope in the `scp` claim OR its app role in the `roles` claim, and fails closed
+with a `403 insufficient_scope` (RFC 6750) otherwise. OR, not AND, because a
+delegated (user) token carries `scp` and no `roles`, an app-only token the
+reverse, and `validate-azure-ad-token`'s `required-claims` ANDs its entries so
+cannot express the OR (Microsoft Learn, verified 2026-08-04; COMPATIBILITY.md).
+The required scope and role are the per-server `required_scope` / `required_role`
+inputs. This is what makes a caller granted only server 1's entitlement
+accepted at server 1 and rejected at server 2.
+
+The **PRM documents** are served by the `apim-gateway` module, not this one.
+The well-known locations are a property of the gateway host, so the gateway
+serves one root document (the s3.3 fail-closed guard) plus one path-inserted
+document per server; this module is what gets instantiated once per server.
+`apim-gateway`'s README documents the per-server collection and the
+`blackchoey/remote-mcp-apim-oauth-prm` reference pattern the document serving
+follows.
 
 **As of 2026-07-12, Microsoft Learn documents no native APIM feature for
 serving PRM at the gateway root** (the "Secure access to MCP servers in API
@@ -107,12 +130,16 @@ what this platform deploys.
 | `transport` | object | `{ type = "streamable", endpoints = [{ name = "message", uri_template = "/mcp" }] }` by default. `sse` requires exactly two endpoints (`sse`, `message`). |
 | `subscription_required` | bool | Default `false` (no products/subscriptions in the tracer). |
 | `entra_validation` | object | `{ tenant_id, audience, allowed_client_application_ids }`. `audience` is the server app's App ID URI. |
+| `required_scope` | string | Per-server delegated scope value (issue 17): the value as it appears in the token `scp` claim (the short scope name, not the full App ID URI). Checked with OR semantics against `required_role` after token validation. Supplied by the composition; the value is out-of-band (tfvars), never committed. |
+| `required_role` | string | Per-server app role value (issue 17): the value as it appears in the token `roles` claim. Checked with OR semantics against `required_scope`. Supplied by the composition; out-of-band (tfvars), never committed. |
 | `product_ids` | list(string) | Existing product names to bind to. Default `[]` (empty in the tracer); appending here is additive, not a restructure. |
 
 The PRM document contents (resource identifier, authorization server URL,
 scopes) are not inputs to this module; they are inputs to `apim-gateway`,
-which serves the single root document. The composition supplies them there
-from this server's identity values.
+which serves the per-server documents. The composition supplies them there
+from each server's identity values. This module contributes only the
+per-server entitlement (`required_scope` / `required_role`) that its own policy
+enforces, and derives its own path-inserted PRM URL for the challenge.
 
 ## Outputs
 

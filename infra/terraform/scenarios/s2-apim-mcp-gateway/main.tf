@@ -45,19 +45,39 @@ locals {
   # PRM resource against the live mcp_server_url, so a divergence fails the gate.
   server_mcp_url = "https://${local.apim_name_unique}.azure-api.net/${var.server_path}${local.mcp_transport.endpoints[0].uri_template}"
 
-  # The gateway-root PRM document's contents describe this server. RFC 9728:
-  # resource is the MCP SERVER URL the client connects to (what VS Code and other
-  # spec clients validate the document against), NOT the token audience. The
-  # token audience stays api://<server-app> because scopes_supported below drives
-  # the client's scope request and Entra sets the token aud from the scope's
+  # Server 2's client-facing MCP URL, built from primitives the same way and for
+  # the same no-cycle reason (issue 17). Must equal
+  # module.apim_mcp_server_2.mcp_server_url byte-for-byte; the discovery
+  # assertion cross-checks each PRM resource against the live server URL.
+  server_2_mcp_url = "https://${local.apim_name_unique}.azure-api.net/${var.server_2_path}${local.mcp_transport.endpoints[0].uri_template}"
+
+  # Per-server PRM collection (issue 17). Each document's resource is the MCP
+  # SERVER URL the client connects to (what VS Code and other spec clients
+  # validate the document against), NOT the token audience. The token audience
+  # stays api://<server-app> because each server's scopes_supported drives the
+  # client's scope request and Entra sets the token aud from the scope's
   # resource, independent of this field (Entra ignores the RFC 8707 resource
-  # parameter; see COMPATIBILITY.md). authorization_server is the Entra v2.0
-  # issuer for entra_validation.tenant_id. docs/specs/v1-tracer-bullet.md,
-  # Gateway and authorization (S2).
+  # parameter; see COMPATIBILITY.md). authorization_server is the shared Entra
+  # v2.0 issuer for entra_validation.tenant_id. root describes server 1 and is
+  # served at the gateway root (the RFC 9728 s3.3 fail-closed guard); servers
+  # lists both, each getting its own path-inserted document advertising only its
+  # own scope. docs/specs/thickening.md, Multi-server composition (#17).
   prm = {
-    resource             = local.server_mcp_url
     authorization_server = "https://login.microsoftonline.com/${var.entra_validation.tenant_id}/v2.0"
-    scopes               = var.prm_scopes
+    root = {
+      resource = local.server_mcp_url
+      scopes   = var.prm_scopes
+    }
+    servers = [
+      {
+        resource = local.server_mcp_url
+        scopes   = var.prm_scopes
+      },
+      {
+        resource = local.server_2_mcp_url
+        scopes   = var.server_2_prm_scopes
+      },
+    ]
   }
 
   # API Center service names are GLOBAL: var.registry_name is the leftmost label
@@ -121,6 +141,34 @@ module "apim_mcp_server" {
   # (false, []): no products or subscriptions in the tracer
   # (docs/specs/v1-tracer-bullet.md, Gateway and authorization (S2)).
   entra_validation = var.entra_validation
+
+  # Per-server entitlement (issue 17): server 1's own scope and role. The policy
+  # accepts a caller only if scp contains this scope OR roles contains this role.
+  required_scope = var.required_scope
+  required_role  = var.required_role
+}
+
+# Second passthrough MCP server (issue 17): a second instance of the same module
+# at its own path, forwarding to the SAME backend function host. This is the
+# composition change that proves the gateway-singleton PRM design survives a
+# second server; no new backend, no new server type. Shares the Entra
+# registration and audience with server 1, but carries its OWN scope and role,
+# so a caller granted only server 1's entitlement is rejected here.
+module "apim_mcp_server_2" {
+  source = "../../modules/apim-mcp-server"
+
+  apim_id     = module.apim_gateway.apim_id
+  server_name = var.server_2_name
+  server_path = var.server_2_path
+
+  backend_service_url = local.mcp_backend_base_url
+
+  transport = local.mcp_transport
+
+  entra_validation = var.entra_validation
+
+  required_scope = var.server_2_required_scope
+  required_role  = var.server_2_required_role
 }
 
 module "api_center_registry" {

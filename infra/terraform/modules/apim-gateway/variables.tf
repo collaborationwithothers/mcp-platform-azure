@@ -63,9 +63,15 @@ variable "tenant_id" {
 
 variable "prm" {
   type = object({
-    resource             = string
     authorization_server = string
-    scopes               = list(string)
+    root = object({
+      resource = string
+      scopes   = list(string)
+    })
+    servers = list(object({
+      resource = string
+      scopes   = list(string)
+    }))
   })
-  description = "Contents of the single RFC 9728 protected resource metadata (PRM) document this gateway serves at its root well-known path. Singular values for exactly one document (not a map): resource is the protected resource identifier, authorization_server is the OAuth authorization server (issuer) URL rendered into authorization_servers[0], and scopes becomes scopes_supported. The composition supplies these from the MCP server's identity values. The multi-server, path-suffixed PRM form is a documented ADR growth path, not this interface."
+  description = "RFC 9728 protected resource metadata (PRM) this gateway serves, as a per-server collection (issue 17). authorization_server is the shared OAuth authorization server (issuer) URL rendered into authorization_servers[0] of every document. root describes the primary server and is served at the gateway root well-known location; a client that falls back to root while targeting another server sees a resource mismatch and MUST discard it under RFC 9728 s3.3 (the retained-root fail-closed guard). servers is the full set of MCP servers behind this gateway (including the primary): each whose resource carries a path gets its OWN document served at the RFC 9728 s3.1 path-inserted well-known location for that resource, via an operation-scoped policy. resource is the MCP server URL the client connects to (what a spec client validates the document against), NOT the token audience; scopes becomes that server's scopes_supported. Multi-server is the composition instantiating apim-mcp-server more than once; this collection is how the singleton gateway advertises each per RFC 9728's own multi-resource construction (ADR-006, issue 17)."
 }

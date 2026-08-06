@@ -29,9 +29,11 @@ locals {
 
   apim_gateway_url = data.azapi_resource.apim.output.properties.gatewayUrl
 
-  # The root protected resource metadata (PRM) document itself is owned by
-  # the apim-gateway module (one root well-known path per gateway); this
-  # module only needs the URL so its 401 challenge can point callers at it.
+  # The PRM documents themselves are owned by the apim-gateway module (the
+  # well-known locations are a property of the gateway host); this module only
+  # needs the URL so its 401 challenge can point callers at the right document.
+  # prm_url is the gateway-root well-known location (exposed as this module's
+  # prm_url output for interface stability).
   prm_url = "${local.apim_gateway_url}/.well-known/oauth-protected-resource"
   # The client MCP endpoint is <gateway>/<path><uriTemplate>: the passthrough
   # appends the endpoint's uriTemplate to both the client route and the backend
@@ -40,6 +42,25 @@ locals {
   # a single endpoint, so its uriTemplate is the suffix.
   mcp_endpoint_uri_template = var.transport.endpoints[0].uri_template
   mcp_server_url            = "${local.apim_gateway_url}/${var.server_path}${local.mcp_endpoint_uri_template}"
+  # This server's OWN RFC 9728 s3.1 path-inserted PRM location (issue 17): the
+  # gateway-root well-known URL with this server's resource path inserted after
+  # it. Matches the apim-gateway module's per-server path-inserted operation
+  # urlTemplate (/.well-known/oauth-protected-resource<resource-path>).
+  #
+  # The two 401 sites emit DIFFERENT values because the deployed type=mcp runtime
+  # rewrites the no-token challenge but not the on-error one (established at the
+  # live gate, issue 17; COMPATIBILITY.md):
+  #   - No-token 401 emits prm_url (the gateway ROOT well-known). The runtime
+  #     rewrites it by inserting this server's path after the host, so the
+  #     CLIENT-VISIBLE challenge becomes <gateway>/<server_path>/.well-known/...
+  #     -- per-server automatically. Emitting the path-inserted form there would
+  #     be double-prefixed by the rewrite into a broken URL.
+  #   - On-error 401 emits prm_server_url (this path-inserted value). The runtime
+  #     does NOT rewrite this path, so the literal per-server value reaches the
+  #     client, ensuring a second server's on-error points at its OWN metadata
+  #     and never the shared root (server 1's document). This is the #17 fix for
+  #     the on-error path.
+  prm_server_url = "${local.prm_url}/${var.server_path}${local.mcp_endpoint_uri_template}"
 }
 
 # Backend wiring for type=mcp is a separate Backend entity referenced by
@@ -113,9 +134,10 @@ resource "azapi_resource" "mcp_server" {
 }
 
 # Server-scope policy: owns the 401 + WWW-Authenticate challenge for
-# unauthenticated calls, validates the Entra token (issuer via tenant-id,
-# audience, allowed client application ids) for authenticated calls, and
-# forwards to the backend. Does not read context.Response.Body (breaks MCP
+# unauthenticated calls (pointing at THIS server's path-inserted PRM), validates
+# the Entra token (issuer via tenant-id, audience, allowed client application
+# ids), enforces this server's per-server entitlement (scp OR roles, issue 17),
+# and forwards to the backend. Does not read context.Response.Body (breaks MCP
 # streaming; Microsoft Learn, expose-existing-mcp-server, verified
 # 2026-07-12). See policies/mcp-server.xml and README.md.
 resource "azapi_resource" "mcp_server_policy" {
@@ -132,7 +154,10 @@ resource "azapi_resource" "mcp_server_policy" {
         tenant_id                      = var.entra_validation.tenant_id
         audience                       = var.entra_validation.audience
         allowed_client_application_ids = var.entra_validation.allowed_client_application_ids
-        prm_url                        = local.prm_url
+        prm_root_url                   = local.prm_url
+        prm_server_url                 = local.prm_server_url
+        required_scope                 = var.required_scope
+        required_role                  = var.required_role
       })
     }
   }

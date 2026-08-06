@@ -65,7 +65,25 @@ param(
     # placeholder cannot show (a placeholder only proves an invalid key is
     # rejected). So the backend arm FAILS if this is empty. The gateway arm runs
     # regardless, since APIM has no notion of function keys.
-    [string]$McpExtensionKey = ''
+    [string]$McpExtensionKey = '',
+
+    # --- Multi-server composition (issue 17) ---------------------------------
+    # Server 2's client-facing MCP endpoint (s2 output mcp_server_2_url). When
+    # supplied, the per-server discovery checks run for server 2 as well: its own
+    # path-inserted PRM document and its own client-visible challenge. Optional so
+    # the single-server gate invocation keeps working unchanged.
+    [string]$McpServer2Url = '',
+    # The value server 2's PRM "resource" must equal (s2 output mcp_server_2_url).
+    # Defaults to McpServer2Url when omitted (they are the same value: RFC 9728
+    # s3.3 matches the document's resource against the server URL the client
+    # connects to).
+    [string]$ExpectedResource2 = '',
+    # A bearer token from the least-privilege client granted ONLY server 1's
+    # entitlement (scope/role), used for the cross-server grant-isolation negative
+    # (issue 17): accepted at server 1, rejected at server 2 with 403
+    # insufficient_scope. Optional; the cross-server negative runs only when both
+    # this and McpServer2Url are supplied.
+    [string]$Server1OnlyToken = ''
 )
 
 Set-StrictMode -Version Latest
@@ -118,6 +136,109 @@ function Get-HeaderValue {
 # A minimal JSON-RPC initialize body; the challenge fires in APIM inbound before
 # any routing, so the body content does not affect the 401 assertions.
 $initBody = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+
+$wkSuffixConst = '/.well-known/oauth-protected-resource'
+
+# Gateway base host (scheme+authority) derived from a root well-known URL.
+function Get-GatewayBase([string]$rootPrmUrl) {
+    if ($rootPrmUrl.EndsWith($wkSuffixConst)) {
+        return $rootPrmUrl.Substring(0, $rootPrmUrl.Length - $wkSuffixConst.Length)
+    }
+    return ([System.Uri]$rootPrmUrl).GetLeftPart([System.UriPartial]::Authority)
+}
+
+# The path-scoped resource_metadata value the deployed type=mcp runtime rewrites
+# the challenge to on the wire: <gateway>/<server_path>/.well-known/oauth-protected-resource
+# (issue-9 trace). Asserted as the CLIENT-VISIBLE challenge (issue 17: the gate
+# asserts what the client receives, not what the policy emits).
+function Get-ObservedChallengeUrl([string]$serverUrl, [string]$gatewayBase) {
+    $sp = ''
+    if ($serverUrl.StartsWith($gatewayBase)) {
+        $sp = ($serverUrl.Substring($gatewayBase.Length).TrimStart('/') -split '/', 2)[0]
+    }
+    return "$gatewayBase/$sp$wkSuffixConst"
+}
+
+# The RFC 9728 s3.1 path-inserted PRM location for a server: the root well-known
+# URL with the server's resource path inserted after it.
+function Get-PathInsertedPrmUrl([string]$serverUrl, [string]$rootPrmUrl, [string]$gatewayBase) {
+    $mcpPath = if ($serverUrl.StartsWith($gatewayBase)) {
+        $serverUrl.Substring($gatewayBase.Length)
+    }
+    else {
+        ([System.Uri]$serverUrl).AbsolutePath
+    }
+    return "$rootPrmUrl$mcpPath"
+}
+
+# True only for the GATEWAY's own per-server entitlement denial (issue 17): a 403
+# whose WWW-Authenticate carries RFC 6750 insufficient_scope. This distinguishes
+# the gateway per-server check from any downstream backend 403 (e.g. the McpTools
+# app-role check, issue 45), so the cross-server isolation proof is about the
+# gateway layer specifically, not coupled to backend authorization.
+function Test-GatewayInsufficientScope($resp) {
+    if ($resp.StatusCode -ne 403) { return $false }
+    $w = Get-HeaderValue -Response $resp -Name 'WWW-Authenticate'
+    return ($null -ne $w -and $w -match 'insufficient_scope')
+}
+
+# Per-server discovery: the no-token challenge points at THIS server's own
+# path-inserted metadata, and the path-inserted PRM location serves THIS server's
+# document with its own resource. Runs for each server behind the gateway
+# (issue 17). Server 1's equivalents are checks [1] and [2b] below, kept inline
+# and unchanged; this function is used for the additional servers.
+function Assert-ServerDiscovery {
+    param([string]$Label, [string]$ServerUrl, [string]$ExpectedRes, [string]$RootPrmUrl)
+
+    $gwBase = Get-GatewayBase $RootPrmUrl
+    $observed = Get-ObservedChallengeUrl $ServerUrl $gwBase
+
+    Write-Host "[$Label-a] $ServerUrl no-token call returns 401 with ITS OWN challenge"
+    $r = Invoke-Raw -Uri $ServerUrl -Body $initBody
+    if ($r.StatusCode -ne 401) {
+        Fail "${Label}: expected HTTP 401 with no token, got $($r.StatusCode)."
+    }
+    else {
+        Pass "${Label}: no-token call returned 401."
+        $wwwAuth = Get-HeaderValue -Response $r -Name 'WWW-Authenticate'
+        if ([string]::IsNullOrEmpty($wwwAuth)) {
+            Fail "${Label}: 401 carried no WWW-Authenticate header."
+        }
+        elseif ($wwwAuth -notmatch 'Bearer') {
+            Fail "${Label}: WWW-Authenticate is not a Bearer challenge: '$wwwAuth'."
+        }
+        elseif ($wwwAuth -notmatch [regex]::Escape("resource_metadata=`"$observed`"")) {
+            Fail "${Label}: client-visible challenge resource_metadata does not match this server's own URL '$observed' (a client here must be led to THIS server's metadata, never another server's). Got: '$wwwAuth'."
+        }
+        else {
+            Pass "${Label}: client-visible challenge points at this server's own metadata ($observed)."
+        }
+    }
+    Write-Host ''
+
+    $rfcUrl = Get-PathInsertedPrmUrl $ServerUrl $RootPrmUrl $gwBase
+    Write-Host "[$Label-b] $ServerUrl RFC 9728 path-inserted PRM serves this server's document"
+    $pr = Invoke-Raw -Uri $rfcUrl -Method 'GET'
+    if ($pr.StatusCode -ne 200) {
+        Fail "${Label}: path-inserted PRM ($rfcUrl) returned $($pr.StatusCode); expected 200 (each server serves its own document at its own path-inserted location)."
+    }
+    else {
+        Pass "${Label}: path-inserted PRM returned 200."
+        try { $rdoc = $pr.Content | ConvertFrom-Json -ErrorAction Stop } catch { $rdoc = $null; Fail "${Label}: path-inserted PRM was not valid JSON: $($_.Exception.Message)" }
+        if ($null -ne $rdoc) {
+            if ($rdoc.resource -ne $ExpectedRes) {
+                Fail "${Label}: path-inserted PRM 'resource' is '$($rdoc.resource)'; expected this server's URL '$ExpectedRes' (RFC 9728 s3.3 exact match)."
+            }
+            else {
+                Pass "${Label}: path-inserted PRM 'resource' equals this server's URL."
+            }
+        }
+    }
+    Write-Host ''
+}
+
+# Default server 2's expected resource to its URL when not given explicitly.
+if ([string]::IsNullOrEmpty($ExpectedResource2)) { $ExpectedResource2 = $McpServer2Url }
 
 Write-Host "== Discovery-artifact assertions =="
 Write-Host "MCP endpoint : $McpServerUrl"
@@ -330,6 +451,138 @@ else {
     }
     else {
         Pass "backend host: the real mcp_extension key with no Entra token returned 401 (Easy Auth blocks the shadow path)."
+    }
+}
+Write-Host ''
+
+# ===========================================================================
+# Multi-server composition (issue 17). The checks below run only when the
+# server-2 / server-1-only-token parameters are supplied, so the single-server
+# gate invocation is unchanged.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 5. Per-server discovery for server 2: its own client-visible challenge and its
+#    own path-inserted PRM document (checks [1]/[2b] but for server 2). PrmUrl is
+#    the gateway-root well-known URL; server 2's path-inserted location is that
+#    URL plus server 2's resource path.
+# ---------------------------------------------------------------------------
+if (-not [string]::IsNullOrEmpty($McpServer2Url)) {
+    Write-Host "[5] Server 2 per-server discovery (issue 17)"
+    Assert-ServerDiscovery -Label '5' -ServerUrl $McpServer2Url -ExpectedRes $ExpectedResource2 -RootPrmUrl $PrmUrl
+}
+
+# ---------------------------------------------------------------------------
+# 6. On-error 401 challenge, per server (acceptance: on-error rewrite behaviour
+#    recorded, and per-server correctness asserted). A wrong-audience token
+#    drives the validate-azure-ad-token 401, whose WWW-Authenticate is added in
+#    the policy's on-error handler. Established at the issue-17 live gate: the
+#    deployed type=mcp runtime does NOT rewrite the on-error challenge (unlike
+#    the no-token path), so the policy's literal value reaches the client. The
+#    policy emits THIS server's path-inserted PRM URL there, so the on-error
+#    challenge must equal that URL -- proving a second server's on-error points
+#    at its OWN metadata and never the shared root (server 1's document). The
+#    actual value is logged either way (the "recorded" half of the acceptance
+#    item); if the platform ever starts rewriting on-error, this assertion trips
+#    so the change is caught (COMPATIBILITY.md).
+# ---------------------------------------------------------------------------
+if (-not [string]::IsNullOrEmpty($WrongAudienceToken)) {
+    Write-Host "[6] On-error 401 challenge points at each server's own metadata"
+    $gwBase = Get-GatewayBase $PrmUrl
+    $onErrTargets = @{ 'server 1' = $McpServerUrl }
+    if (-not [string]::IsNullOrEmpty($McpServer2Url)) { $onErrTargets['server 2'] = $McpServer2Url }
+    foreach ($name in $onErrTargets.Keys) {
+        $url = $onErrTargets[$name]
+        $expectedOwn = Get-PathInsertedPrmUrl $url $PrmUrl $gwBase
+        $rootPrm = $PrmUrl
+        $oe = Invoke-Raw -Uri $url -Headers @{ Authorization = "Bearer $WrongAudienceToken" } -Body $initBody
+        if ($oe.StatusCode -ne 401) {
+            Fail "$name on-error path returned $($oe.StatusCode), not 401; cannot assert the on-error challenge."
+            continue
+        }
+        $oeWww = Get-HeaderValue -Response $oe -Name 'WWW-Authenticate'
+        Write-Host "  [INFO] $name on-error 401 WWW-Authenticate: '$oeWww'"
+        if ($oeWww -match [regex]::Escape("resource_metadata=`"$expectedOwn`"")) {
+            Pass "$name on-error challenge points at this server's own path-inserted metadata ($expectedOwn)."
+        }
+        elseif ($oeWww -match [regex]::Escape("resource_metadata=`"$rootPrm`"")) {
+            Fail "$name on-error challenge points at the SHARED ROOT PRM ($rootPrm), not this server's own metadata -- a client on this server would be sent to another server's document. Expected '$expectedOwn'."
+        }
+        else {
+            Fail "$name on-error challenge resource_metadata is neither this server's own path-inserted URL ('$expectedOwn') nor the shared root; the on-error emit or the platform's on-error behaviour changed. Got: '$oeWww'. Reconcile with COMPATIBILITY.md."
+        }
+    }
+    Write-Host ''
+}
+
+# ---------------------------------------------------------------------------
+# 7. Cross-server grant isolation (acceptance: least-privilege client accepted at
+#    server 1, rejected at server 2). A token from the client granted ONLY server
+#    1's entitlement is presented to both servers. Isolation is asserted at the
+#    GATEWAY layer: server 2 must return the gateway's own insufficient_scope 403
+#    (the per-server check fired), and server 1 must NOT (its per-server check
+#    passed). Distinguishing the gateway 403 by its insufficient_scope challenge
+#    keeps this proof about the issue-17 gateway check, not the backend's own
+#    app-role check (issue 45), which may independently 403 server 1 if the client
+#    lacks the backend role.
+# ---------------------------------------------------------------------------
+if (-not [string]::IsNullOrEmpty($Server1OnlyToken) -and -not [string]::IsNullOrEmpty($McpServer2Url)) {
+    Write-Host "[7] Cross-server grant isolation: server-1-only token (issue 17)"
+
+    $a1 = Invoke-Raw -Uri $McpServerUrl -Headers @{ Authorization = "Bearer $Server1OnlyToken" } -Body $initBody
+    if (Test-GatewayInsufficientScope $a1) {
+        Fail "server 1 rejected the server-1-only token with the gateway's insufficient_scope 403; expected the per-server check to ACCEPT it (the token carries server 1's entitlement)."
+    }
+    else {
+        Pass "server 1 per-server check accepted the server-1-only token (status $($a1.StatusCode); not a gateway insufficient_scope 403)."
+    }
+
+    $a2 = Invoke-Raw -Uri $McpServer2Url -Headers @{ Authorization = "Bearer $Server1OnlyToken" } -Body $initBody
+    if (-not (Test-GatewayInsufficientScope $a2)) {
+        Fail "server 2 returned status $($a2.StatusCode) without an insufficient_scope challenge for the server-1-only token; expected the gateway's 403 insufficient_scope (grant-level isolation: it lacks server 2's scope/role). WWW-Authenticate: '$(Get-HeaderValue -Response $a2 -Name 'WWW-Authenticate')'."
+    }
+    else {
+        Pass "server 2 rejected the server-1-only token with the gateway's 403 insufficient_scope (grant-level isolation enforced)."
+    }
+    Write-Host ''
+}
+
+# ---------------------------------------------------------------------------
+# 8. No-token challenge URL resolution, RECORDED per server (coverage). Checks 1
+#    and 5-a assert the client-visible no-token challenge STRING; this GETs that
+#    exact URL to record what a client literally following resource_metadata
+#    receives. It is the platform-rewritten path-scoped form
+#    <gateway>/<server_path>/.well-known/oauth-protected-resource. Known from
+#    issue 9 (see COMPATIBILITY.md, ADR-006): this location does NOT serve the PRM
+#    document -- it routes into the MCP server API, which has no such operation --
+#    so it 401s/404s. A spec client therefore relies on the RFC 9728 s3.1
+#    path-inserted location instead, which IS served (checks 2b / 5-b, GET-200 +
+#    resource verified). This step is RECORDED, not asserted: making the literal
+#    no-token challenge URL resolve is the interactive-discovery gap owned by
+#    issue #42, not closed by #17. Recording it makes the coverage explicit and
+#    flags a change if a future platform/design ever makes it serve the document.
+# ---------------------------------------------------------------------------
+Write-Host "[8] No-token challenge URL resolution (recorded; issue 9 / issue 42 gap)"
+$chGwBase = Get-GatewayBase $PrmUrl
+$chTargets = @{ 'server 1' = $McpServerUrl }
+if (-not [string]::IsNullOrEmpty($McpServer2Url)) { $chTargets['server 2'] = $McpServer2Url }
+foreach ($cname in $chTargets.Keys) {
+    $curl = $chTargets[$cname]
+    $expectedRes = if ($cname -eq 'server 2') { $ExpectedResource2 } else { $ExpectedResource }
+    $chUrl = Get-ObservedChallengeUrl $curl $chGwBase
+    $cg = Invoke-Raw -Uri $chUrl -Method 'GET'
+    if ($cg.StatusCode -eq 200) {
+        $served = $false
+        try { $served = (($cg.Content | ConvertFrom-Json -ErrorAction Stop).resource -eq $expectedRes) } catch { $served = $false }
+        if ($served) {
+            Write-Host "  [INFO] $cname no-token challenge URL ($chUrl) now SERVES this server's document (200, resource matches). The issue-9/#42 gap has closed for the literal challenge; update COMPATIBILITY.md and ADR-006."
+        }
+        else {
+            Write-Host "  [INFO] $cname no-token challenge URL ($chUrl) returned 200 but not this server's document; record and reconcile."
+        }
+    }
+    else {
+        Write-Host "  [INFO] $cname no-token challenge URL ($chUrl) returned $($cg.StatusCode) and does NOT serve a document (expected: issue-9/#42 gap). Working discovery is the RFC 9728 s3.1 path-inserted location asserted in checks 2b/5-b."
     }
 }
 Write-Host ''

@@ -296,6 +296,17 @@ neither built in v1:
    documents for multiple servers, but depends on MCP clients resolving
    path-suffixed well-known locations, which current clients do not do (the
    driver above). Blocked on client support.
+
+   Update, issue 17 (2026-08-04): the distinction between path-SUFFIXED and
+   path-INSERTED (RFC 9728 s3.1, insert-before-path) is load-bearing here and
+   this item's "blocked" verdict applies only to the fully path-suffixed
+   router, if it ever differs from the inserted form. The per-server
+   path-INSERTED form that the issue-9 work already made spec clients accept
+   (VS Code fetched the s3.1 insert-before-path location) is NOT blocked and is
+   now ADOPTED for the multi-server case, on RFC 9728's own multi-resource
+   grounds - see "Multi-server composition (issue 17)" below. Do not read this
+   item as still saying the pathed PRM form is unavailable; the inserted form
+   works today and carries the second server.
 2. Hostname-per-server: give each MCP server its own gateway hostname, so
    each server presents its own root authority and therefore its own root
    PRM document under the single-root form. Trade-off: preserves per-server
@@ -311,6 +322,155 @@ decides whether either growth path is needed yet: if clients still resolve
 only against the root authority, a second server needs hostname-per-server
 (or stays on its own gateway); if clients have gained path-suffix support,
 the path-suffixed router becomes available.
+
+Resolved by issue 17: the re-test was satisfied by INHERITANCE, not a fresh
+interactive run. Issue 9's VS Code discovery trace (2026-07-18) already
+established that a spec client fetches and accepts the RFC 9728 s3.1
+path-inserted location; issue 17's live gate (2026-08-06) then confirmed, at the
+raw-HTTP layer, that each server's path-inserted location serves that server's
+document (200, resource match). On that basis the second server was added on the
+path-INSERTED form rather than hostname-per-server, and the prediction above ("a
+second server needs hostname-per-server") is superseded. What was NOT done is a
+fresh interactive-client (VS Code / MCP Inspector) discovery run against the
+two-server gateway: an actual client following the no-token challenge end to end
+is the interactive-discovery work owned by issue #42 (see the no-token-challenge
+note in "Multi-server composition (issue 17)" below). See that section for the
+full decision.
+
+## Multi-server composition (issue 17)
+
+Added 2026-08-04 recording the multi-server decision from ticket 17 (live-gate
+findings appended 2026-08-06): how a second MCP server behind the one gateway
+discovers, authenticates, and is isolated. This section refines the PRM
+placement and the trusted-subsystem identity mechanics above for the two-server
+case; it does not change the v1 Decision. It also resolves the
+"Growth paths"/"Trigger" prediction above (the re-test was satisfied by
+inheritance from issue 9 plus the issue-17 raw-HTTP gate, landing on
+path-inserted, not hostname-per-server; a fresh interactive re-test is #42).
+
+Live-gate honesty note (no-token challenge resolution, NOT closed by #17). The
+deployed type=mcp runtime rewrites the no-token 401 challenge to the path-scoped
+form `<gateway>/<server_path>/.well-known/oauth-protected-resource` (issue 9;
+COMPATIBILITY.md). That URL does NOT itself serve a PRM document -- it routes
+into the MCP server API, which has no well-known operation. Working discovery
+therefore rests on a spec client using the RFC 9728 s3.1 path-inserted location
+(which IS served, GET-200 asserted per server at the gate), NOT on the client
+literally following the rewritten no-token challenge. Issue 17 generalises this
+issue-9 gap to a second server and PROVES the s3.1 served location for both; it
+does not close the literal-no-token-challenge resolution, which needs an
+interactive-client trace and belongs to #42. The gate records the no-token
+challenge URL's response each run (discovery-assertions.ps1 check 8) so the gap
+is visible and any future closure is caught. The on-error path, by contrast, is
+fully closed: its emitted value equals the served path-inserted location and is
+not rewritten (GET-200 asserted).
+
+### Per-server path-inserted PRM (RFC 9728 s3.1), served at the gateway root
+
+Each server behind the gateway gets its OWN RFC 9728 s3.1 path-inserted PRM
+document. The documents are served by an operation-scoped policy on a single
+well-known API instantiated once at the gateway root: one API, one operation
+per server path, each operation returning the document for its server with
+`resource` set to that server's URL and `scopes_supported` carrying only that
+server's scope.
+
+This is RFC 9728's OWN multi-resource construction, not a workaround. Path
+components exist in the standard precisely so that one host can carry multiple
+protected resources, each serving its metadata at a location deterministically
+derived from its own resource URL (insert-before-path,
+`/.well-known/oauth-protected-resource<server-path>`). The issue-9 work already
+proved a spec client (VS Code) fetches and accepts the s3.1 inserted location;
+issue 17 generalises the count-guarded single-server pathed operation of v1
+(`prm_well_known_operation_pathed`) into a per-server collection of the same
+operation shape. Nothing about the client contract changes between one server
+and two; only the number of pathed operations does.
+
+### The retained root document is the s3.3 fail-closed guard
+
+The gateway-root PRM document is kept, and it describes the PRIMARY server. This
+is deliberately more than the "harmless, covers path-less resolution" role the
+issue-9 section gave it. Under RFC 9728 s3.3 resource matching, a client that
+falls back to the root document while it is actually targeting a DIFFERENT
+server reads a `resource` value (the primary server's URL) that does not equal
+the server URL it connected to, sees a resource mismatch, and MUST discard the
+document rather than use it.
+
+That asymmetry is a safety property, stated with its mechanism: misrouted
+discovery fails CLOSED. A client that lands on the wrong document is rejected by
+its own spec-mandated matching check, instead of silently binding to the wrong
+resource's advertised authorization server and scope. The root document is a
+guard, not a limitation - it turns an off-path discovery into a hard stop.
+
+### Identity: shared registration, per-server scope and role, OR-checked
+
+The two servers share one app registration and therefore one audience (one App
+ID URI). Under that single App ID URI, each server has its OWN delegated scope
+and its OWN application role. Each server's PRM advertises only that server's
+scope in `scopes_supported`, so discovery already narrows a client to the
+correct per-server scope before any token is minted.
+
+Authorization is then enforced per server by a policy check that runs AFTER
+Entra token validation, expressed as a policy expression with OR semantics
+across two claims: the request is admitted if the server's scope appears in the
+`scp` claim OR the server's app role appears in the `roles` claim. The OR is
+required by the claim shapes: a delegated token carries `scp` and no `roles`, an
+app-only token carries `roles` and no `scp`, so a single server must accept
+either. It cannot be expressed with `validate-azure-ad-token`'s `required-claims`
+block, because that block ANDs its `claim` entries - every listed claim must be
+present for validation to succeed, and its `match` attribute selects all/any of
+the values WITHIN one named claim, not across two different claim names
+(verified against the Microsoft Learn `validate-azure-ad-token` policy reference,
+azure-docs-verifier 2026-08-04). So the per-server check is a policy expression
+evaluating `scp` OR `roles`, sitting after the standard Entra token validation,
+not a second `required-claims` entry.
+
+### Known non-conformance: shared audience (MCP spec audience-binding MUST)
+
+Stated plainly because it is net-new to this ADR and easy to bury: the shared
+audience is a KNOWN NON-CONFORMANCE with the MCP authorization spec's
+audience-binding MUST (each protected resource should have its own audience so a
+token minted for one server is not valid at another). It is not a gap introduced
+by issue 17; it is INHERITED from the Entra resource-indicator deadlock this ADR
+already documents - Entra ignores the RFC 8707 `resource` parameter and rejects
+the pairing on this hostname (`AADSTS9010010`, see "What the live interactive
+trace showed", step 5). The second server did not create the deviation; it made
+the existing single-audience deviation newly VISIBLE by giving it a second
+resource to be wrong about.
+
+This is a documented deviation with an owner, not an omission: audience-per-server
+is deferred to issue #42 (the same custom-domain / OAuth-mediation choice that
+already owns the sign-in boundary). It must never be phrased as "isolation out of
+scope" - isolation is implemented, at scope granularity; it is the audience
+BINDING that is deferred, and the deferral has a ticket.
+
+### Isolation is per-grant, not per-token
+
+The precise, non-overclaiming statement of what this design isolates:
+cross-server isolation is enforced at scope granularity within a shared
+audience, per grant; audience-per-server is deferred to issue #42.
+
+"Per grant" is the honest qualifier. Because the audience is shared, a client
+that has been granted BOTH servers' scopes (or both roles) receives ONE token
+whose `aud` is the shared App ID URI and whose `scp`/`roles` carry both servers'
+claims, and that single token is valid at both servers. Isolation therefore
+holds between clients that were granted different scopes; it does NOT hold at the
+token level for a client granted both. Do not read this section as claiming
+token-level isolation - a client with both grants is, by construction, admitted
+at both servers with one token. The per-server `scp`/`roles` OR check gates on
+what was GRANTED, and audience-per-server (issue #42) is what would additionally
+gate at the token level.
+
+### Rejected alternative: hostname-per-server
+
+Hostname-per-server (growth-path item 2 above) was rejected for issue 17. Giving
+the second server its own gateway hostname would make each server's URL a
+candidate registerable App ID URI (a verified custom domain), which is exactly
+one half of the deferred issue #42 choice between an OAuth-mediation layer and a
+custom verified domain. Adopting it here would pre-decide #42's custom-domain
+option as a side effect of a multi-server-composition ticket, and would leave
+ADR-006 and the eventual #42 decision reading as one decision made twice, in two
+places, possibly inconsistently. Keeping the second server on the shared
+hostname with path-inserted PRM keeps the audience-binding question wholly inside
+issue #42, where it is owned, rather than resolving it implicitly here.
 
 ## OBO exchange: confused deputy, audience validation, and the inbound-token gap (issue 10)
 

@@ -401,11 +401,18 @@ jobs:
           TEST_CLIENT_SECRET: ${{ secrets.TEST_CLIENT_SECRET }}
           TEST_CLIENT_WITHOUT_ROLE_ID: ${{ secrets.TEST_CLIENT_WITHOUT_ROLE_ID }}
           TEST_CLIENT_WITHOUT_ROLE_SECRET: ${{ secrets.TEST_CLIENT_WITHOUT_ROLE_SECRET }}
+          # Issue 17: cross-server isolation negative client (granted only server
+          # 1's entitlement). Optional: if these secrets are unset the gate skips
+          # the cross-server negative (docs/runbooks/entra-app-registrations.md).
+          TEST_CLIENT_SERVER1_ONLY_ID: ${{ secrets.TEST_CLIENT_SERVER1_ONLY_ID }}
+          TEST_CLIENT_SERVER1_ONLY_SECRET: ${{ secrets.TEST_CLIENT_SERVER1_ONLY_SECRET }}
         run: |
           set -euo pipefail
           s1_dir=infra/terraform/scenarios/s1-entra-mcp-server
           s2_dir=infra/terraform/scenarios/s2-apim-mcp-gateway
           mcp_server_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_url)"
+          # Issue 17: server 2's endpoint for the per-server discovery + cross-server assertions.
+          mcp_server_2_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_2_url)"
           prm_url="$(terraform -chdir="$s2_dir" output -raw prm_url)"
           registry_url="$(terraform -chdir="$s2_dir" output -raw registry_endpoint_url)"
           api_center_id="$(terraform -chdir="$s2_dir" output -raw api_center_id)"
@@ -485,6 +492,9 @@ jobs:
             -DownstreamOrderStatusUrl "$downstream_order_status_url" \
             -McpExtensionKey "${mcp_ext_key:-}" \
             -ApiCenterResourceId "$api_center_id" \
+            -McpServer2Url "$mcp_server_2_url" \
+            -Server1OnlyClientId "${TEST_CLIENT_SERVER1_ONLY_ID:-}" \
+            -Server1OnlyClientSecret "${TEST_CLIENT_SERVER1_ONLY_SECRET:-}" \
             -EvidenceDir "${GITHUB_WORKSPACE}/gate-evidence"
 
       # Always upload whatever PRM evidence was captured above, even when the
