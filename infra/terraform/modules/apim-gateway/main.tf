@@ -439,5 +439,25 @@ resource "azapi_resource" "eventhub_logger" {
     }
   }
 
+  # Round 10 live-test failure: this PUT does a live auth check against the
+  # Event Hub, and failed with "Attempted to perform an unauthorized
+  # operation." immediately after eventhub_data_sender's role assignment was
+  # created in the same apply -- Azure RBAC role-assignment propagation
+  # ("eventual consistency"; no documented SLA, Microsoft's own troubleshooting
+  # doc says "up to 10 minutes", a separate doc says "5 to 30 minutes"),
+  # not a configuration error. depends_on alone only orders the ARM CREATE
+  # calls; it does not wait for RBAC to actually take effect. Fixed with a
+  # retry block rather than a time_sleep: Microsoft's own AVM Terraform
+  # contributing guide explicitly recommends azapi's retry over an arbitrary
+  # sleep for exactly this eventual-consistency class of failure, and this
+  # resource is already azapi_resource. error_message_regex matches error
+  # TEXT, not a status code (there is no status-code field on this block);
+  # interval/max_interval verified against the provider's own docs, 2026-08-07.
+  retry = {
+    error_message_regex  = ["Attempted to perform an unauthorized operation"]
+    interval_seconds     = 15
+    max_interval_seconds = 120
+  }
+
   depends_on = [azapi_resource.eventhub_data_sender]
 }
