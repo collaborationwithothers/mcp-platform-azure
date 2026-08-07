@@ -55,10 +55,14 @@ workflow. If category discovery, the precondition, or the setting itself fails,
 use the actual Azure error to decide the next action. Do not weaken the target
 set to make the deployment pass.
 
-API Center is not a diagnostic target. It remains the APIM-linked registry, but
-gated run 31162622718 proved Azure Monitor diagnostic settings are unsupported
-for API Center. Do not add category discovery, a fallback, or a capability
-registry for API Center diagnostics.
+API Center is not a diagnostic target. Azure Monitor's [supported resource-log
+categories](https://learn.microsoft.com/azure/azure-monitor/reference/supported-logs/logs-index)
+index and [built-in diagnostic-settings policy support
+list](https://learn.microsoft.com/azure/azure-monitor/platform/diagnostic-settings-policy-built-in#supported-resources)
+omit `Microsoft.ApiCenter/services`. Gated run 31162622718 then proved Azure
+Monitor diagnostic settings are unsupported for API Center. It remains the
+APIM-linked registry. Do not add category discovery, a fallback, or a
+capability registry for API Center diagnostics.
 
 For Storage, use the account resource and the documented Blob, File, Queue, and
 Table service scopes. A module that accepts an existing account must document

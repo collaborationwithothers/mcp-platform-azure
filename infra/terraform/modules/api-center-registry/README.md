@@ -17,10 +17,14 @@ the registry endpoint) is the integration issue (issue 5 of the tracer epic).
 ## API Center diagnostic-setting support
 
 API Center remains the APIM-linked discovery registry. It is not an Azure
-Monitor diagnostic target. Gated run 31162622718 proved Azure Monitor diagnostic
-settings are unsupported for the API Center service. This module therefore has
-no diagnostic-category query, diagnostic setting, fallback, or capability
-registry for API Center.
+Monitor diagnostic target. Azure Monitor's [supported resource-log
+categories](https://learn.microsoft.com/azure/azure-monitor/reference/supported-logs/logs-index)
+index and [built-in diagnostic-settings policy support
+list](https://learn.microsoft.com/azure/azure-monitor/platform/diagnostic-settings-policy-built-in#supported-resources)
+omit `Microsoft.ApiCenter/services`. Gated run 31162622718 then proved the
+service rejects diagnostic settings. This module therefore has no
+diagnostic-category query, diagnostic setting, fallback, or capability registry
+for API Center.
 
 ## Verified facts (2026-07-12)
 
