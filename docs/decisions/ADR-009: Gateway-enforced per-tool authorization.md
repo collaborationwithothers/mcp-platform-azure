@@ -363,6 +363,16 @@ redesign will not have solved the problem it was made for, and the honest
 next step is measuring and labelling the real number (COMPATIBILITY.md rule
 on unmeasured figures), not widening the timeout again.
 
+**Round 11 result (2026-08-07, gate run 31145487738): the bet held.** Both the
+unmapped-probe deny and the under-entitled deny were confirmed via Event Hub
+in ~16s, against the 60s gate timeout -- a wide margin, and roughly 18-40x
+faster than the Application Insights figures this redesign replaced. This is
+one round, two data points, with `isBuffered` still at its default `true`
+(the explicit `isBuffered = false` change had not yet run live); it is
+directional evidence the bet is sound, not a characterized latency
+distribution. See COMPATIBILITY.md, "APIM `log-to-eventhub` policy," for the
+measurement and its caveats.
+
 The live gate (`tests/integration/discovery-assertions.ps1`,
 `Assert-AuditEventEmitted`) now reads the Event Hub with a short bounded wait
 (`scripts/gate/wait_for_eventhub_audit.py`, using the `azure-eventhub` SDK --
