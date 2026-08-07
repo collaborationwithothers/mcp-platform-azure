@@ -354,6 +354,13 @@ resource "azapi_resource" "audit_logger" {
 # this only ever carries one run's own denial events. azurerm schema
 # (namespace_id, not the older namespace_name; sku as a plain string, not a
 # block) verified 2026-08-07 against the provider's own docs source.
+#
+# prevent_destroy would block the gated live-test environment's destroy step
+# (same reasoning as mcp-function-host's deployment_package container); this
+# resource holds only a run's own transient denial signal, not durable data
+# -- the durable audit trail is the Application Insights resource above,
+# which is deliberately out of band and NOT subject to this destroy.
+# tflint-ignore: azurerm_resources_missing_prevent_destroy
 resource "azurerm_eventhub_namespace" "audit" {
   name                = "${var.name}-audit"
   location            = var.location
@@ -362,6 +369,7 @@ resource "azurerm_eventhub_namespace" "audit" {
   tags                = var.tags
 }
 
+# tflint-ignore: azurerm_resources_missing_prevent_destroy
 resource "azurerm_eventhub" "audit" {
   name              = "audit-denials"
   namespace_id      = azurerm_eventhub_namespace.audit.id
