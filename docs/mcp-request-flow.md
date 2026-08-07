@@ -137,6 +137,15 @@ The identity flows (app-only vs delegated OBO) are also in ADR-006.
 
 ### The fourth surface: gateway denial, before the backend
 
+![Per-tool authorization deny path: after the issue-9 and issue-17 checks
+pass, API Management parses the JSON-RPC request body once, gates on
+tools/call, resolves the tool name (gen_ai.tool.name context variable,
+falling back to the parsed body), looks it up against the server's
+tool_authorization_map, and on a deny emits one audit trace to Application
+Insights before returning a JSON-RPC Protocol Error (HTTP 200, code -32001,
+request id echoed) without ever invoking the backend Function
+App.](diagrams/per-tool-deny-path.drawio.svg)
+
 The three tiers above classify a response by its wire shape. That is the right
 axis for a client, which sees only the wire, but it is the wrong axis for an
 operator, who also needs to know how far the request travelled. There is a
