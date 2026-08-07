@@ -25,6 +25,16 @@ variable "resource_group_name" {
   description = "Name of the resource group the API Center service is created in. Assumed to live in the same subscription as apim_source_id (the tracer composition deploys API Center and APIM together); the module derives that subscription id from apim_source_id to build the service's parent resource-group id."
 }
 
+variable "log_analytics_workspace_id" {
+  type        = string
+  description = "ARM resource ID of the shared Log Analytics workspace that receives mandatory API Center platform diagnostics. The category query runs at apply time against the API Center service. If Azure reports no usable categories or rejects the setting, apply fails rather than omitting API Center diagnostics."
+
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Oo]perational[Ii]nsights/workspaces/[^/]+$", var.log_analytics_workspace_id))
+    error_message = "log_analytics_workspace_id must be a valid Microsoft.OperationalInsights/workspaces ARM resource ID."
+  }
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags applied to the API Center service (a tracked resource). Child resources (workspace, environment, api source) are proxy resources and take no tags."

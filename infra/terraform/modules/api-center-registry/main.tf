@@ -1,9 +1,11 @@
-# Hand-authored azapi module for Azure API Center: the S3 registry surface of
+# Hand-authored API Center module: the S3 registry surface of
 # the v1 tracer bullet. API Center has no native azurerm resource
 # (hashicorp/terraform-provider-azurerm#26200, still open, confirmed
-# 2026-07-12), so every resource here is azapi. All ARM shapes below are pinned
-# to 2024-06-01-preview and verified 2026-07-12 against the Microsoft.ApiCenter
-# ARM template reference; see README.md and COMPATIBILITY.md for the pins.
+# 2026-07-12), so API Center resources here are azapi. AzureRM provides the
+# supplemental generic diagnostic setting in diagnostics.tf. All ARM shapes
+# below are pinned to 2024-06-01-preview and verified 2026-07-12 against the
+# Microsoft.ApiCenter ARM template reference; see README.md and
+# COMPATIBILITY.md for the pins.
 #
 # The module provisions the inventory (service + single "default" workspace +
 # one environment), wires APIM auto-sync (apiSources) so the MCP server appears
