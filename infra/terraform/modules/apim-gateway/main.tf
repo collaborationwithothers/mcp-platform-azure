@@ -427,10 +427,18 @@ resource "azapi_resource" "eventhub_logger" {
   name      = "audit-eventhub"
   parent_id = module.apim.resource_id
 
+  # isBuffered = false: the ARM default for an azureEventHub logger is true
+  # (COMPATIBILITY.md, "APIM log-to-eventhub policy"); this logger exists only
+  # for the live gate's bounded-wait pass/fail check, so it is set false to
+  # avoid stacking APIM's own send-side buffering on top of whatever delay the
+  # gate is already measuring. The docs do not state a timing effect for this
+  # flag beyond "records are buffered before publishing" vs not, so this is an
+  # engineering choice in the documented direction, not a proven latency fix.
   body = {
     properties = {
       loggerType  = "azureEventHub"
       description = "Ephemeral Event Hub logger for the live gate's per-tool deny audit-event check (issue 18). Managed-identity credential mode; parallel to the Application Insights logger, not a replacement."
+      isBuffered  = false
       credentials = {
         endpointAddress  = "${azurerm_eventhub_namespace.audit.name}.servicebus.windows.net"
         identityClientId = "SystemAssigned"

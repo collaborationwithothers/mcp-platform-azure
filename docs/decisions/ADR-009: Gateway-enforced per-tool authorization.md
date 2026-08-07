@@ -249,13 +249,17 @@ assumed (COMPATIBILITY.md, "APIM trace policy for custom audit telemetry",
   stream that Application Insights sampling could thin is not an audit stream;
   this is why `<trace>` was chosen over any telemetry mechanism subject to
   sampling.
-- **`severity` is a fixed contract with the diagnostic setting.** APIM records a
-  trace only when the trace's severity is at or above the diagnostic setting's
-  configured verbosity. `severity="error"` in the fragment and `error` verbosity
-  on the MCP server API's diagnostic setting must match, or the audit event is
-  silently dropped. Silently. This coupling is the single most fragile thing in
-  the audit design and is why it is written down in both the policy comment and
-  here.
+- **`severity` is a monotonic gate, not an exact-match contract.** APIM records
+  a trace only when the trace's severity is at or above the diagnostic
+  setting's configured verbosity. `severity="error"` in the fragment is the
+  MAXIMUM tier, so it clears that gate at ANY verbosity the diagnostic
+  setting is configured to (verbose, information, or error) -- an earlier
+  draft of this ADR described this as requiring an exact match and called it
+  "the single most fragile thing in the audit design," which independent
+  re-verification refuted: it is a robust relationship precisely because
+  `error` is the ceiling, and the only way this audit event drops is the
+  diagnostic setting's Application Insights integration being disabled
+  outright (a loud, detectable misconfiguration, not a silent one).
 - **`on-error` is not an option.** The documented policy sections for `<trace>`
   are `inbound`, `outbound`, and `backend`. The audit event therefore cannot be
   deferred to `on-error`; it sits inline in `inbound`, matching the placement the
@@ -335,12 +339,29 @@ partition) provisioned by the s2 composition itself -- unlike the Application
 Insights resource, this one is NOT out of band, because nothing about it
 needs to outlive the run that produced it: no human ever reads it, and the
 live gate that does read it runs entirely within that run's own lifetime.
-Event Hub delivery has no batching/ingestion indirection between the policy
-firing and a consumer reading it (COMPATIBILITY.md, "APIM `log-to-eventhub`
-policy"), which is the property that actually matters here -- not that Event
-Hubs is faster in some general sense, but that it does not share Application
-Insights' specific, undocumented, and empirically unbounded latency
-characteristic.
+An earlier draft of this ADR claimed Event Hub delivery has "no batching or
+ingestion indirection between the policy firing and a consumer reading it."
+Independent re-verification refuted that (COMPATIBILITY.md, "APIM
+`log-to-eventhub` policy"): an `azureEventHub` logger defaults `isBuffered` to
+`true`, Microsoft's own "sophisticated buffer" language describes Event Hub
+decoupling APIM from slow DOWNSTREAM consumers (not fast delivery TO the first
+consumer), and no numeric latency SLA is documented for `log-to-eventhub` any
+more than for Application Insights. The one documented signal is qualitative,
+not a guarantee: the observability overview's feature-comparison table lists
+"Seconds" of data lag for Event Hub logging against "Minutes" for Azure
+Monitor Logs. The `eventhub_logger` resource now sets `isBuffered = false`
+explicitly, the documented direction for reducing buffering, but Microsoft
+does not state a timing effect for that flag beyond the binary buffered/not
+semantic.
+
+So this is not a documented low-latency delivery path; it is an ENGINEERING
+BET that Event Hub's "Seconds" category will in practice clear a bounded gate
+wait more reliably than Application Insights' undocumented, empirically
+286-620s ingestion did. The bet is falsifiable and is exactly what the live
+gate at round 10/11 tests: if Event Hub also overruns its timeout, this
+redesign will not have solved the problem it was made for, and the honest
+next step is measuring and labelling the real number (COMPATIBILITY.md rule
+on unmeasured figures), not widening the timeout again.
 
 The live gate (`tests/integration/discovery-assertions.ps1`,
 `Assert-AuditEventEmitted`) now reads the Event Hub with a short bounded wait
@@ -469,11 +490,17 @@ and forces the escape-hatch choice.
   defence is the gate. Anyone adding a tool to `src/McpTools` must add a map
   entry in the same change or CI fails. That is the design working, and it will
   read as friction the first time someone hits it.
-- **The `severity`/verbosity coupling is a silent-failure mode.** If the
-  diagnostic setting's verbosity is ever raised above `error`, denies stop being
-  audited and nothing complains. The gate asserts that every deny emits its audit
-  event, which is what turns this from a latent silent failure into a caught one;
-  that assertion must not be dropped as redundant.
+- **The `severity`/verbosity relationship is robust, not a silent-failure
+  mode.** An earlier draft of this ADR claimed denies stop being silently
+  audited if the diagnostic setting's verbosity is "raised above `error`";
+  that describes an impossible state, because `error` is already the
+  strictest/highest tier the verbosity enum has (verbose < information <
+  error; COMPATIBILITY.md). The only way this audit event actually drops is
+  disabling the diagnostic setting's Application Insights integration
+  outright, which is a loud, visible configuration change, not a silent one.
+  The gate still asserts that every deny emits its audit event -- that
+  assertion is worth keeping as a regression check, just not on the premise
+  that it is guarding a fragile coupling.
 - **The audit sink is now a persistent, human-provisioned dependency** of the
   live gate's audit assertions, in the same class as the Terraform state storage
   account and the Entra app registrations. It bills continuously (a Log Analytics
