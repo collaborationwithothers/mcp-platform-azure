@@ -387,9 +387,22 @@ being first-vs-second use within its own run. Per this ADR's own rule above
 a bigger number: the live gate now fires one throwaway, non-gated warm-up
 deny before check 9's timed assertions run, moving the cold-start cost out of
 the checks that decide pass/fail
-(`tests/integration/discovery-assertions.ps1`). Not yet re-run live as of
-this entry. See COMPATIBILITY.md, "APIM `log-to-eventhub` policy," for both
-measurements and their caveats.
+(`tests/integration/discovery-assertions.ps1`).
+
+**Round 13 result (2026-08-07, gate run 31148903377): the warm-up fix
+confirmed.** With the throwaway warm-up deny now firing before check 9's
+timed assertions, the warm-up itself absorbed the cold-start cost (~7.6s to
+its own, non-gated audit confirmation), and BOTH real gating checks that
+followed were fast and consistent: unmapped-probe deny ~7.1s, under-entitled
+deny ~6.1s, against the 60s timeout, with `isBuffered = false` still in
+effect. This is check (c) specifically -- the one that overran 60s entirely
+in round 12 -- now passing comfortably once it is no longer the first event
+through the logger. Three rounds in, the pattern holds without exception:
+whichever event is first through a freshly created `eventhub_logger` is the
+one at risk (16s, then >60s); every subsequent event has been fast (16s,
+5.5s, 7.1s, 6.1s), independent of `isBuffered`. See COMPATIBILITY.md, "APIM
+`log-to-eventhub` policy," for all three rounds' measurements and their
+caveats.
 
 The live gate (`tests/integration/discovery-assertions.ps1`,
 `Assert-AuditEventEmitted`) now reads the Event Hub with a short bounded wait
