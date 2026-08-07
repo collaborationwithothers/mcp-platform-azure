@@ -190,7 +190,7 @@
               trace fired), which made it unsuitable for a same-run pass/fail
               gate. log-to-eventhub references a logger by NAME (logger-id),
               not ARM ID, and its body is a policy expression returning a
-              string -- verified 2026-08-07, COMPATIBILITY.md. Same tool and
+              string, verified 2026-08-07, COMPATIBILITY.md. Same tool and
               caller fields as the <trace> metadata above, for symmetry.
             -->
             <log-to-eventhub logger-id="${eventhub_logger_name}">@{
