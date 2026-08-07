@@ -57,16 +57,21 @@
        entitled caller) and $missingRoleToken (step 1, the under-entitled
        caller) into the discovery-assertions.ps1 script as -EntitledToken and
        -UnderEntitledToken respectively, alongside the Terraform-output
-       -ToolAuthorizationMapKeys, -Server2ToolAuthorizationMapKeys, and
-       -AuditWorkspaceId strings. The discovery script runs the set-equality,
-       mapped-callable, unmapped-probe-denied, and under-entitled-denied
-       assertions for each configured server, and (from within each deny
-       check) asserts that deny emitted its audit trace via a bounded-poll KQL
-       query against the audit Log Analytics workspace (Application Insights
-       ingestion has no documented latency SLA; the FAQ's informal "usually
-       under 5 minutes" is the only public number, COMPATIBILITY.md
-       2026-08-06 -- an accepted flake-risk tradeoff, not a hidden one). Wire
-       shape: HTTP 200 + JSON-RPC -32001 Protocol Error with the id echoed at
+       -ToolAuthorizationMapKeys, -Server2ToolAuthorizationMapKeys,
+       -AuditWorkspaceId, -EventHubNamespaceFqdn, and -EventHubName strings.
+       The discovery script runs the set-equality, mapped-callable,
+       unmapped-probe-denied, and under-entitled-denied assertions for each
+       configured server, and (from within each deny check) asserts that
+       deny emitted its audit event via a bounded-wait read of the ephemeral
+       audit Event Hub (EventHubNamespaceFqdn/EventHubName) -- NOT the KQL
+       query against AuditWorkspaceId, which live-gate rounds 7-9 proved has
+       no bounded real-world latency (ingestion landed anywhere from ~286s to
+       over 600s after the trace fired, non-deterministically) and so cannot
+       gate a same-run pass/fail. AuditWorkspaceId is still resolved and
+       still receives the SAME per-tool deny events via the policy's <trace>
+       element (unchanged) -- it remains the durable, human-reviewable audit
+       trail; it just no longer decides pass/fail. Wire shape: HTTP 200 +
+       JSON-RPC -32001 Protocol Error with the id echoed at
        the envelope top level (mcp-server.xml, COMPATIBILITY.md 2026-08-06).
        Tool-name resolution: gen_ai.tool.name context variable, falling back
        to the parsed body params.name (COMPATIBILITY.md 2026-08-06).
@@ -157,7 +162,16 @@ param(
     # audit Application Insights resource (Terraform output audit_workspace_id).
     # Passed through so discovery-assertions can query back the per-tool deny
     # audit trace. Optional: when empty, the audit-event assertion is skipped.
-    [string]$AuditWorkspaceId = ''
+    [string]$AuditWorkspaceId = '',
+    # Issue 18: ephemeral audit Event Hub (Terraform outputs
+    # eventhub_namespace_fqdn / eventhub_name). The live gate's audit-event
+    # pass/fail check reads THIS, not AuditWorkspaceId -- Application Insights
+    # ingestion proved to have no bounded latency in practice (live-gate
+    # rounds 7-9). AuditWorkspaceId / KQL remain for the durable, human-
+    # reviewable audit trail; they no longer gate pass/fail. Optional: when
+    # either is empty, the audit-event assertion is skipped.
+    [string]$EventHubNamespaceFqdn = '',
+    [string]$EventHubName = ''
 )
 
 Set-StrictMode -Version Latest
@@ -302,7 +316,9 @@ Write-Host "[4] Raw-HTTP discovery assertions"
     -Server2ToolAuthorizationMapKeys $Server2ToolAuthorizationMapKeys `
     -EntitledToken $mcpToken `
     -UnderEntitledToken $missingRoleToken `
-    -AuditWorkspaceId $AuditWorkspaceId
+    -AuditWorkspaceId $AuditWorkspaceId `
+    -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
+    -EventHubName $EventHubName
 if ($LASTEXITCODE -ne 0) {
     throw "Discovery assertions failed (exit $LASTEXITCODE)."
 }

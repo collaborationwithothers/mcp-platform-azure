@@ -163,6 +163,7 @@ resource "azapi_resource" "mcp_server_policy" {
         # does not require every supplied variable to be referenced by the
         # template, so this keeps validate green ahead of the fragment change.
         tool_authorization_map = var.tool_authorization_map
+        eventhub_logger_name   = var.eventhub_logger_name
       })
     }
   }

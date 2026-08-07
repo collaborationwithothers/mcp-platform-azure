@@ -122,6 +122,11 @@ variable "audit_logger_id" {
   description = "ARM resource ID of the Application Insights audit logger (apim-gateway's audit_logger_id output). The diagnostic setting on this MCP server API references this logger with verbosity = 'error', matching the policy fragment's <trace severity='error'> that emits per-tool deny events (issue 18)."
 }
 
+variable "eventhub_logger_name" {
+  type        = string
+  description = "Name of the ephemeral Event Hub logger (apim-gateway's eventhub_logger_name output). The policy fragment's <log-to-eventhub logger-id> references a logger by name, not ARM ID -- unlike the Application Insights <trace> path, which goes through a diagnostic setting. Fires alongside <trace> on every per-tool deny, not instead of it (issue 18): the live gate reads this Event Hub for a low-latency pass/fail signal; the Application Insights trail is unchanged and remains the durable, human-reviewable audit record."
+}
+
 variable "tool_authorization_map" {
   type = map(object({
     # Claim VALUES as they appear in the validated token, matching

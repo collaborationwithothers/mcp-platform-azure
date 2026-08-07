@@ -73,7 +73,7 @@ variable "audit_application_insights_id" {
 
 variable "data_reader_principal_ids" {
   type        = list(string)
-  description = "Object ids of Entra principals to grant Log Analytics Data Reader on the audit Log Analytics workspace (derived from the out-of-band Application Insights resource's WorkspaceResourceId; issue 18), so they can run KQL queries against the per-tool deny audit trace. The live gate passes the same OIDC principal already granted API Center Data Reader (see api-center-registry's data_reader_principal_ids) so it can assert an audit event was emitted. Empty list (default) => no grants."
+  description = "Object ids of Entra principals to grant Log Analytics Data Reader on the audit Log Analytics workspace (derived from the out-of-band Application Insights resource's WorkspaceResourceId; issue 18) AND Event Hubs Data Receiver on the ephemeral audit Event Hub (issue 18), so they can read back a per-tool deny's audit signal -- the KQL path for the durable Application Insights trail, and the Event Hub path the live gate's pass/fail check actually reads (see ADR-009 and Assert-AuditEventEmitted). The live gate passes the same OIDC principal already granted API Center Data Reader (see api-center-registry's data_reader_principal_ids). Empty list (default) => no grants."
   default     = []
 }
 

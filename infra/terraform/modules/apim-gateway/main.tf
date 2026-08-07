@@ -68,6 +68,19 @@ locals {
   # own GUID, not this ARM resource ID -- verified 2026-08-06).
   audit_workspace_id = data.azapi_resource.audit_appinsights.output.properties.WorkspaceResourceId
 
+  # Current subscription, for the Event Hub role definitions below (same
+  # subscription as this deployment -- unlike the out-of-band Application
+  # Insights resource, the ephemeral audit Event Hub lives in THIS resource
+  # group, so no second out-of-band subscription id is needed).
+  current_subscription_id = split("/", data.azurerm_resource_group.this.id)[2]
+
+  # Azure Event Hubs Data Sender (2b629674-...) and Data Receiver
+  # (a638d3c7-...): built-in roles, DataActions Microsoft.EventHub/*/send/action
+  # and Microsoft.EventHub/*/receive/action respectively. GUIDs verified
+  # 2026-08-07: https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/analytics
+  eventhub_data_sender_role_id   = "/subscriptions/${local.current_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/2b629674-e913-4c01-ae53-ef4638d8f975"
+  eventhub_data_receiver_role_id = "/subscriptions/${local.current_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/a638d3c7-ab3a-418d-83e6-5f17a39d4fde"
+
   prm_url = "${module.apim.apim_gateway_url}/.well-known/oauth-protected-resource"
 
   # Root RFC 9728 protected resource metadata document, describing the primary
@@ -324,4 +337,99 @@ resource "azapi_resource" "audit_logger" {
   }
 
   depends_on = [azapi_resource.monitoring_metrics_publisher]
+}
+
+# Ephemeral Event Hub for the live gate's audit-event verification (issue
+# 18), added alongside the Application Insights sink above, NOT replacing
+# it: <trace> still fires on every deny and the Application Insights audit
+# trail is unchanged. This exists only because Application Insights ingestion
+# proved to have no bounded latency in practice -- live-gate rounds 7-9
+# showed real ingestion landing anywhere from ~286s to over 600s after the
+# trace fired, non-deterministically, which makes it unsuitable for a
+# same-run pass/fail gate even though it remains the right long-lived,
+# human-reviewable audit trail. Deliberately lives IN this ephemeral
+# resource group (unlike the out-of-band Application Insights resource) and
+# is destroyed with it: a verification-only signal has no reason to outlive
+# the run that produced it. Basic tier, single partition, 1-day retention --
+# this only ever carries one run's own denial events. azurerm schema
+# (namespace_id, not the older namespace_name; sku as a plain string, not a
+# block) verified 2026-08-07 against the provider's own docs source.
+resource "azurerm_eventhub_namespace" "audit" {
+  name                = "${var.name}-audit"
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.this.name
+  sku                 = "Basic"
+  tags                = var.tags
+}
+
+resource "azurerm_eventhub" "audit" {
+  name              = "audit-denials"
+  namespace_id      = azurerm_eventhub_namespace.audit.id
+  partition_count   = 1
+  message_retention = 1
+}
+
+# Event Hubs Data Sender on APIM's system-assigned identity, scoped to the
+# Event Hub entity: prerequisite for the log-to-eventhub policy's
+# managed-identity credential mode (no connection string/shared access key
+# -- repo hard rule against secrets in the repo). GUID verified 2026-08-07.
+resource "azapi_resource" "eventhub_data_sender" {
+  type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
+  name      = uuidv5("url", "${azurerm_eventhub.audit.id}|${local.eventhub_data_sender_role_id}|${module.apim.resource.identity[0].principal_id}")
+  parent_id = azurerm_eventhub.audit.id
+
+  body = {
+    properties = {
+      roleDefinitionId = local.eventhub_data_sender_role_id
+      principalId      = module.apim.resource.identity[0].principal_id
+      principalType    = "ServicePrincipal"
+    }
+  }
+}
+
+# Event Hubs Data Receiver for each principal in data_reader_principal_ids
+# (issue 18) -- the SAME variable already used for Log Analytics Data Reader
+# and (in api-center-registry) API Center Data Reader, extended here so the
+# live gate's OIDC principal can consume the audit-denial event it just
+# triggered. GUID verified 2026-08-07.
+resource "azapi_resource" "eventhub_data_receiver" {
+  for_each = toset(var.data_reader_principal_ids)
+
+  type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
+  name      = uuidv5("url", "${azurerm_eventhub.audit.id}|${local.eventhub_data_receiver_role_id}|${each.value}")
+  parent_id = azurerm_eventhub.audit.id
+
+  body = {
+    properties = {
+      roleDefinitionId = local.eventhub_data_receiver_role_id
+      principalId      = each.value
+      principalType    = "ServicePrincipal"
+    }
+  }
+}
+
+# Event Hub logger for the per-tool deny audit event (issue 18), parallel to
+# the Application Insights logger above, not a replacement. log-to-eventhub
+# references a logger by NAME directly (no diagnostic-setting indirection,
+# unlike <trace>, which reads the diagnostic setting's bound logger).
+# Managed-identity credential mode verified 2026-08-07:
+# https://learn.microsoft.com/azure/api-management/api-management-howto-log-event-hubs#configure-access-to-the-event-hub
+resource "azapi_resource" "eventhub_logger" {
+  type      = "Microsoft.ApiManagement/service/loggers@2022-08-01"
+  name      = "audit-eventhub"
+  parent_id = module.apim.resource_id
+
+  body = {
+    properties = {
+      loggerType  = "azureEventHub"
+      description = "Ephemeral Event Hub logger for the live gate's per-tool deny audit-event check (issue 18). Managed-identity credential mode; parallel to the Application Insights logger, not a replacement."
+      credentials = {
+        endpointAddress  = "${azurerm_eventhub_namespace.audit.name}.servicebus.windows.net"
+        identityClientId = "SystemAssigned"
+        name             = azurerm_eventhub.audit.name
+      }
+    }
+  }
+
+  depends_on = [azapi_resource.eventhub_data_sender]
 }

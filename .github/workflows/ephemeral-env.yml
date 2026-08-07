@@ -136,6 +136,19 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # Issue 18: the live gate's audit-event check reads the ephemeral audit
+      # Event Hub with the azure-eventhub SDK (no az CLI data-plane command
+      # exists for this -- verified 2026-08-07). Pinned alongside the other
+      # explicit toolchain setup steps in this workflow, not left to whatever
+      # Python happens to be preinstalled on the runner image.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Event Hub gate dependencies
+        run: pip install --quiet azure-eventhub azure-identity
+
       # Issue 9 (reopened) decision: the gate must run harness assertions against
       # a live host, which requires deployed function code. Build and package the
       # MCP server once here, up front, so the artifact is ready before the s1
@@ -422,6 +435,11 @@ jobs:
           server_2_tool_authorization_map_keys="$(terraform -chdir="$s2_dir" output -raw server_2_tool_authorization_map_keys)"
           # Issue 18: audit Log Analytics workspace ARM id, for the audit-event KQL assertion.
           audit_workspace_id="$(terraform -chdir="$s2_dir" output -raw audit_workspace_id)"
+          # Issue 18: ephemeral audit Event Hub, for the live gate's low-latency
+          # audit-event check (parallel to the KQL assertion above, not a
+          # replacement for the Application Insights audit trail itself).
+          eventhub_namespace_fqdn="$(terraform -chdir="$s2_dir" output -raw eventhub_namespace_fqdn)"
+          eventhub_name="$(terraform -chdir="$s2_dir" output -raw eventhub_name)"
           prm_url="$(terraform -chdir="$s2_dir" output -raw prm_url)"
           registry_url="$(terraform -chdir="$s2_dir" output -raw registry_endpoint_url)"
           api_center_id="$(terraform -chdir="$s2_dir" output -raw api_center_id)"
@@ -507,6 +525,8 @@ jobs:
             -ToolAuthorizationMapKeys "$tool_authorization_map_keys" \
             -Server2ToolAuthorizationMapKeys "$server_2_tool_authorization_map_keys" \
             -AuditWorkspaceId "$audit_workspace_id" \
+            -EventHubNamespaceFqdn "$eventhub_namespace_fqdn" \
+            -EventHubName "$eventhub_name" \
             -EvidenceDir "${GITHUB_WORKSPACE}/gate-evidence"
 
       # Always upload whatever PRM evidence was captured above, even when the

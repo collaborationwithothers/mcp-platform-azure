@@ -43,6 +43,16 @@ output "audit_workspace_id" {
   description = "ARM resource ID of the Log Analytics workspace underlying the out-of-band Application Insights audit resource (issue 18). The live gate resolves this to the workspace's own GUID before running its audit-event KQL assertion."
 }
 
+output "eventhub_namespace_fqdn" {
+  value       = module.apim_gateway.eventhub_namespace_fqdn
+  description = "FQDN of the ephemeral audit Event Hub namespace (issue 18). The live gate's audit-event check connects here with the Event Hubs SDK; destroyed with this resource group."
+}
+
+output "eventhub_name" {
+  value       = module.apim_gateway.eventhub_name
+  description = "Name of the ephemeral audit Event Hub entity (issue 18), within eventhub_namespace_fqdn."
+}
+
 output "server_2_tool_authorization_map_keys" {
   value       = join(",", keys(var.server_2_tool_authorization_map))
   description = "Server 2's tool_authorization_map key set, comma-joined (issue 18)."

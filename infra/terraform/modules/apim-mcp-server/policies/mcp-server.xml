@@ -181,6 +181,29 @@
               <metadata name="tool" value="@(context.Variables.GetValueOrDefault&lt;string&gt;("mcpToolName", ""))" />
             </trace>
             <!--
+              Low-latency audit signal for the live gate ONLY (issue 18),
+              parallel to the <trace> above, not a replacement: the
+              Application Insights audit trail is unchanged, this fires
+              alongside it. Application Insights ingestion proved to have no
+              bounded latency in practice (live-gate rounds 7-9: real
+              ingestion landed anywhere from ~286s to over 600s after the
+              trace fired), which made it unsuitable for a same-run pass/fail
+              gate. log-to-eventhub references a logger by NAME (logger-id),
+              not ARM ID, and its body is a policy expression returning a
+              string -- verified 2026-08-07, COMPATIBILITY.md. Same tool and
+              caller fields as the <trace> metadata above, for symmetry.
+            -->
+            <log-to-eventhub logger-id="${eventhub_logger_name}">@{
+              var jwt = context.Variables.GetValueOrDefault&lt;Jwt&gt;("jwt");
+              var caller = jwt != null ? jwt.Claims.GetValueOrDefault("oid", jwt.Claims.GetValueOrDefault("azp", "unknown")) : "unknown";
+              var toolName = context.Variables.GetValueOrDefault&lt;string&gt;("mcpToolName", "");
+              var auditEvent = new JObject {
+                ["tool"] = toolName,
+                ["caller"] = caller
+              };
+              return auditEvent.ToString(Newtonsoft.Json.Formatting.None);
+            }</log-to-eventhub>
+            <!--
               Deny wire shape (issue 18): a JSON-RPC 2.0 Protocol Error, id
               echoed from the parsed request, delivered over the normal
               response channel, NOT a CallToolResult with isError (that tier

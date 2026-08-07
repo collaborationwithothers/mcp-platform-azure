@@ -152,7 +152,8 @@ module "apim_mcp_server" {
 
   tool_authorization_map = var.tool_authorization_map
 
-  audit_logger_id = module.apim_gateway.audit_logger_id
+  audit_logger_id      = module.apim_gateway.audit_logger_id
+  eventhub_logger_name = module.apim_gateway.eventhub_logger_name
 }
 
 # Second passthrough MCP server (issue 17): a second instance of the same module
@@ -179,7 +180,8 @@ module "apim_mcp_server_2" {
 
   tool_authorization_map = var.server_2_tool_authorization_map
 
-  audit_logger_id = module.apim_gateway.audit_logger_id
+  audit_logger_id      = module.apim_gateway.audit_logger_id
+  eventhub_logger_name = module.apim_gateway.eventhub_logger_name
 }
 
 module "api_center_registry" {

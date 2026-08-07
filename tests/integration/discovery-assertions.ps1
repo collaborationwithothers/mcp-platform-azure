@@ -110,11 +110,22 @@ param(
     [string]$UnmappedProbeToolName = 'issue18_unmapped_probe_tool',
     # ARM resource ID of the Log Analytics workspace underlying the out-of-band
     # Application Insights audit resource (Terraform output audit_workspace_id).
-    # Resolved to the workspace's own GUID once, below, since
-    # az monitor log-analytics query's --workspace expects that GUID, not this
-    # ARM resource ID (verified 2026-08-06). Optional: when empty the
+    # No longer queried by this script (see EventHubNamespaceFqdn/EventHubName
+    # below for the check that gates pass/fail) -- the policy's <trace>
+    # element is unchanged, so every per-tool deny still reaches it; this
+    # value is accepted only to print as a pointer for anyone who wants the
+    # durable, human-reviewable audit trail afterward.
+    [string]$AuditWorkspaceId = '',
+    # Ephemeral audit Event Hub (Terraform outputs eventhub_namespace_fqdn /
+    # eventhub_name). The audit-event PASS/FAIL check reads THIS, via the
+    # bounded-wait Python consumer (scripts/gate/wait_for_eventhub_audit.py),
+    # not AuditWorkspaceId: live-gate rounds 7-9 proved Application Insights
+    # ingestion has no bounded real-world latency (landed anywhere from ~286s
+    # to over 600s after the trace fired, non-deterministically), which
+    # cannot gate a same-run pass/fail. Optional: when either is empty, the
     # audit-event assertion is skipped with a warning.
-    [string]$AuditWorkspaceId = ''
+    [string]$EventHubNamespaceFqdn = '',
+    [string]$EventHubName = ''
 )
 
 Set-StrictMode -Version Latest
@@ -471,7 +482,8 @@ function Assert-ToolAuthorization {
         [string]$MappedToolName,
         [string]$UnmappedProbeToolName,
         [string]$UnderEntitledToken = '',
-        [string]$WorkspaceCustomerId = '',
+        [string]$EventHubNamespaceFqdn = '',
+        [string]$EventHubName = '',
         [switch]$WarnOnly
     )
 
@@ -562,6 +574,11 @@ function Assert-ToolAuthorization {
     # {"jsonrpc":"2.0","id":<echoed>,"error":{"code":-32001,"message":"..."}}.
     $probeId = 42
     Write-Host "[$Label-c] $ServerUrl tools/call '$UnmappedProbeToolName' IS denied (-32001, id=$probeId echoed)"
+    # Captured immediately before the call that triggers the deny: the Event
+    # Hub consumer's --since cutoff, so it only considers messages enqueued
+    # after THIS check's own deny, never a stale message from an earlier
+    # check or an earlier live-test run against the same ephemeral instance.
+    $unmappedCallTimeUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
     $probeResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/call' -Id $probeId `
         -ParamsJson "{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}"
     if (-not (Test-ToolAuthDenial $probeResult)) {
@@ -572,7 +589,7 @@ function Assert-ToolAuthorization {
             & $assertFail "tools/call '$UnmappedProbeToolName' returned -32001 but echoed id '$echoedId'; expected '$probeId' (top-level JSON-RPC envelope id field, not nested under error)."
         } else {
             Pass "${Label}: tools/call '$UnmappedProbeToolName' denied with -32001 and id=$probeId echoed correctly at the envelope top level."
-            Assert-AuditEventEmitted -ServerLabel "$Label-c" -WorkspaceCustomerId $WorkspaceCustomerId -ToolName $UnmappedProbeToolName -WarnOnly:$WarnOnly
+            Assert-AuditEventEmitted -ServerLabel "$Label-c" -EventHubNamespaceFqdn $EventHubNamespaceFqdn -EventHubName $EventHubName -ToolName $UnmappedProbeToolName -SinceUtc $unmappedCallTimeUtc -WarnOnly:$WarnOnly
         }
     }
     Write-Host ''
@@ -584,55 +601,55 @@ function Assert-ToolAuthorization {
     # need to distinguish them).
     if (-not [string]::IsNullOrEmpty($UnderEntitledToken)) {
         Write-Host "[$Label-d] $ServerUrl tools/call '$MappedToolName' with under-entitled token IS denied (-32001)"
+        $underEntitledCallTimeUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
         $denyResult = Invoke-JsonRpc -Uri $ServerUrl -Token $UnderEntitledToken -Method 'tools/call' -Id 3 `
             -ParamsJson "{`"name`":`"$MappedToolName`",`"arguments`":{}}"
         if (-not (Test-ToolAuthDenial $denyResult)) {
             & $assertFail "tools/call '$MappedToolName' with the under-entitled token was NOT denied with -32001; a caller missing the required role/scope must be denied by the per-tool check."
         } else {
             Pass "${Label}: tools/call '$MappedToolName' with the under-entitled token denied with -32001 (per-tool check enforced)."
-            Assert-AuditEventEmitted -ServerLabel "$Label-d" -WorkspaceCustomerId $WorkspaceCustomerId -ToolName $MappedToolName -WarnOnly:$WarnOnly
+            Assert-AuditEventEmitted -ServerLabel "$Label-d" -EventHubNamespaceFqdn $EventHubNamespaceFqdn -EventHubName $EventHubName -ToolName $MappedToolName -SinceUtc $underEntitledCallTimeUtc -WarnOnly:$WarnOnly
         }
         Write-Host ''
     }
 }
 
-# Asserts a per-tool deny emitted its audit event (issue 18), by querying the
-# Log Analytics workspace the APIM <trace> element writes into. Bounded poll:
-# Application Insights ingestion has no documented latency SLA -- the closest
-# public number is the FAQ's informal "most data has a latency of under 5
-# minutes; some data can take longer" (Microsoft Learn, application-insights-faq,
-# verified 2026-08-06). Rounds 7 and 8 of the live gate independently confirmed
-# this is not occasional flake at a 300s timeout: the query itself is correct
-# (manually re-run with a widened time window after each timeout, it found the
-# row both times), but real ingestion landed somewhere between ~286s and ~320s
-# after the trace fired, on every one of 4 independent check instances across
-# those two rounds -- consistent with a batch-flush interval sitting right at
-# the 300s mark, not random jitter. 600s gives real headroom past that, not a
-# guess.
-#
-# The KQL deliberately does NOT filter on the <trace> element's "source"
-# attribute: which AppTraces column it lands in is UNVERIFIABLE from Microsoft
-# Learn (neither the trace-policy page nor the Application Insights data-model
-# page documents it -- only "message" and "severityLevel" are named as
-# trace-specific fields). Encoding an unconfirmed column mapping into a gate
-# assertion is exactly the kind of guess this repo's verification discipline
-# forbids, so the query keys off what IS verified instead: SeverityLevel == 3
-# (the documented enum value for the policy's severity="error"), and the
-# <metadata name="tool"/name="caller"/> values, which are verified to land in
-# the dynamic Properties column. This also directly proves the "dimensioned by
-# caller and tool" acceptance wording, not just "an event of some kind fired".
+# Asserts a per-tool deny emitted its audit event (issue 18), by reading the
+# ephemeral audit Event Hub the policy's <log-to-eventhub> element writes to,
+# via a bounded-wait Python consumer (scripts/gate/wait_for_eventhub_audit.py
+# -- az CLI has no Event Hubs data-plane receive command; verified
+# 2026-08-07). This REPLACES the Log Analytics/Application Insights KQL path
+# this function used through live-gate round 9 as the thing that gates
+# pass/fail. That query was proven correct three separate times (manually
+# re-run, and via the exact az CLI invocation this script issued, both
+# matched real data every time), but real Application Insights ingestion
+# latency ranged from ~286s to over 600s across rounds 7-9, non-
+# deterministically -- Application Insights documents no latency SLA, so no
+# fixed timeout is provably safe against it. Event Hub delivery has no such
+# batching/ingestion indirection between the policy firing and a consumer
+# reading it (COMPATIBILITY.md, 2026-08-07). The <trace> element and its
+# Application Insights sink are UNCHANGED by this: they still receive every
+# per-tool deny and remain the durable, human-reviewable audit trail; this
+# function just no longer reads them back for pass/fail.
 function Assert-AuditEventEmitted {
     param(
         [string]$ServerLabel,
-        [string]$WorkspaceCustomerId,
+        [string]$EventHubNamespaceFqdn,
+        [string]$EventHubName,
         [string]$ToolName,
-        [int]$TimeoutSeconds = 600,
-        [int]$IntervalSeconds = 20,
+        # UTC timestamp (yyyy-MM-ddTHH:mm:ss.fffZ), captured by the caller
+        # immediately before issuing the tools/call that triggers this deny.
+        # Anchors the consumer's starting_position so it only considers
+        # events enqueued after THIS check's own deny -- never a stale event
+        # from an earlier check or an earlier live-test run against the same
+        # ephemeral Event Hub instance name.
+        [string]$SinceUtc,
+        [int]$TimeoutSeconds = 60,
         [switch]$WarnOnly
     )
 
-    if ([string]::IsNullOrEmpty($WorkspaceCustomerId)) {
-        Write-Host "::warning::[$ServerLabel] audit-event assertion skipped: no workspace id supplied."
+    if ([string]::IsNullOrEmpty($EventHubNamespaceFqdn) -or [string]::IsNullOrEmpty($EventHubName)) {
+        Write-Host "::warning::[$ServerLabel] audit-event assertion skipped: no Event Hub supplied."
         return
     }
 
@@ -642,83 +659,31 @@ function Assert-AuditEventEmitted {
         { param([string]$msg) Fail "${ServerLabel}: $msg" }
     }
 
-    # Escaped for KQL string-literal context (single quotes double up), not for
-    # shell context -- $ToolName values here are fixed script constants
-    # (MappedToolName / UnmappedProbeToolName), never external input.
-    $escapedTool = $ToolName -replace "'", "''"
-    # A live run confirmed the write side is correct (Application Insights
-    # portal "End-to-end transaction details" for this exact trace shows
-    # Custom Properties tool=<name>, caller=<guid>, severity Error -- and the
-    # diagnostic fallback below independently found the same row), but two
-    # successive query attempts failed to match it. The dot-navigation
-    # attempt (tostring(Properties.tool) == '...') matched zero rows; the
-    # follow-up `Properties contains '...'` attempt ALSO matched zero rows,
-    # deterministically (round 7: both (c) and (d) failed identically, and
-    # the diagnostic fallback -- which never applies a string operator to
-    # Properties, only `project`s it -- found the exact same row both times).
-    # That ruled out ingestion latency as the cause: Kusto's `contains`
-    # operand is documented as type `string`
-    # (https://learn.microsoft.com/kusto/query/contains-operator), and
-    # `Properties` is `dynamic`; the dynamic-type docs list no string
-    # operators among what's supported over dynamic values and require an
-    # explicit `tostring()` cast first
-    # (https://learn.microsoft.com/kusto/query/scalar-data-types/dynamic,
-    # "Casting dynamic objects"; azure-docs-verifier, 2026-08-06). Every
-    # official customDimensions/Properties string-filter sample wraps the
-    # column in tostring() before contains/startswith/endswith. Fixed by
-    # doing the same here.
-    $kql = "AppTraces | where TimeGenerated > ago(15m) | where SeverityLevel == 3 | where tostring(Properties) contains '`"tool`":`"$escapedTool`"' | where tostring(Properties) contains '`"caller`":`"' | count"
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $attempt = 0
-    $eventCount = 0
-    while ((Get-Date) -lt $deadline -and $eventCount -eq 0) {
-        $attempt++
-        $raw = (az monitor log-analytics query --workspace $WorkspaceCustomerId --analytics-query $kql -o json 2>$null) -join "`n"
-        if (-not [string]::IsNullOrEmpty($raw)) {
-            try {
-                $rows = $raw | ConvertFrom-Json -ErrorAction Stop
-                if ($rows -is [array] -and $rows.Count -gt 0) {
-                    $eventCount = [int]$rows[0].Count
-                }
-            } catch { $eventCount = 0 }
-        }
-        if ($eventCount -eq 0) {
-            $remaining = [int]($deadline - (Get-Date)).TotalSeconds
-            if ($remaining -gt 0) {
-                Write-Host "  [$ServerLabel] audit event for '$ToolName' not yet queryable (attempt $attempt); ${remaining}s left (Application Insights ingestion latency)."
-                Start-Sleep -Seconds $IntervalSeconds
-            }
-        }
+    $consumerScript = Join-Path $PSScriptRoot '..' '..' 'scripts' 'gate' 'wait_for_eventhub_audit.py'
+    $raw = python3 $consumerScript `
+        --namespace-fqdn $EventHubNamespaceFqdn `
+        --eventhub-name $EventHubName `
+        --tool-name $ToolName `
+        --since $SinceUtc `
+        --timeout-seconds $TimeoutSeconds 2>&1
+    # The consumer script always prints exactly one JSON object as its last
+    # line and always exits 0 (errors are reported IN the JSON, not via exit
+    # code or a thrown failure) -- Select-Object -Last 1 is defensive against
+    # any incidental SDK log lines landing on the merged stderr stream ahead
+    # of it, not a sign the script itself can fail ambiguously.
+    $result = $null
+    try {
+        $result = ($raw | Select-Object -Last 1) | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        & $assertFail "audit-event check for tool '$ToolName' could not parse the consumer script's output. Raw output: $raw"
+        return
     }
 
-    if ($eventCount -eq 0) {
-        # Diagnostic fallback, evidence only, never itself a pass/fail signal:
-        # a BROADER query (no SeverityLevel/Properties.tool/Properties.caller
-        # filters, just "any AppTraces row from this source in the last 15
-        # minutes") distinguishes a WRITE-side problem (nothing landed at all
-        # -- the trace did not fire, or the severity/verbosity coupling is
-        # broken, ADR-009) from a QUERY-side problem (rows exist but with a
-        # different shape than this assertion assumed -- e.g. Properties.tool
-        # is not where the metadata actually landed). Logged either way so a
-        # failure carries real evidence, not just a timeout.
-        # Filters ONLY on SeverityLevel (verified: severity="error" -> 3). Does
-        # NOT filter on the <trace> element's "source" attribute -- which
-        # AppTraces column that lands in is UNVERIFIABLE from Microsoft Learn
-        # (COMPATIBILITY.md, 2026-08-06); a wrong column name in a diagnostic
-        # query could itself error and produce a misleading empty result,
-        # exactly the failure mode this fallback exists to distinguish from.
-        $diagKql = "AppTraces | where TimeGenerated > ago(15m) | where SeverityLevel == 3 | project TimeGenerated, SeverityLevel, Message, Properties | take 5"
-        $diagRaw = (az monitor log-analytics query --workspace $WorkspaceCustomerId --analytics-query $diagKql -o json 2>$null) -join "`n"
-        if ([string]::IsNullOrEmpty($diagRaw) -or $diagRaw -eq '[]') {
-            Write-Host "  [$ServerLabel] diagnostic: no AppTraces row at ANY severity=error in the last 15m -- this points at the WRITE side (trace not firing, or the severity/verbosity coupling is broken, ADR-009), not the query."
-        } else {
-            Write-Host "  [$ServerLabel] diagnostic: found severity=error row(s) but not matching this assertion's tool/caller filters -- raw rows follow (points at the QUERY side, e.g. a wrong assumption about where Properties.tool/caller land):"
-            Write-Host "  $diagRaw"
-        }
-        & $assertFail "no audit trace found for tool '$ToolName' (SeverityLevel=error, Properties.tool match, Properties.caller present) in the audit workspace within ${TimeoutSeconds}s. Either the deny did not emit its trace, the severity/verbosity coupling is broken (ADR-009), or ingestion took longer than this poll window. See the diagnostic query output above."
+    if ($result.found) {
+        Pass "${ServerLabel}: audit event found for tool '$ToolName' via Event Hub, dimensioned by caller (enqueued $($result.enqueued_time))."
     } else {
-        Pass "${ServerLabel}: audit trace found for tool '$ToolName', dimensioned by caller and tool ($eventCount matching row(s))."
+        $errDetail = if (Get-SafeProperty $result 'error') { " Consumer error: $($result.error)" } else { '' }
+        & $assertFail "no audit event found for tool '$ToolName' on the audit Event Hub within ${TimeoutSeconds}s.$errDetail Either the deny did not emit its event, or the policy's Event Hub logger is misconfigured (ADR-009)."
     }
 }
 
@@ -1077,24 +1042,21 @@ Write-Host ''
 #    map keys (both directions), mapped-tool callable, unmapped-probe denied
 #    (HTTP 200 + JSON-RPC -32001 Protocol Error, id echoed at the envelope top
 #    level), under-entitled-denied, and (Assert-AuditEventEmitted, called from
-#    within each deny check) that deny emitted its audit trace, queried back
-#    via KQL against the audit Log Analytics workspace with a bounded poll for
-#    Application Insights ingestion latency. Expressed as a loop over
-#    configured server instances (issue-18 acceptance criterion). Server 2
-#    uses WarnOnly throughout: its token entitlement is out-of-band and
-#    results may be inconclusive.
+#    within each deny check) that deny emitted its audit event, read back from
+#    the ephemeral audit Event Hub with a short bounded wait (issue 18: see
+#    Assert-AuditEventEmitted for why this replaced the Application Insights
+#    KQL path after live-gate rounds 7-9). Expressed as a loop over configured
+#    server instances (issue-18 acceptance criterion). Server 2 uses WarnOnly
+#    throughout: its token entitlement is out-of-band and results may be
+#    inconclusive.
 # ---------------------------------------------------------------------------
-# Resolve the workspace's own GUID once (az monitor log-analytics query's
-# --workspace expects this, not the ARM resource ID -- verified 2026-08-06),
-# reused for every per-server audit-event assertion below.
-$auditWorkspaceCustomerId = ''
 if (-not [string]::IsNullOrEmpty($AuditWorkspaceId)) {
-    $auditWorkspaceCustomerId = (az monitor log-analytics workspace show --ids $AuditWorkspaceId --query customerId -o tsv 2>$null)
-    if ([string]::IsNullOrEmpty($auditWorkspaceCustomerId)) {
-        Write-Host "::warning::Could not resolve the audit workspace's customerId from '$AuditWorkspaceId'; audit-event assertions will be skipped."
-    }
+    Write-Host "Durable audit trail (Application Insights, unchanged by issue 18's Event Hub check): $AuditWorkspaceId"
 } else {
-    Write-Host "::warning::AuditWorkspaceId not supplied; audit-event assertions will be skipped."
+    Write-Host "::warning::AuditWorkspaceId not supplied; no pointer to the durable audit trail will be printed. Does not affect the Event Hub audit-event assertion below."
+}
+if ([string]::IsNullOrEmpty($EventHubNamespaceFqdn) -or [string]::IsNullOrEmpty($EventHubName)) {
+    Write-Host "::warning::EventHubNamespaceFqdn/EventHubName not supplied; audit-event assertions will be skipped."
 }
 $perToolServers = [System.Collections.Generic.List[hashtable]]::new()
 if (-not [string]::IsNullOrEmpty($ToolAuthorizationMapKeys) -and -not [string]::IsNullOrEmpty($EntitledToken)) {
@@ -1124,7 +1086,8 @@ if ($perToolServers.Count -gt 0) {
             -MappedToolName $MappedToolName `
             -UnmappedProbeToolName $UnmappedProbeToolName `
             -UnderEntitledToken $UnderEntitledToken `
-            -WorkspaceCustomerId $auditWorkspaceCustomerId `
+            -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
+            -EventHubName $EventHubName `
             -WarnOnly:$srv.WarnOnly
     }
 }

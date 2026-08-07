@@ -306,6 +306,59 @@ The traces land as Trace telemetry (`traces` / `AppTraces`), not `customEvents`,
 and are queryable per deny, dimensioned by caller (`oid`, falling back to `azp`)
 and tool.
 
+### The audit-event pass/fail check: a second, parallel Event Hub signal, not a replacement
+
+Everything above is unchanged and remains true: the `<trace>` element still fires
+on every deny, the Application Insights sink is still the durable,
+human-reviewable audit trail, and it is still provisioned out of band for the
+same reason (an audit trail that dies with the ephemeral environment is not an
+audit trail).
+
+What changed is which signal the LIVE GATE reads to decide pass/fail. Through
+issue-18's first nine live-gate rounds, the gate polled Application Insights
+with a bounded-timeout KQL query after each deny. That query was correct --
+every fix to it was proven correct by direct re-execution against real data,
+repeatedly (COMPATIBILITY.md, "Kusto `contains` operator on a `dynamic`
+column") -- but Application Insights ingestion documents no latency SLA at
+all, and real measured latency ranged from ~286s to over 600s across three
+independent rounds, non-deterministically. A widened timeout (300s, then
+600s) bought headroom twice and was exceeded a third time. No fixed timeout
+is provably safe against an undocumented, unbounded latency characteristic;
+widening it further would only have been picking a new number to eventually
+exceed again.
+
+The fix is not a better timeout: it is a second delivery path with a
+fundamentally different latency characteristic. The policy fragment now also
+emits the same tool/caller pair via a second, independent policy element,
+`<log-to-eventhub>`, to an EPHEMERAL Event Hub namespace (Basic tier, single
+partition) provisioned by the s2 composition itself -- unlike the Application
+Insights resource, this one is NOT out of band, because nothing about it
+needs to outlive the run that produced it: no human ever reads it, and the
+live gate that does read it runs entirely within that run's own lifetime.
+Event Hub delivery has no batching/ingestion indirection between the policy
+firing and a consumer reading it (COMPATIBILITY.md, "APIM `log-to-eventhub`
+policy"), which is the property that actually matters here -- not that Event
+Hubs is faster in some general sense, but that it does not share Application
+Insights' specific, undocumented, and empirically unbounded latency
+characteristic.
+
+The live gate (`tests/integration/discovery-assertions.ps1`,
+`Assert-AuditEventEmitted`) now reads the Event Hub with a short bounded wait
+(`scripts/gate/wait_for_eventhub_audit.py`, using the `azure-eventhub` SDK --
+`az` CLI has no Event Hubs data-plane receive command) instead of the KQL
+query. Managed-identity credential mode throughout, matching the Application
+Insights logger's pattern exactly (no connection string or key in the repo):
+the APIM identity holds Event Hubs Data Sender on the Event Hub, and the live
+gate's OIDC principal holds Event Hubs Data Receiver, both via the same
+`data_reader_principal_ids` variable already used for the Application
+Insights path (extended, not duplicated).
+
+This is the same "surface ownership, not policy attachment point" spine
+applied one level down: the AUDIT TRAIL and the GATE VERIFICATION are two
+different consumers with two different requirements (durability and human
+readability vs. bounded latency within one run), and conflating them into one
+sink was the actual defect -- not the KQL, not the timeout, the coupling.
+
 ### Deployment coupling: an accepted constraint, not an oversight
 
 Default-deny plus the set-equality gate assertion means that ADDING A TOOL TO THE
