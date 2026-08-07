@@ -534,8 +534,14 @@ function Assert-ToolAuthorization {
     # actually a DIFFERENT JSON-RPC error the gate never checked for; see the
     # Accept-header fix on Invoke-JsonRpc above).
     Write-Host "[$Label-b] $ServerUrl tools/call '$MappedToolName' with entitled token is NOT denied by the gateway"
+    # get_order_status declares orderId isRequired: true (src/McpTools/Tools/GetOrderStatus.cs);
+    # an empty arguments object never reaches the per-tool gate's pass/fail
+    # outcome -- it fails backend param validation first (-32602), which this
+    # check previously misread as a gate denial. CONTOSO-1001 is a known
+    # synthetic fixture id (SyntheticOrders), so this exercises a real
+    # success path, not just "didn't error on missing params".
     $callResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/call' -Id 2 `
-        -ParamsJson "{`"name`":`"$MappedToolName`",`"arguments`":{}}"
+        -ParamsJson "{`"name`":`"$MappedToolName`",`"arguments`":{`"orderId`":`"CONTOSO-1001`"}}"
     if ($null -eq $callResult) {
         & $assertFail "tools/call '$MappedToolName' with the entitled token: response was not valid JSON."
     } elseif (Test-LegacyHttpDenial $callResult) {
