@@ -114,18 +114,19 @@ param(
     # UnmappedProbeToolName so its audit event can never be mistaken for
     # check (c)'s by the Event Hub consumer's tool-name filter.
     [string]$EventHubWarmupToolName = 'issue18_eventhub_warmup',
-    # ARM resource ID of the Log Analytics workspace underlying the out-of-band
-    # Application Insights audit resource (Terraform output audit_workspace_id).
+    # ARM resource ID of the shared Log Analytics workspace underlying the
+    # out-of-band workspace-based Application Insights resource (Terraform
+    # output shared_observability_workspace_id).
     # No longer queried by this script (see EventHubNamespaceFqdn/EventHubName
     # below for the check that gates pass/fail) -- the policy's <trace>
     # element is unchanged, so every per-tool deny still reaches it; this
     # value is accepted only to print as a pointer for anyone who wants the
     # durable, human-reviewable audit trail afterward.
-    [string]$AuditWorkspaceId = '',
+    [string]$SharedObservabilityWorkspaceId = '',
     # Ephemeral audit Event Hub (Terraform outputs eventhub_namespace_fqdn /
     # eventhub_name). The audit-event PASS/FAIL check reads THIS, via the
     # bounded-wait Python consumer (scripts/gate/wait_for_eventhub_audit.py),
-    # not AuditWorkspaceId: live-gate rounds 7-9 proved Application Insights
+    # not SharedObservabilityWorkspaceId: live-gate rounds 7-9 proved Application Insights
     # ingestion has no bounded real-world latency (landed anywhere from ~286s
     # to over 600s after the trace fired, non-deterministically), which
     # cannot gate a same-run pass/fail. Optional: when either is empty, the
@@ -1056,10 +1057,10 @@ Write-Host ''
 #    throughout: its token entitlement is out-of-band and results may be
 #    inconclusive.
 # ---------------------------------------------------------------------------
-if (-not [string]::IsNullOrEmpty($AuditWorkspaceId)) {
-    Write-Host "Durable audit trail (Application Insights, unchanged by issue 18's Event Hub check): $AuditWorkspaceId"
+if (-not [string]::IsNullOrEmpty($SharedObservabilityWorkspaceId)) {
+    Write-Host "Shared observability workspace (durable trail, unchanged by issue 18's Event Hub check): $SharedObservabilityWorkspaceId"
 } else {
-    Write-Host "::warning::AuditWorkspaceId not supplied; no pointer to the durable audit trail will be printed. Does not affect the Event Hub audit-event assertion below."
+    Write-Host "::warning::SharedObservabilityWorkspaceId not supplied; no pointer to the durable observability trail will be printed. Does not affect the Event Hub audit-event assertion below."
 }
 if ([string]::IsNullOrEmpty($EventHubNamespaceFqdn) -or [string]::IsNullOrEmpty($EventHubName)) {
     Write-Host "::warning::EventHubNamespaceFqdn/EventHubName not supplied; audit-event assertions will be skipped."

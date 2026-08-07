@@ -113,6 +113,8 @@ See COMPATIBILITY.md for the full pin table and doc links.
 | `publisher_name` | string | API Management publisher/company name. |
 | `publisher_email` | string | API Management publisher email. |
 | `tenant_id` | string | Entra tenant ID callers authenticate against. Not consumed by this module (Entra token validation is owned by `apim-mcp-server`'s server-scope policy); present for thick-interface completeness. |
+| `shared_observability_application_insights_id` | string | ARM resource ID of the persistent, out-of-band Application Insights resource used by issue 18's per-tool deny audit logger. |
+| `log_analytics_workspace_id` | string | ARM resource ID of the persistent, out-of-band Log Analytics workspace that receives mandatory platform diagnostics. |
 | `prm` | object | `{ authorization_server, root = { resource, scopes }, servers = [{ resource, scopes }] }` -- the per-server PRM collection (issue 17). `authorization_server` is the shared OAuth authorization server (issuer) URL rendered into `authorization_servers[0]` of every document. `root` describes the primary server, served at the gateway root well-known location (the s3.3 fail-closed guard). `servers` is the full set of servers behind the gateway; each whose `resource` carries a path gets its own document at its RFC 9728 s3.1 path-inserted location. `resource` is the MCP server URL, not the token audience; `scopes` becomes that server's `scopes_supported`. Supplied by the composition. |
 
 ## Outputs
@@ -125,11 +127,28 @@ See COMPATIBILITY.md for the full pin table and doc links.
 | `prm_url` | Gateway-root PRM URL (`https://<gateway>/.well-known/oauth-protected-resource`), per RFC 9728. Serves the primary server's document; retained as the s3.3 fail-closed guard for clients that fall back to root while targeting another server. |
 | `prm_server_urls` | Map of RFC 9728 s3.1 path-inserted PRM URLs keyed by each server's resource URL (issue 17). Each value is the well-known location a spec client resolves for that server. The gate asserts each returns 200 with `resource` equal to that server's URL exactly. |
 | `identity_principal_id` | Principal ID of the system-assigned managed identity. Unused in the tracer; present for the thick interface. |
+| `shared_observability_workspace_id` | ARM resource ID of the persistent, out-of-band Log Analytics workspace. |
+
+## Platform diagnostic settings (issue 75)
+
+The wrapper configures one Azure Monitor diagnostic setting for the API
+Management service and one for the ephemeral audit Event Hubs namespace. It
+does not configure the audit Event Hub entity, API child resources, or change
+issue 18's separate per-API Application Insights audit diagnostic setting.
+
+Each setting discovers categories from its target at apply time. It selects the
+`allLogs` category group when available. Otherwise, it selects every reported
+log category. It also selects every reported metric category. A target that
+reports neither logs nor metrics fails the deployment rather than creating an
+empty setting. The settings request `Dedicated` Log Analytics tables. Azure
+Monitor only permits resource-specific tables for resource types that support
+them, so a rejected target requires a proven, target-specific fallback before a
+later apply.
 
 ## Out of scope (this ticket)
 
 No `terraform apply`/`destroy`; no MCP server API (that is `apim-mcp-server`),
 no products, subscriptions, or scenario composition wiring (the integration
-issue); no private networking (v1.1) or observability wiring (v1.2) beyond
-what the AVM module sets by default. This module serves the PRM *document*
-but does not create the MCP server or its challenge policy.
+issue); no private networking (v1.1). This module serves the PRM *document*
+and resource-level platform diagnostics, but does not create the MCP server or
+its challenge policy.

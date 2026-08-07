@@ -61,19 +61,30 @@ variable "tenant_id" {
   description = "Microsoft Entra tenant ID this gateway's callers authenticate against. Not consumed by this module today (Entra token validation is owned by apim-mcp-server's server-scope policy, not the gateway resource itself); present for thick-interface completeness and any future management-plane Entra wiring."
 }
 
-variable "audit_application_insights_id" {
+variable "shared_observability_application_insights_id" {
   type        = string
-  description = "ARM resource ID of the out-of-band Application Insights resource that receives per-tool deny audit events (issue 18). Must be created before the first live run per docs/runbooks/observability-bootstrap.md; lives in a stable resource group never tagged for the ephemeral-env cleanup sweep. Supplied as TF_VAR_audit_application_insights_id on the live-test GitHub Environment; never committed."
+  description = "ARM resource ID of the out-of-band Application Insights resource that receives per-tool deny audit events (issue 18). Must be created before the first live run per docs/runbooks/observability-bootstrap.md; lives in a stable resource group never tagged for the ephemeral-env cleanup sweep. Supplied as TF_VAR_shared_observability_application_insights_id on the live-test GitHub Environment; never committed."
 
   validation {
-    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Ii]nsights/components/[^/]+$", var.audit_application_insights_id))
-    error_message = "audit_application_insights_id must be a valid Microsoft.Insights/components ARM resource ID."
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Ii]nsights/components/[^/]+$", var.shared_observability_application_insights_id))
+    error_message = "shared_observability_application_insights_id must be a valid Microsoft.Insights/components ARM resource ID."
+  }
+}
+
+variable "log_analytics_workspace_id" {
+  type        = string
+  nullable    = false
+  description = "ARM resource ID of the out-of-band Log Analytics workspace that receives mandatory APIM service and Event Hubs namespace diagnostic settings."
+
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Oo]perational[Ii]nsights/workspaces/[^/]+$", var.log_analytics_workspace_id))
+    error_message = "log_analytics_workspace_id must be a valid Microsoft.OperationalInsights/workspaces ARM resource ID."
   }
 }
 
 variable "data_reader_principal_ids" {
   type        = list(string)
-  description = "Object ids of Entra principals to grant Log Analytics Data Reader on the audit Log Analytics workspace (derived from the out-of-band Application Insights resource's WorkspaceResourceId; issue 18) AND Event Hubs Data Receiver on the ephemeral audit Event Hub (issue 18), so they can read back a per-tool deny's audit signal -- the KQL path for the durable Application Insights trail, and the Event Hub path the live gate's pass/fail check actually reads (see ADR-009 and Assert-AuditEventEmitted). The live gate passes the same OIDC principal already granted API Center Data Reader (see api-center-registry's data_reader_principal_ids). Empty list (default) => no grants."
+  description = "Object ids of Entra principals to grant Log Analytics Data Reader on the shared observability workspace and Event Hubs Data Receiver on the ephemeral audit Event Hub (issue 18), so they can read back a per-tool deny's audit signal -- the KQL path for the durable Application Insights trail, and the Event Hub path the live gate's pass/fail check actually reads (see ADR-009 and Assert-AuditEventEmitted). The live gate passes the same OIDC principal already granted API Center Data Reader (see api-center-registry's data_reader_principal_ids). Empty list (default) => no grants."
   default     = []
 }
 

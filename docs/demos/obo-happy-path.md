@@ -240,3 +240,17 @@ delegated path, with the standing GA-bypass caveat.
   - Clean teardown of the `azuread` resources was again not exercised
     (`skip_teardown=true`); a full `skip_teardown=false` run still validates the
     destroy path.
+
+## Observability correction, 2026-08-07
+
+The 2026-07-22 note above is historical evidence for that deployed stamp. It is
+not rewritten by issue 75. Issue 75 adds resource-level diagnostic-setting
+configuration for the current S1 and S2 resources, routed to the shared Log
+Analytics workspace derived from the workspace-based Application Insights
+resource.
+
+This OBO happy-path demo proves delegated authorization and the downstream call.
+It does not prove diagnostic-setting acceptance, telemetry arrival, request or
+dependency correlation, or ingestion cost. Those are separate concerns. The
+existing issue 18 per-tool deny audit path remains narrow and unchanged; it is
+not exercised by this successful OBO call.

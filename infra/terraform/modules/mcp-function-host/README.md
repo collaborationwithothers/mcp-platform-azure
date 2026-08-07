@@ -123,13 +123,12 @@ to the fix.
 checkov 3.3.8's CKV2_* graph checks are not suppressible with an inline
 resource annotation (verified locally: an inline skip had no effect on
 these checks). Everything skipped is documented, with its reason, in
-`.checkov.yaml` at the repo root: CMK encryption and blob logging need
-Key Vault/observability wiring that are v1.1/v1.2, not v1; a storage
-private endpoint is the v1.1 private-network module's job; zone redundancy
-and a minimum-instance floor are HA/DR posture the public-demo tracer does
-not need; and the Terraform-module-source commit-hash check does not fit a
-Terraform Registry source, where this repo's own convention is exact
-version pinning instead (see COMPATIBILITY.md).
+`.checkov.yaml` at the repo root: CMK encryption needs Key Vault wiring; a
+storage private endpoint is the v1.1 private-network module's job; zone
+redundancy and a minimum-instance floor are HA/DR posture the public-demo
+tracer does not need; and the Terraform-module-source commit-hash check does
+not fit a Terraform Registry source, where this repo's own convention is
+exact version pinning instead (see COMPATIBILITY.md).
 
 ## Inputs
 
@@ -139,6 +138,7 @@ version pinning instead (see COMPATIBILITY.md).
 | `location` | string | Azure region. |
 | `resource_group_name` | string | Name of the (out-of-band) resource group. |
 | `tags` | map(string) | Tags applied to every resource, expected to include the ephemeral expiry tag. |
+| `log_analytics_workspace_id` | string | Required ARM resource ID of the Log Analytics workspace that receives platform diagnostic logs and metrics. |
 | `runtime` | object | `{ stack = "dotnet-isolated", version = "10.0" }` by default. `version` is passed straight to `functionAppConfig.runtime.version`; dotnet-isolated uses the major.minor form (`8.0`, `9.0`, `10.0`). See COMPATIBILITY.md. |
 | `flex_consumption` | object | `{ instance_memory_mb = 2048, maximum_instance_count = 40 }` by default. |
 | `storage_account_name` | string | Name of the deployment storage account (existing, or to create). |
@@ -146,6 +146,22 @@ version pinning instead (see COMPATIBILITY.md).
 | `entra_auth` | object | `{ tenant_id, server_app_client_id, allowed_audiences, allowed_applications = [], unauthenticated_action = "Return401" }`. A non-empty `allowed_applications` becomes the built-in-auth caller application allowlist. |
 | `prm_scope` | string | e.g. `api://<server-app-id>/user_impersonation`. Surfaced via `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES`. Optional, default `null`: unset for an instance that is not itself an MCP resource server (issue 10: the downstream Orders API instance), which skips the app setting entirely. |
 | `app_settings` | map(string) | Additional app settings, merged in alongside the module's own. |
+
+## Platform diagnostics
+
+The module creates Azure Monitor diagnostic settings for the Function App, the
+Flex Consumption App Service plan, the storage account, and the Blob, File,
+Queue, and Table service scopes. It discovers each target's supported log and
+metric categories at apply time. Logs use the `allLogs` category group when
+Azure exposes it; otherwise the module enables every returned log category.
+Every returned metric category is enabled. All settings route to the required
+Log Analytics workspace using resource-specific `Dedicated` tables.
+
+When `create_storage_account = false`, the deployment identity must have
+diagnostic-setting write permission on the caller-supplied storage account and
+its Blob, File, Queue, and Table service scopes. This routing covers the
+entire storage account and its service scopes, not only the
+`deploymentpackage` container used by Flex Consumption deployment.
 
 ## Outputs
 
@@ -177,7 +193,6 @@ by any code this repo wrote.
 ## Out of scope (this ticket)
 
 No `terraform apply`/`destroy`; no APIM, API Center, scenario composition, or
-backend config; no app registration creation (referenced by id only); no
-private networking, no observability wiring beyond what Flex Consumption
-strictly requires (no Application Insights is wired -- `avm-res-web-site`
-leaves it optional and this module does not set it).
+backend config; no app registration creation (referenced by id only); and no
+private networking. Platform diagnostic settings route to Log Analytics, but
+this module does not wire Application Insights through `avm-res-web-site`.

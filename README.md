@@ -62,10 +62,29 @@ S3 (the Terraform modules themselves: `mcp-function-host`, `apim-gateway`,
 the module layer both compositions above call. See each module's own README
 under [`infra/terraform/modules`](infra/terraform/modules).
 
-Everything past v1 (private networking, observability, multi-tenancy
-thickening, OBO, the Python variant, Foundry integration) is out of scope for
-this repo's current milestone; see
+Private networking, full application observability, multi-tenancy thickening,
+the Python variant, and Foundry integration remain out of scope for this repo's
+current milestone; see
 [docs/specs/v1-tracer-bullet.md, Out of Scope](docs/specs/v1-tracer-bullet.md#out-of-scope).
+
+### Resource-level platform diagnostics (issue 75)
+
+S1 and S2 route selected Azure Monitor resource logs and exportable platform
+metrics to the Log Analytics workspace behind one durable, workspace-based
+Application Insights resource. The resource-level configuration covers 16
+supported targets: 14 Function-host targets, the APIM service, and the Event
+Hubs namespace. It discovers each target's categories at apply time. API Center
+remains the APIM-linked registry, but Azure Monitor diagnostic settings are
+unsupported there, as gated run 31162622718 proved. The shared
+input is `shared_observability_application_insights_id`, supplied only as the
+`live-test` Environment variable
+`TF_VAR_shared_observability_application_insights_id`.
+
+This does not make observability complete. It does not add request and
+dependency correlation, workbooks, or alerts. Issue 18's separate per-tool deny
+audit path is unchanged. See [the observability guide](docs/observability.md),
+[ADR-004](docs/decisions/ADR-004:%20Observability%20design.md), and [the
+bootstrap runbook](docs/runbooks/observability-bootstrap.md).
 
 ## Quickstart (reading the compositions, not deploying them)
 
@@ -78,7 +97,10 @@ apply-call-destroy pass:
 2. Configure the `live-test` GitHub Environment's variables and secrets that
    `.github/workflows/ephemeral-env.yml` reads (state backend location, the
    two compositions' `tfvars.json` secrets built from step 1's values).
-3. Run the workflow manually from the Actions tab, typing `apply` into the
+3. Complete [the observability bootstrap](docs/runbooks/observability-bootstrap.md)
+   and create `TF_VAR_shared_observability_application_insights_id` before the
+   first issue 75 live test.
+4. Run the workflow manually from the Actions tab, typing `apply` into the
    cost-confirmation input.
 
 See [`docs/runbooks/live-test-gate.md`](docs/runbooks/live-test-gate.md) for
@@ -101,3 +123,7 @@ quoting these figures anywhere else.
 The tracer is ephemeral by design (apply -> call -> destroy in the gated
 live-test run only); nothing here runs continuously, so these are per-run
 figures, not a standing monthly bill.
+
+Resource-level diagnostic ingestion has no published workload estimate. Measure
+billable volume after a representative gated deployment before making a cost
+claim. The dated procedure is in [docs/cost.md](docs/cost.md).

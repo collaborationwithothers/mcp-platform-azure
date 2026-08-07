@@ -97,6 +97,10 @@ jobs:
       TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
       S1_STATE_KEY: s1-entra-mcp-server.tfstate
       S2_STATE_KEY: s2-apim-mcp-gateway.tfstate
+      # The shared observability Application Insights resource is provisioned
+      # out of band. Both compositions derive its WorkspaceResourceId for their
+      # diagnostic settings, so this input is job-scoped for apply and destroy.
+      TF_VAR_shared_observability_application_insights_id: ${{ vars.TF_VAR_shared_observability_application_insights_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -304,11 +308,6 @@ jobs:
           TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
           TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
           TF_VAR_data_reader_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
-          # Issue 18: out-of-band Application Insights resource id, provisioned
-          # once per docs/runbooks/observability-bootstrap.md. Required (no
-          # default); the GitHub Environment variable name already carries the
-          # TF_VAR_ prefix per that runbook's step 5.
-          TF_VAR_audit_application_insights_id: ${{ vars.TF_VAR_audit_application_insights_id }}
         run: |
           terraform init -input=false \
             -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
@@ -433,8 +432,10 @@ jobs:
           # Issue 18: per-tool authorization map keys for the set-equality gate assertion.
           tool_authorization_map_keys="$(terraform -chdir="$s2_dir" output -raw tool_authorization_map_keys)"
           server_2_tool_authorization_map_keys="$(terraform -chdir="$s2_dir" output -raw server_2_tool_authorization_map_keys)"
-          # Issue 18: audit Log Analytics workspace ARM id, for the audit-event KQL assertion.
-          audit_workspace_id="$(terraform -chdir="$s2_dir" output -raw audit_workspace_id)"
+          # Shared Log Analytics workspace ARM id. The discovery script prints
+          # it as a pointer to the durable observability trail; Event Hubs
+          # remains the bounded pass/fail source for audit events.
+          shared_observability_workspace_id="$(terraform -chdir="$s2_dir" output -raw shared_observability_workspace_id)"
           # Issue 18: ephemeral audit Event Hub, for the live gate's low-latency
           # audit-event check (parallel to the KQL assertion above, not a
           # replacement for the Application Insights audit trail itself).
@@ -524,7 +525,7 @@ jobs:
             -Server1OnlyClientSecret "${TEST_CLIENT_SERVER1_ONLY_SECRET:-}" \
             -ToolAuthorizationMapKeys "$tool_authorization_map_keys" \
             -Server2ToolAuthorizationMapKeys "$server_2_tool_authorization_map_keys" \
-            -AuditWorkspaceId "$audit_workspace_id" \
+            -SharedObservabilityWorkspaceId "$shared_observability_workspace_id" \
             -EventHubNamespaceFqdn "$eventhub_namespace_fqdn" \
             -EventHubName "$eventhub_name" \
             -EvidenceDir "${GITHUB_WORKSPACE}/gate-evidence"
@@ -551,7 +552,6 @@ jobs:
           TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
           TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
           TF_VAR_data_reader_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
-          TF_VAR_audit_application_insights_id: ${{ vars.TF_VAR_audit_application_insights_id }}
         run: |
           terraform destroy -input=false -auto-approve \
             -var-file="${{ github.workspace }}/s2.tfvars.json" \

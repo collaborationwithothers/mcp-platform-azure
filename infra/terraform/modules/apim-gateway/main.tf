@@ -42,7 +42,7 @@ locals {
 
   # Subscription hosting the out-of-band Application Insights resource, derived
   # from its ARM resource ID for the subscription-scoped role definition reference.
-  audit_appinsights_subscription_id = split("/", var.audit_application_insights_id)[2]
+  shared_observability_appinsights_subscription_id = split("/", var.shared_observability_application_insights_id)[2]
 
   # Log Analytics Data Reader (3b03c2da-...): built-in role with the explicit
   # DataAction Microsoft.OperationalInsights/workspaces/tables/data/read.
@@ -50,7 +50,7 @@ locals {
   # Analytics Reader, grants a broader */read Action) -- least privilege for a
   # gate script that only runs one KQL query. GUID verified 2026-08-06:
   # https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/monitor#log-analytics-data-reader
-  log_analytics_data_reader_role_id = "/subscriptions/${local.audit_appinsights_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/3b03c2da-16b3-4a49-8834-0f8130efdd3b"
+  log_analytics_data_reader_role_id = "/subscriptions/${local.shared_observability_appinsights_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/3b03c2da-16b3-4a49-8834-0f8130efdd3b"
 
   # Monitoring Metrics Publisher (3913510d-...): built-in role with
   # Microsoft.Insights/Telemetry/Write and Microsoft.Insights/Metrics/Write
@@ -58,15 +58,7 @@ locals {
   # telemetry without an instrumentation key (managed-identity credential mode).
   # GUID verified 2026-08-06:
   # https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/monitor
-  monitoring_metrics_publisher_role_id = "/subscriptions/${local.audit_appinsights_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/3913510d-42f4-4e42-8a64-420c390055eb"
-
-  # ARM resource ID of the Log Analytics workspace underlying the out-of-band
-  # Application Insights resource (issue 18), derived rather than a second
-  # out-of-band variable. The live gate's audit-event KQL assertion needs this
-  # (via az monitor log-analytics workspace show --ids ... --query customerId,
-  # since az monitor log-analytics query's --workspace expects the workspace's
-  # own GUID, not this ARM resource ID -- verified 2026-08-06).
-  audit_workspace_id = data.azapi_resource.audit_appinsights.output.properties.WorkspaceResourceId
+  monitoring_metrics_publisher_role_id = "/subscriptions/${local.shared_observability_appinsights_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/3913510d-42f4-4e42-8a64-420c390055eb"
 
   # Current subscription, for the Event Hub role definitions below (same
   # subscription as this deployment -- unlike the out-of-band Application
@@ -257,15 +249,9 @@ resource "azapi_resource" "prm_well_known_pathed_policy" {
 # api-management-howto-app-insights (credential types), verified 2026-08-06:
 # https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights
 data "azapi_resource" "audit_appinsights" {
-  type        = "Microsoft.Insights/components@2020-02-02"
-  resource_id = var.audit_application_insights_id
-  # WorkspaceResourceId: ARM resource ID of the underlying Log Analytics
-  # workspace on a workspace-based Application Insights resource, documented on
-  # ApplicationInsightsComponentProperties since 2020-02-02-preview, carried
-  # unchanged into the 2020-02-02 GA version (issue 18: derives the audit KQL
-  # query target without a second out-of-band variable). Verified 2026-08-06:
-  # https://learn.microsoft.com/azure/templates/microsoft.insights/2020-02-02/components
-  response_export_values = ["properties.ConnectionString", "properties.WorkspaceResourceId"]
+  type                   = "Microsoft.Insights/components@2020-02-02"
+  resource_id            = var.shared_observability_application_insights_id
+  response_export_values = ["properties.ConnectionString"]
 }
 
 # Monitoring Metrics Publisher on the out-of-band Application Insights resource,
@@ -279,8 +265,8 @@ data "azapi_resource" "audit_appinsights" {
 # name via uuidv5(scope|roleDef|principal), principalType = ServicePrincipal.
 resource "azapi_resource" "monitoring_metrics_publisher" {
   type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
-  name      = uuidv5("url", "${var.audit_application_insights_id}|${local.monitoring_metrics_publisher_role_id}|${module.apim.resource.identity[0].principal_id}")
-  parent_id = var.audit_application_insights_id
+  name      = uuidv5("url", "${var.shared_observability_application_insights_id}|${local.monitoring_metrics_publisher_role_id}|${module.apim.resource.identity[0].principal_id}")
+  parent_id = var.shared_observability_application_insights_id
 
   body = {
     properties = {
@@ -300,8 +286,8 @@ resource "azapi_resource" "audit_log_analytics_reader" {
   for_each = toset(var.data_reader_principal_ids)
 
   type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
-  name      = uuidv5("url", "${local.audit_workspace_id}|${local.log_analytics_data_reader_role_id}|${each.value}")
-  parent_id = local.audit_workspace_id
+  name      = uuidv5("url", "${var.log_analytics_workspace_id}|${local.log_analytics_data_reader_role_id}|${each.value}")
+  parent_id = var.log_analytics_workspace_id
 
   body = {
     properties = {
@@ -328,7 +314,7 @@ resource "azapi_resource" "audit_logger" {
     properties = {
       loggerType  = "applicationInsights"
       description = "Out-of-band Application Insights logger for per-tool deny audit events (issue 18). Managed-identity credential mode; see docs/runbooks/observability-bootstrap.md."
-      resourceId  = var.audit_application_insights_id
+      resourceId  = var.shared_observability_application_insights_id
       credentials = {
         connectionString = data.azapi_resource.audit_appinsights.output.properties.ConnectionString
         identityClientId = "SystemAssigned"

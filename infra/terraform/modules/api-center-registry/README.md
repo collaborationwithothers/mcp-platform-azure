@@ -1,17 +1,30 @@
 # api-center-registry
 
-Hand-authored `azapi` module that provisions Azure API Center as the discovery
-registry of the [v1 tracer bullet](../../../../docs/specs/v1-tracer-bullet.md)
-(scenario S3). It creates the API Center service, its single `default`
-workspace, one environment, and an API Management **auto-sync** source so the
-MCP server fronted by `apim-gateway`/`apim-mcp-server` appears in the inventory
-automatically. It derives the data-plane registry endpoint URL that the
-integration issue's bounded poll asserts against.
+Hand-authored module that provisions Azure API Center as the discovery registry
+of the [v1 tracer bullet](../../../../docs/specs/v1-tracer-bullet.md) (scenario
+S3). It uses `azapi` for API Center resources. It creates the API Center
+service, its single `default` workspace, one environment, and an API Management
+**auto-sync** source so the MCP server fronted by
+`apim-gateway`/`apim-mcp-server` appears in the inventory automatically. It
+derives the data-plane registry endpoint URL that the integration issue's
+bounded poll asserts against.
 
 No deployment happens in this ticket: the module is proven by `terraform fmt`,
 `init -backend=false`, `validate`, `tflint`, and `checkov` only. The live
 apply-call-destroy proof (including that the synced server actually appears at
 the registry endpoint) is the integration issue (issue 5 of the tracer epic).
+
+## API Center diagnostic-setting support
+
+API Center remains the APIM-linked discovery registry. It is not an Azure
+Monitor diagnostic target. Azure Monitor's [supported resource-log
+categories](https://learn.microsoft.com/azure/azure-monitor/reference/supported-logs/logs-index)
+index and [built-in diagnostic-settings policy support
+list](https://learn.microsoft.com/azure/azure-monitor/platform/diagnostic-settings-policy-built-in#supported-resources)
+omit `Microsoft.ApiCenter/services`. Gated run 31162622718 then proved the
+service rejects diagnostic settings. This module therefore has no
+diagnostic-category query, diagnostic setting, fallback, or capability registry
+for API Center.
 
 ## Verified facts (2026-07-12)
 
