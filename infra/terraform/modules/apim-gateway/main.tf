@@ -40,6 +40,47 @@ locals {
   # adds the schema. See COMPATIBILITY.md.
   azapi_schema_validation_enabled = false
 
+  # Subscription hosting the out-of-band Application Insights resource, derived
+  # from its ARM resource ID for the subscription-scoped role definition reference.
+  audit_appinsights_subscription_id = split("/", var.audit_application_insights_id)[2]
+
+  # Log Analytics Data Reader (3b03c2da-...): built-in role with the explicit
+  # DataAction Microsoft.OperationalInsights/workspaces/tables/data/read.
+  # Deliberately the NARROWER of two documented options (the other, Log
+  # Analytics Reader, grants a broader */read Action) -- least privilege for a
+  # gate script that only runs one KQL query. GUID verified 2026-08-06:
+  # https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/monitor#log-analytics-data-reader
+  log_analytics_data_reader_role_id = "/subscriptions/${local.audit_appinsights_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/3b03c2da-16b3-4a49-8834-0f8130efdd3b"
+
+  # Monitoring Metrics Publisher (3913510d-...): built-in role with
+  # Microsoft.Insights/Telemetry/Write and Microsoft.Insights/Metrics/Write
+  # DataActions. Required for APIM's system-assigned managed identity to ingest
+  # telemetry without an instrumentation key (managed-identity credential mode).
+  # GUID verified 2026-08-06:
+  # https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/monitor
+  monitoring_metrics_publisher_role_id = "/subscriptions/${local.audit_appinsights_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/3913510d-42f4-4e42-8a64-420c390055eb"
+
+  # ARM resource ID of the Log Analytics workspace underlying the out-of-band
+  # Application Insights resource (issue 18), derived rather than a second
+  # out-of-band variable. The live gate's audit-event KQL assertion needs this
+  # (via az monitor log-analytics workspace show --ids ... --query customerId,
+  # since az monitor log-analytics query's --workspace expects the workspace's
+  # own GUID, not this ARM resource ID -- verified 2026-08-06).
+  audit_workspace_id = data.azapi_resource.audit_appinsights.output.properties.WorkspaceResourceId
+
+  # Current subscription, for the Event Hub role definitions below (same
+  # subscription as this deployment -- unlike the out-of-band Application
+  # Insights resource, the ephemeral audit Event Hub lives in THIS resource
+  # group, so no second out-of-band subscription id is needed).
+  current_subscription_id = split("/", data.azurerm_resource_group.this.id)[2]
+
+  # Azure Event Hubs Data Sender (2b629674-...) and Data Receiver
+  # (a638d3c7-...): built-in roles, DataActions Microsoft.EventHub/*/send/action
+  # and Microsoft.EventHub/*/receive/action respectively. GUIDs verified
+  # 2026-08-07: https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/analytics
+  eventhub_data_sender_role_id   = "/subscriptions/${local.current_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/2b629674-e913-4c01-ae53-ef4638d8f975"
+  eventhub_data_receiver_role_id = "/subscriptions/${local.current_subscription_id}/providers/Microsoft.Authorization/roleDefinitions/a638d3c7-ab3a-418d-83e6-5f17a39d4fde"
+
   prm_url = "${module.apim.apim_gateway_url}/.well-known/oauth-protected-resource"
 
   # Root RFC 9728 protected resource metadata document, describing the primary
@@ -205,4 +246,226 @@ resource "azapi_resource" "prm_well_known_pathed_policy" {
       })
     }
   }
+}
+
+# Read-only lookup of the out-of-band Application Insights connection string.
+# The connection string is NOT a committed value or GitHub Environment secret:
+# it is derived at plan/apply time from the ARM resource ID. In managed-identity
+# credential mode the connection string identifies the ingestion endpoint only;
+# actual auth to Application Insights uses APIM's system-assigned identity token,
+# not the instrumentation key embedded in the string. Microsoft Learn,
+# api-management-howto-app-insights (credential types), verified 2026-08-06:
+# https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights
+data "azapi_resource" "audit_appinsights" {
+  type        = "Microsoft.Insights/components@2020-02-02"
+  resource_id = var.audit_application_insights_id
+  # WorkspaceResourceId: ARM resource ID of the underlying Log Analytics
+  # workspace on a workspace-based Application Insights resource, documented on
+  # ApplicationInsightsComponentProperties since 2020-02-02-preview, carried
+  # unchanged into the 2020-02-02 GA version (issue 18: derives the audit KQL
+  # query target without a second out-of-band variable). Verified 2026-08-06:
+  # https://learn.microsoft.com/azure/templates/microsoft.insights/2020-02-02/components
+  response_export_values = ["properties.ConnectionString", "properties.WorkspaceResourceId"]
+}
+
+# Monitoring Metrics Publisher on the out-of-band Application Insights resource,
+# granted to the APIM service's system-assigned managed identity. This is the
+# prerequisite for managed-identity credential mode: Microsoft.Insights/Telemetry/Write
+# (a DataAction) lets the identity publish telemetry without the instrumentation key.
+# Verified 2026-08-06:
+# https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights#prerequisites
+# Authoring pattern mirrors api-center-registry's apim_reader/data_reader role
+# assignments: Microsoft.Authorization/roleAssignments@2022-04-01, deterministic
+# name via uuidv5(scope|roleDef|principal), principalType = ServicePrincipal.
+resource "azapi_resource" "monitoring_metrics_publisher" {
+  type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
+  name      = uuidv5("url", "${var.audit_application_insights_id}|${local.monitoring_metrics_publisher_role_id}|${module.apim.resource.identity[0].principal_id}")
+  parent_id = var.audit_application_insights_id
+
+  body = {
+    properties = {
+      roleDefinitionId = local.monitoring_metrics_publisher_role_id
+      principalId      = module.apim.resource.identity[0].principal_id
+      principalType    = "ServicePrincipal"
+    }
+  }
+}
+
+# Log Analytics Data Reader on the audit workspace, for each principal in
+# data_reader_principal_ids (issue 18). Lets the live gate's OIDC principal run
+# the KQL query that asserts a deny emitted its audit event. Mirrors
+# api-center-registry's data_reader for_each exactly: deterministic name via
+# uuidv5(scope|roleDef|principal), empty list (default) => no grants.
+resource "azapi_resource" "audit_log_analytics_reader" {
+  for_each = toset(var.data_reader_principal_ids)
+
+  type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
+  name      = uuidv5("url", "${local.audit_workspace_id}|${local.log_analytics_data_reader_role_id}|${each.value}")
+  parent_id = local.audit_workspace_id
+
+  body = {
+    properties = {
+      roleDefinitionId = local.log_analytics_data_reader_role_id
+      principalId      = each.value
+      principalType    = "ServicePrincipal"
+    }
+  }
+}
+
+# Application Insights logger for per-tool deny audit events (issue 18).
+# Uses managed-identity credential mode: credentials.connectionString provides
+# the ingestion endpoint; credentials.identityClientId = "SystemAssigned" directs
+# APIM to authenticate via its system-assigned identity rather than the key.
+# The out-of-band Application Insights resource lives in a stable resource group
+# not tagged for the ephemeral-env cleanup sweep. Verified 2026-08-06:
+# https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights
+resource "azapi_resource" "audit_logger" {
+  type      = "Microsoft.ApiManagement/service/loggers@2022-08-01"
+  name      = "audit-appinsights"
+  parent_id = module.apim.resource_id
+
+  body = {
+    properties = {
+      loggerType  = "applicationInsights"
+      description = "Out-of-band Application Insights logger for per-tool deny audit events (issue 18). Managed-identity credential mode; see docs/runbooks/observability-bootstrap.md."
+      resourceId  = var.audit_application_insights_id
+      credentials = {
+        connectionString = data.azapi_resource.audit_appinsights.output.properties.ConnectionString
+        identityClientId = "SystemAssigned"
+      }
+    }
+  }
+
+  depends_on = [azapi_resource.monitoring_metrics_publisher]
+}
+
+# Ephemeral Event Hub for the live gate's audit-event verification (issue
+# 18), added alongside the Application Insights sink above, NOT replacing
+# it: <trace> still fires on every deny and the Application Insights audit
+# trail is unchanged. This exists only because Application Insights ingestion
+# proved to have no bounded latency in practice -- live-gate rounds 7-9
+# showed real ingestion landing anywhere from ~286s to over 600s after the
+# trace fired, non-deterministically, which makes it unsuitable for a
+# same-run pass/fail gate even though it remains the right long-lived,
+# human-reviewable audit trail. Deliberately lives IN this ephemeral
+# resource group (unlike the out-of-band Application Insights resource) and
+# is destroyed with it: a verification-only signal has no reason to outlive
+# the run that produced it. Basic tier, single partition, 1-day retention --
+# this only ever carries one run's own denial events. azurerm schema
+# (namespace_id, not the older namespace_name; sku as a plain string, not a
+# block) verified 2026-08-07 against the provider's own docs source.
+#
+# prevent_destroy would block the gated live-test environment's destroy step
+# (same reasoning as mcp-function-host's deployment_package container); this
+# resource holds only a run's own transient denial signal, not durable data
+# -- the durable audit trail is the Application Insights resource above,
+# which is deliberately out of band and NOT subject to this destroy.
+# tflint-ignore: azurerm_resources_missing_prevent_destroy
+resource "azurerm_eventhub_namespace" "audit" {
+  name                = "${var.name}-audit"
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.this.name
+  sku                 = "Basic"
+  tags                = var.tags
+}
+
+# tflint-ignore: azurerm_resources_missing_prevent_destroy
+resource "azurerm_eventhub" "audit" {
+  name              = "audit-denials"
+  namespace_id      = azurerm_eventhub_namespace.audit.id
+  partition_count   = 1
+  message_retention = 1
+}
+
+# Event Hubs Data Sender on APIM's system-assigned identity, scoped to the
+# Event Hub entity: prerequisite for the log-to-eventhub policy's
+# managed-identity credential mode (no connection string/shared access key
+# -- repo hard rule against secrets in the repo). GUID verified 2026-08-07.
+resource "azapi_resource" "eventhub_data_sender" {
+  type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
+  name      = uuidv5("url", "${azurerm_eventhub.audit.id}|${local.eventhub_data_sender_role_id}|${module.apim.resource.identity[0].principal_id}")
+  parent_id = azurerm_eventhub.audit.id
+
+  body = {
+    properties = {
+      roleDefinitionId = local.eventhub_data_sender_role_id
+      principalId      = module.apim.resource.identity[0].principal_id
+      principalType    = "ServicePrincipal"
+    }
+  }
+}
+
+# Event Hubs Data Receiver for each principal in data_reader_principal_ids
+# (issue 18) -- the SAME variable already used for Log Analytics Data Reader
+# and (in api-center-registry) API Center Data Reader, extended here so the
+# live gate's OIDC principal can consume the audit-denial event it just
+# triggered. GUID verified 2026-08-07.
+resource "azapi_resource" "eventhub_data_receiver" {
+  for_each = toset(var.data_reader_principal_ids)
+
+  type      = "Microsoft.Authorization/roleAssignments@2022-04-01"
+  name      = uuidv5("url", "${azurerm_eventhub.audit.id}|${local.eventhub_data_receiver_role_id}|${each.value}")
+  parent_id = azurerm_eventhub.audit.id
+
+  body = {
+    properties = {
+      roleDefinitionId = local.eventhub_data_receiver_role_id
+      principalId      = each.value
+      principalType    = "ServicePrincipal"
+    }
+  }
+}
+
+# Event Hub logger for the per-tool deny audit event (issue 18), parallel to
+# the Application Insights logger above, not a replacement. log-to-eventhub
+# references a logger by NAME directly (no diagnostic-setting indirection,
+# unlike <trace>, which reads the diagnostic setting's bound logger).
+# Managed-identity credential mode verified 2026-08-07:
+# https://learn.microsoft.com/azure/api-management/api-management-howto-log-event-hubs#configure-access-to-the-event-hub
+resource "azapi_resource" "eventhub_logger" {
+  type      = "Microsoft.ApiManagement/service/loggers@2022-08-01"
+  name      = "audit-eventhub"
+  parent_id = module.apim.resource_id
+
+  # isBuffered = false: the ARM default for an azureEventHub logger is true
+  # (COMPATIBILITY.md, "APIM log-to-eventhub policy"); this logger exists only
+  # for the live gate's bounded-wait pass/fail check, so it is set false to
+  # avoid stacking APIM's own send-side buffering on top of whatever delay the
+  # gate is already measuring. The docs do not state a timing effect for this
+  # flag beyond "records are buffered before publishing" vs not, so this is an
+  # engineering choice in the documented direction, not a proven latency fix.
+  body = {
+    properties = {
+      loggerType  = "azureEventHub"
+      description = "Ephemeral Event Hub logger for the live gate's per-tool deny audit-event check (issue 18). Managed-identity credential mode; parallel to the Application Insights logger, not a replacement."
+      isBuffered  = false
+      credentials = {
+        endpointAddress  = "${azurerm_eventhub_namespace.audit.name}.servicebus.windows.net"
+        identityClientId = "SystemAssigned"
+        name             = azurerm_eventhub.audit.name
+      }
+    }
+  }
+
+  # Round 10 live-test failure: this PUT does a live auth check against the
+  # Event Hub, and failed with "Attempted to perform an unauthorized
+  # operation." immediately after eventhub_data_sender's role assignment was
+  # created in the same apply -- Azure RBAC role-assignment propagation
+  # ("eventual consistency"; no documented SLA, Microsoft's own troubleshooting
+  # doc says "up to 10 minutes", a separate doc says "5 to 30 minutes"),
+  # not a configuration error. depends_on alone only orders the ARM CREATE
+  # calls; it does not wait for RBAC to actually take effect. Fixed with a
+  # retry block rather than a time_sleep: Microsoft's own AVM Terraform
+  # contributing guide explicitly recommends azapi's retry over an arbitrary
+  # sleep for exactly this eventual-consistency class of failure, and this
+  # resource is already azapi_resource. error_message_regex matches error
+  # TEXT, not a status code (there is no status-code field on this block);
+  # interval/max_interval verified against the provider's own docs, 2026-08-07.
+  retry = {
+    error_message_regex  = ["Attempted to perform an unauthorized operation"]
+    interval_seconds     = 15
+    max_interval_seconds = 120
+  }
+
+  depends_on = [azapi_resource.eventhub_data_sender]
 }

@@ -136,6 +136,19 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # Issue 18: the live gate's audit-event check reads the ephemeral audit
+      # Event Hub with the azure-eventhub SDK (no az CLI data-plane command
+      # exists for this -- verified 2026-08-07). Pinned alongside the other
+      # explicit toolchain setup steps in this workflow, not left to whatever
+      # Python happens to be preinstalled on the runner image.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Event Hub gate dependencies
+        run: pip install --quiet azure-eventhub azure-identity
+
       # Issue 9 (reopened) decision: the gate must run harness assertions against
       # a live host, which requires deployed function code. Build and package the
       # MCP server once here, up front, so the artifact is ready before the s1
@@ -182,9 +195,8 @@ jobs:
             --tags expiry="${{ steps.rg.outputs.expiry }}" scenario=v1-tracer-bullet
 
       # Written from the live-test environment's S1_TFVARS_JSON/S2_TFVARS_JSON
-      # secrets (docs/runbooks/entra-app-registrations.md's out-of-band
-      # values: entra_auth/entra_validation, prm_scope/prm_scopes,
-      # name_prefix, storage_account_name, apim_name, registry_name, tags).
+      # secrets. Full key reference (kept in sync when a required variable is
+      # added to either composition): docs/runbooks/live-test-tfvars-reference.md.
       # Secrets rather than variables because tenant/client ids are
       # org-identifying, even though they are not credentials.
       - name: Write composition tfvars
@@ -292,6 +304,11 @@ jobs:
           TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
           TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
           TF_VAR_data_reader_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
+          # Issue 18: out-of-band Application Insights resource id, provisioned
+          # once per docs/runbooks/observability-bootstrap.md. Required (no
+          # default); the GitHub Environment variable name already carries the
+          # TF_VAR_ prefix per that runbook's step 5.
+          TF_VAR_audit_application_insights_id: ${{ vars.TF_VAR_audit_application_insights_id }}
         run: |
           terraform init -input=false \
             -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
@@ -413,6 +430,16 @@ jobs:
           mcp_server_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_url)"
           # Issue 17: server 2's endpoint for the per-server discovery + cross-server assertions.
           mcp_server_2_url="$(terraform -chdir="$s2_dir" output -raw mcp_server_2_url)"
+          # Issue 18: per-tool authorization map keys for the set-equality gate assertion.
+          tool_authorization_map_keys="$(terraform -chdir="$s2_dir" output -raw tool_authorization_map_keys)"
+          server_2_tool_authorization_map_keys="$(terraform -chdir="$s2_dir" output -raw server_2_tool_authorization_map_keys)"
+          # Issue 18: audit Log Analytics workspace ARM id, for the audit-event KQL assertion.
+          audit_workspace_id="$(terraform -chdir="$s2_dir" output -raw audit_workspace_id)"
+          # Issue 18: ephemeral audit Event Hub, for the live gate's low-latency
+          # audit-event check (parallel to the KQL assertion above, not a
+          # replacement for the Application Insights audit trail itself).
+          eventhub_namespace_fqdn="$(terraform -chdir="$s2_dir" output -raw eventhub_namespace_fqdn)"
+          eventhub_name="$(terraform -chdir="$s2_dir" output -raw eventhub_name)"
           prm_url="$(terraform -chdir="$s2_dir" output -raw prm_url)"
           registry_url="$(terraform -chdir="$s2_dir" output -raw registry_endpoint_url)"
           api_center_id="$(terraform -chdir="$s2_dir" output -raw api_center_id)"
@@ -495,6 +522,11 @@ jobs:
             -McpServer2Url "$mcp_server_2_url" \
             -Server1OnlyClientId "${TEST_CLIENT_SERVER1_ONLY_ID:-}" \
             -Server1OnlyClientSecret "${TEST_CLIENT_SERVER1_ONLY_SECRET:-}" \
+            -ToolAuthorizationMapKeys "$tool_authorization_map_keys" \
+            -Server2ToolAuthorizationMapKeys "$server_2_tool_authorization_map_keys" \
+            -AuditWorkspaceId "$audit_workspace_id" \
+            -EventHubNamespaceFqdn "$eventhub_namespace_fqdn" \
+            -EventHubName "$eventhub_name" \
             -EvidenceDir "${GITHUB_WORKSPACE}/gate-evidence"
 
       # Always upload whatever PRM evidence was captured above, even when the
@@ -519,6 +551,7 @@ jobs:
           TF_VAR_resource_group_name: ${{ steps.rg.outputs.name }}
           TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
           TF_VAR_data_reader_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
+          TF_VAR_audit_application_insights_id: ${{ vars.TF_VAR_audit_application_insights_id }}
         run: |
           terraform destroy -input=false -auto-approve \
             -var-file="${{ github.workspace }}/s2.tfvars.json" \

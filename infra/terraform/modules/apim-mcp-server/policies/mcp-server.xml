@@ -93,6 +93,166 @@
       </when>
     </choose>
     <!--
+      Per-tool authorization (issue 18). Runs after the per-server entitlement
+      check above: a caller must clear BOTH before reaching the backend. Reads
+      the JSON-RPC request body once. Microsoft Learn documents
+      context.Response.Body as unsafe for MCP-type APIs (breaks streaming);
+      request-body access via context.Request.Body.As<JObject>
+      (preserveContent: true) has NO documented constraint either way for
+      MCP-type APIs, UNVERIFIABLE, not "documented safe" (Microsoft Learn,
+      expose-existing-mcp-server, verified 2026-07-12 and re-confirmed
+      2026-08-06; COMPATIBILITY.md). Used here because the nine live-gate
+      rounds through this fragment ran full MCP sessions with it in place and
+      passed; that is live-gate proof, not a documentation guarantee. Gates on
+      JSON-RPC method == "tools/call" only
+      (tools/list and every other method fall through unchanged), then
+      resolves the tool name via TWO mechanisms and prunes to whichever the
+      live gate proves fires on this preview surface (operator decision,
+      2026-08-06): primarily the documented gen_ai.tool.name context variable
+      (Microsoft Learn, govern-mcp-server-products, a product-scoped
+      quota-by-key example keying on gen_ai.tool.name that is inbound-
+      evaluated pre-backend, so the variable must already be populated there;
+      monitor-mcp-servers separately documents gen_ai.tool.name as a telemetry
+      dimension on every tools/call request; COMPATIBILITY.md, 2026-08-06),
+      falling back to the already-parsed body's params.name if that variable
+      is empty.
+    -->
+    <set-variable name="mcpRequestBody" value="@{
+      return context.Request.Body.As&lt;JObject&gt;(preserveContent: true);
+    }" />
+    <set-variable name="mcpMethod" value="@{
+      var body = context.Variables.GetValueOrDefault&lt;JObject&gt;("mcpRequestBody");
+      return body != null ? (string)body["method"] : "";
+    }" />
+    <choose>
+      <when condition="@(context.Variables.GetValueOrDefault&lt;string&gt;("mcpMethod", "") == "tools/call")">
+        <set-variable name="mcpToolName" value="@{
+          var fromContextVar = context.Variables.GetValueOrDefault&lt;string&gt;("gen_ai.tool.name", "");
+          if (!string.IsNullOrEmpty(fromContextVar)) { return fromContextVar; }
+          var body = context.Variables.GetValueOrDefault&lt;JObject&gt;("mcpRequestBody");
+          return body?["params"]?["name"]?.ToString() ?? "";
+        }" />
+        <!--
+          Total map lookup, default-deny (issue 18): tool_authorization_map is
+          rendered as a switch over every tool name this server's map knows
+          about. unrestricted entries allow unconditionally (past the
+          per-server check above); scope/role entries reuse the jwt variable
+          and OR semantics already established by the per-server check.
+          default: allowed = false covers BOTH cases the live gate's
+          set-equality assertion is designed to catch: a tool name with no
+          map entry at all, and (structurally impossible here, but the same
+          code path) an empty extracted name.
+        -->
+        <choose>
+          <when condition="@{
+            var jwt = context.Variables.GetValueOrDefault&lt;Jwt&gt;("jwt");
+            var sep = new char[] { ' ', ',' };
+            var scp = jwt != null ? jwt.Claims.GetValueOrDefault("scp", "").Split(sep, System.StringSplitOptions.RemoveEmptyEntries) : new string[0];
+            var roles = jwt != null ? jwt.Claims.GetValueOrDefault("roles", "").Split(sep, System.StringSplitOptions.RemoveEmptyEntries) : new string[0];
+            var toolName = context.Variables.GetValueOrDefault&lt;string&gt;("mcpToolName", "");
+            bool allowed;
+            switch (toolName) {
+%{ for name, claim in tool_authorization_map ~}
+              case "${name}":
+                allowed = %{ if claim.unrestricted ~}true%{ else ~}%{ if claim.scope != null && claim.role != null ~}(scp.Contains("${claim.scope}") || roles.Contains("${claim.role}"))%{ else ~}%{ if claim.scope != null ~}scp.Contains("${claim.scope}")%{ else ~}roles.Contains("${claim.role}")%{ endif ~}%{ endif ~}%{ endif ~};
+                break;
+%{ endfor ~}
+              default:
+                allowed = false;
+                break;
+            }
+            return !allowed;
+          }">
+            <!--
+              Deny audit event (issue 18): every deny emits exactly one Trace
+              telemetry item into Application Insights via the diagnostic
+              setting bound to this API's logger, dimensioned by caller and
+              tool. APIM only records a trace when its severity >= the
+              diagnostic setting's configured verbosity, and severity="error"
+              is the MAXIMUM tier, so this trace passes that gate at ANY
+              verbosity the diagnostic setting is configured to (verbose,
+              information, or error), not only an exact match. This is a
+              benign, robust relationship, not a fragile coupling: the only
+              way this audit event drops is the diagnostic setting's
+              Application Insights integration being disabled outright.
+              Not sampled: "all invocations of the policy will be logged"
+              (Microsoft Learn, trace-policy, verified 2026-08-06;
+              COMPATIBILITY.md). Placed in <inbound>, immediately before the
+              deny <return-response> below: <trace> is documented only for
+              inbound/outbound/backend, not on-error, so it cannot be deferred
+              there.
+            -->
+            <trace source="issue-18-per-tool-authorization" severity="error">
+              <message>@("Per-tool authorization denied for tool '" + context.Variables.GetValueOrDefault&lt;string&gt;("mcpToolName", "") + "'")</message>
+              <metadata name="caller" value="@{
+                var jwt = context.Variables.GetValueOrDefault&lt;Jwt&gt;("jwt");
+                return jwt != null ? jwt.Claims.GetValueOrDefault("oid", jwt.Claims.GetValueOrDefault("azp", "unknown")) : "unknown";
+              }" />
+              <metadata name="tool" value="@(context.Variables.GetValueOrDefault&lt;string&gt;("mcpToolName", ""))" />
+            </trace>
+            <!--
+              Low-latency audit signal for the live gate ONLY (issue 18),
+              parallel to the <trace> above, not a replacement: the
+              Application Insights audit trail is unchanged, this fires
+              alongside it. Application Insights ingestion proved to have no
+              bounded latency in practice (live-gate rounds 7-9: real
+              ingestion landed anywhere from ~286s to over 600s after the
+              trace fired), which made it unsuitable for a same-run pass/fail
+              gate. log-to-eventhub references a logger by NAME (logger-id),
+              not ARM ID, and its body is a policy expression returning a
+              string, verified 2026-08-07, COMPATIBILITY.md. Same tool and
+              caller fields as the <trace> metadata above, for symmetry.
+            -->
+            <log-to-eventhub logger-id="${eventhub_logger_name}">@{
+              var jwt = context.Variables.GetValueOrDefault&lt;Jwt&gt;("jwt");
+              var caller = jwt != null ? jwt.Claims.GetValueOrDefault("oid", jwt.Claims.GetValueOrDefault("azp", "unknown")) : "unknown";
+              var toolName = context.Variables.GetValueOrDefault&lt;string&gt;("mcpToolName", "");
+              var auditEvent = new JObject {
+                ["tool"] = toolName,
+                ["caller"] = caller
+              };
+              return auditEvent.ToString(Newtonsoft.Json.Formatting.None);
+            }</log-to-eventhub>
+            <!--
+              Deny wire shape (issue 18): a JSON-RPC 2.0 Protocol Error, id
+              echoed from the parsed request, delivered over the normal
+              response channel, NOT a CallToolResult with isError (that tier
+              is reserved for failures during actual tool execution) and NOT
+              an HTTP 401/403 ahead of any JSON-RPC envelope (that tier is
+              reserved for transport/session violations). Verified directly
+              against the MCP spec (2025-06-18), not Microsoft Learn;
+              COMPATIBILITY.md, 2026-08-06. Code -32001 is a custom code in
+              the MCP-reserved range (-32000 to -32099), deliberately not the
+              spec's -32602 "Unknown tool" example: that label would misdescribe
+              a mapped-but-under-entitled denial, and this is one deny path for
+              both the unmapped and the under-entitled case (non-concealment:
+              the wire response does not distinguish which; the audit event
+              above carries the tool name for operators who need to).
+            -->
+            <return-response>
+              <set-status code="200" reason="OK" />
+              <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+              </set-header>
+              <set-body>@{
+                var body = context.Variables.GetValueOrDefault&lt;JObject&gt;("mcpRequestBody");
+                var toolName = context.Variables.GetValueOrDefault&lt;string&gt;("mcpToolName", "");
+                var errorResponse = new JObject {
+                  ["jsonrpc"] = "2.0",
+                  ["id"] = body != null ? body["id"] : null,
+                  ["error"] = new JObject {
+                    ["code"] = -32001,
+                    ["message"] = "insufficient_scope: the caller is not authorized to call tool '" + toolName + "'."
+                  }
+                };
+                return errorResponse.ToString(Newtonsoft.Json.Formatting.None);
+              }</set-body>
+            </return-response>
+          </when>
+        </choose>
+      </when>
+    </choose>
+    <!--
       Forward the caller's validated Entra token to the backend. MCP passthrough
       does not guarantee the Authorization header reaches the backend (Microsoft
       Learn, secure-mcp-servers), and the Functions backend's Easy Auth needs it;

@@ -33,6 +33,31 @@ output "prm_url" {
   description = "Gateway-root protected resource metadata URL, per RFC 9728. Serves server 1's document; retained as the s3.3 fail-closed guard. The no-token discovery assertion checks the client-visible challenge."
 }
 
+output "tool_authorization_map_keys" {
+  value       = join(",", keys(var.tool_authorization_map))
+  description = "Server 1's tool_authorization_map key set, comma-joined (issue 18). The live gate's per-server set-equality assertion compares this against the deployed server's own tools/list, failing on any difference in either direction."
+}
+
+output "audit_workspace_id" {
+  value       = module.apim_gateway.audit_workspace_id
+  description = "ARM resource ID of the Log Analytics workspace underlying the out-of-band Application Insights audit resource (issue 18). The live gate resolves this to the workspace's own GUID before running its audit-event KQL assertion."
+}
+
+output "eventhub_namespace_fqdn" {
+  value       = module.apim_gateway.eventhub_namespace_fqdn
+  description = "FQDN of the ephemeral audit Event Hub namespace (issue 18). The live gate's audit-event check connects here with the Event Hubs SDK; destroyed with this resource group."
+}
+
+output "eventhub_name" {
+  value       = module.apim_gateway.eventhub_name
+  description = "Name of the ephemeral audit Event Hub entity (issue 18), within eventhub_namespace_fqdn."
+}
+
+output "server_2_tool_authorization_map_keys" {
+  value       = join(",", keys(var.server_2_tool_authorization_map))
+  description = "Server 2's tool_authorization_map key set, comma-joined (issue 18)."
+}
+
 output "prm_server_urls" {
   value       = module.apim_gateway.prm_server_urls
   description = "Map of RFC 9728 s3.1 path-inserted PRM URLs keyed by each server's resource URL (issue 17). The gate asserts each returns 200 with resource equal to that server's URL exactly."

@@ -121,6 +121,9 @@ module "apim_gateway" {
   publisher_email = var.publisher_email
   tenant_id       = var.entra_validation.tenant_id
   prm             = local.prm
+
+  audit_application_insights_id = var.audit_application_insights_id
+  data_reader_principal_ids     = var.data_reader_principal_ids
 }
 
 module "apim_mcp_server" {
@@ -146,6 +149,11 @@ module "apim_mcp_server" {
   # accepts a caller only if scp contains this scope OR roles contains this role.
   required_scope = var.required_scope
   required_role  = var.required_role
+
+  tool_authorization_map = var.tool_authorization_map
+
+  audit_logger_id      = module.apim_gateway.audit_logger_id
+  eventhub_logger_name = module.apim_gateway.eventhub_logger_name
 }
 
 # Second passthrough MCP server (issue 17): a second instance of the same module
@@ -169,6 +177,11 @@ module "apim_mcp_server_2" {
 
   required_scope = var.server_2_required_scope
   required_role  = var.server_2_required_role
+
+  tool_authorization_map = var.server_2_tool_authorization_map
+
+  audit_logger_id      = module.apim_gateway.audit_logger_id
+  eventhub_logger_name = module.apim_gateway.eventhub_logger_name
 }
 
 module "api_center_registry" {

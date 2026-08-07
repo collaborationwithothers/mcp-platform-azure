@@ -30,3 +30,28 @@ output "identity_principal_id" {
   description = "Principal ID of the API Management service's system-assigned managed identity. Unused in the tracer; present for the thick interface (e.g. future RBAC wiring)."
   sensitive   = true
 }
+
+output "audit_logger_id" {
+  value       = azapi_resource.audit_logger.id
+  description = "ARM resource ID of the Application Insights audit logger (issue 18). Passed to apim-mcp-server instances as audit_logger_id for the per-API diagnostic setting that captures per-tool deny events at verbosity = error."
+}
+
+output "audit_workspace_id" {
+  value       = local.audit_workspace_id
+  description = "ARM resource ID of the Log Analytics workspace underlying the out-of-band Application Insights resource (issue 18). The live gate resolves this to the workspace's own GUID (az monitor log-analytics workspace show --query customerId) before running its audit-event KQL assertion."
+}
+
+output "eventhub_logger_name" {
+  value       = azapi_resource.eventhub_logger.name
+  description = "Name of the Event Hub logger (issue 18), for apim-mcp-server's log-to-eventhub policy logger-id attribute (which references a logger by name, not ARM ID)."
+}
+
+output "eventhub_namespace_fqdn" {
+  value       = "${azurerm_eventhub_namespace.audit.name}.servicebus.windows.net"
+  description = "Fully-qualified domain name of the ephemeral audit Event Hub namespace (issue 18). The live gate connects here with the Event Hubs SDK to consume the per-tool deny audit event; destroyed with this resource group, never queried outside the run that produced it."
+}
+
+output "eventhub_name" {
+  value       = azurerm_eventhub.audit.name
+  description = "Name of the ephemeral audit Event Hub entity (issue 18), within eventhub_namespace_fqdn."
+}

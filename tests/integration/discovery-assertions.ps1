@@ -83,7 +83,55 @@ param(
     # (issue 17): accepted at server 1, rejected at server 2 with 403
     # insufficient_scope. Optional; the cross-server negative runs only when both
     # this and McpServer2Url are supplied.
-    [string]$Server1OnlyToken = ''
+    [string]$Server1OnlyToken = '',
+
+    # --- Per-tool authorization (issue 18) -----------------------------------
+    # Server 1's tool_authorization_map keys, comma-joined (Terraform output
+    # tool_authorization_map_keys). Used for set-equality against tools/list
+    # and the allow/deny assertions. Optional: when empty the per-tool checks
+    # are skipped so earlier gate invocations work unchanged.
+    [string]$ToolAuthorizationMapKeys = '',
+    # Server 2's tool_authorization_map keys, comma-joined (Terraform output
+    # server_2_tool_authorization_map_keys).
+    [string]$Server2ToolAuthorizationMapKeys = '',
+    # Reuse of $mcpToken from invoke-and-assert.ps1: the same server-audience
+    # token already used for step 2 McpTestClient and tools/call successes.
+    [string]$EntitledToken = '',
+    # Reuse of $missingRoleToken from invoke-and-assert.ps1: the token for the
+    # client missing Orders.Read; now asserted at the gateway per-tool layer
+    # (one layer earlier than the backend check in step 3).
+    [string]$UnderEntitledToken = '',
+    # The mapped tool name for allow/deny assertions. Defaults to
+    # get_order_status (server 1's only tool today). A parameter so a future
+    # second mapped tool requires only a call-site change, not a script edit.
+    [string]$MappedToolName = 'get_order_status',
+    # A synthetic tool name guaranteed absent from any map; used for the
+    # unmapped-probe-denied assertion (default-deny branch).
+    [string]$UnmappedProbeToolName = 'issue18_unmapped_probe_tool',
+    # A second, distinct synthetic tool name used ONLY to warm the Event Hub
+    # logger's connection before the timed per-tool audit-event checks run
+    # (see the warm-up block ahead of check 9's loop). Kept distinct from
+    # UnmappedProbeToolName so its audit event can never be mistaken for
+    # check (c)'s by the Event Hub consumer's tool-name filter.
+    [string]$EventHubWarmupToolName = 'issue18_eventhub_warmup',
+    # ARM resource ID of the Log Analytics workspace underlying the out-of-band
+    # Application Insights audit resource (Terraform output audit_workspace_id).
+    # No longer queried by this script (see EventHubNamespaceFqdn/EventHubName
+    # below for the check that gates pass/fail) -- the policy's <trace>
+    # element is unchanged, so every per-tool deny still reaches it; this
+    # value is accepted only to print as a pointer for anyone who wants the
+    # durable, human-reviewable audit trail afterward.
+    [string]$AuditWorkspaceId = '',
+    # Ephemeral audit Event Hub (Terraform outputs eventhub_namespace_fqdn /
+    # eventhub_name). The audit-event PASS/FAIL check reads THIS, via the
+    # bounded-wait Python consumer (scripts/gate/wait_for_eventhub_audit.py),
+    # not AuditWorkspaceId: live-gate rounds 7-9 proved Application Insights
+    # ingestion has no bounded real-world latency (landed anywhere from ~286s
+    # to over 600s after the trace fired, non-deterministically), which
+    # cannot gate a same-run pass/fail. Optional: when either is empty, the
+    # audit-event assertion is skipped with a warning.
+    [string]$EventHubNamespaceFqdn = '',
+    [string]$EventHubName = ''
 )
 
 Set-StrictMode -Version Latest
@@ -235,6 +283,414 @@ function Assert-ServerDiscovery {
         }
     }
     Write-Host ''
+}
+
+# Parses a Streamable HTTP SSE response body into the JSON-RPC message it
+# carries. The MCP spec (2025-06-18, "Streamable HTTP", "Sending Messages to
+# the Server", item 5) lets the server answer a JSON-RPC request with EITHER
+# Content-Type: application/json OR text/event-stream, entirely at the
+# server's discretion -- not conditioned on the operation being long-running
+# or "streaming" in any user-visible sense (verified directly against the
+# spec, 2026-08-06). It defers the wire grammar to the WHATWG SSE living
+# standard: "data:" lines, a blank line dispatches/terminates one event,
+# consecutive "data:" lines within one event are concatenated with LF. A
+# stream may carry more than one event (e.g. an intermediate notification
+# ahead of the real response), so this returns the FIRST event whose parsed
+# "id" matches $ExpectedId, falling back to the first parseable event if none
+# match (a response with no id to compare, or a single-event stream).
+function ConvertFrom-SseJsonRpc {
+    param(
+        [string]$Raw,
+        [int]$ExpectedId
+    )
+    $dataLines = New-Object System.Collections.Generic.List[string]
+    $events = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($Raw -split "`n")) {
+        $trimmed = $line.TrimEnd("`r")
+        if ($trimmed -eq '') {
+            if ($dataLines.Count -gt 0) {
+                $events.Add(($dataLines -join "`n"))
+                $dataLines.Clear()
+            }
+            continue
+        }
+        if ($trimmed.StartsWith('data:')) {
+            $value = $trimmed.Substring(5)
+            if ($value.StartsWith(' ')) { $value = $value.Substring(1) }
+            $dataLines.Add($value)
+        }
+    }
+    if ($dataLines.Count -gt 0) { $events.Add(($dataLines -join "`n")) }
+
+    foreach ($eventData in $events) {
+        try {
+            $parsed = $eventData | ConvertFrom-Json -ErrorAction Stop
+            $parsedId = Get-SafeProperty $parsed 'id'
+            if ($null -ne $parsedId -and [string]$parsedId -eq [string]$ExpectedId) {
+                return $parsed
+            }
+        } catch { continue }
+    }
+    foreach ($eventData in $events) {
+        try { return ($eventData | ConvertFrom-Json -ErrorAction Stop) } catch { continue }
+    }
+    return $null
+}
+
+# Thin JSON-RPC wrapper over Invoke-Raw: POSTs a JSON-RPC 2.0 envelope and
+# returns the parsed response body, or $null if neither plain-JSON nor SSE
+# parsing succeeds. Accept: application/json, text/event-stream is REQUIRED
+# on every POST to a Streamable HTTP MCP endpoint (MCP spec 2025-06-18, item
+# 2: "The client MUST include an Accept header, listing both application/json
+# and text/event-stream as supported content types" -- there is no
+# JSON-only-response opt-out; the spec never describes server behaviour for a
+# client that omits text/event-stream, so doing so is undefined-by-spec, not
+# a documented fallback -- verified 2026-08-06). One header, both media types
+# comma-joined in a single string value (not an array -- some PowerShell HTTP
+# client versions mis-serialize an array-valued Accept header). Omitting it
+# is why an earlier pass got back a JSON-RPC error (code -32000, "Not
+# Acceptable"). Because the client must offer text/event-stream, it must also
+# be prepared to receive it: this repo's own APIM-authored deny responses are
+# always plain JSON (this policy writes the body directly, never touching the
+# backend), but the real Azure Functions backend answers ordinary,
+# non-erroring tools/call and tools/list requests via SSE -- both shapes are
+# normal and this helper must handle both, not treat SSE as a failure.
+function Invoke-JsonRpc {
+    param(
+        [string]$Uri,
+        [string]$Token,
+        [string]$Method,
+        [int]$Id,
+        [string]$ParamsJson = '{}'
+    )
+    $body = "{`"jsonrpc`":`"2.0`",`"id`":$Id,`"method`":`"$Method`",`"params`":$ParamsJson}"
+    $resp = Invoke-Raw -Uri $Uri -Headers @{
+        Authorization = "Bearer $Token"
+        Accept        = 'application/json, text/event-stream'
+    } -Body $body
+
+    # Invoke-WebRequest's .Content is not guaranteed to be a string for every
+    # response Content-Type -- PowerShell may hand back raw bytes for a type
+    # it does not recognize as text (a documented Invoke-WebRequest quirk that
+    # varies by PowerShell version), and text/event-stream is exactly the kind
+    # of less-common type that can trip this. Coerce explicitly rather than
+    # relying on ConvertFrom-SseJsonRpc's [string]$Raw parameter to do it: an
+    # implicit [string] cast on a byte[] calls .ToString(), which produces the
+    # literal, useless text "System.Byte[]", not the decoded content -- a
+    # silent failure that would look identical to "the server sent nothing
+    # parseable" with no way to tell the two apart.
+    $rawText = if ($resp.Content -is [byte[]]) {
+        [System.Text.Encoding]::UTF8.GetString($resp.Content)
+    } else {
+        [string]$resp.Content
+    }
+
+    try {
+        return $rawText | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        $sseResult = ConvertFrom-SseJsonRpc -Raw $rawText -ExpectedId $Id
+        if ($null -eq $sseResult) {
+            # Neither parse worked. Log real evidence instead of a bare
+            # $null -- content type, length, and a bounded preview -- so a
+            # failure here is diagnosable from the next run's log rather than
+            # another round of guessing.
+            $contentType = try { (Get-HeaderValue -Response $resp -Name 'Content-Type') } catch { '(unknown)' }
+            $preview = if ($rawText.Length -gt 300) { $rawText.Substring(0, 300) + '...(truncated)' } else { $rawText }
+            Write-Host "  [Invoke-JsonRpc] neither plain-JSON nor SSE parsing matched. Content-Type: '$contentType', original .Content type: $($resp.Content.GetType().Name), decoded length: $($rawText.Length). Preview: $preview"
+        }
+        return $sseResult
+    }
+}
+
+# Safely extracts the JSON-RPC error code from a parsed body, or $null if
+# there is no error, the body is $null, or (issue 18 live-gate finding) the
+# body is one of THIS repo's pre-existing, non-JSON-RPC HTTP-layer denials
+# (the no-token 401 and the per-server entitlement 403 both predate issue 18
+# and return {"error":"insufficient_scope",...} with error as a plain STRING,
+# not the JSON-RPC {"error":{"code":...,"message":...}} object shape -- see
+# mcp-server.xml). Accessing .error.code directly on a string-shaped error
+# throws under Set-StrictMode ("The property 'code' cannot be found on this
+# object"), which is exactly the crash a per-server-under-entitled token (as
+# opposed to a per-tool-under-entitled one) produces if not guarded against.
+# Safe property lookup for a dynamically-shaped JSON-RPC PSCustomObject
+# (from ConvertFrom-Json). Uses .PSObject.Properties[Name], a LOOKUP that
+# returns $null for a genuinely absent key, rather than dot-notation
+# (.Name), which THROWS under Set-StrictMode when the key was never present
+# in the source JSON -- not just when it is null. This is the root cause
+# behind two separate crashes in this file: a JSON-RPC success response has
+# no "error" key at all (result/error are mutually exclusive and the absent
+# one is OMITTED, not present-as-null), and an error response has no
+# "result" key; dot-access on the absent one throws every time, not
+# sometimes. Every access to a parsed JSON-RPC body's top-level or nested
+# fields in this file goes through this, with no exceptions.
+function Get-SafeProperty($Object, [string]$Name) {
+    if ($null -eq $Object) { return $null }
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($null -eq $prop) { return $null }
+    return $prop.Value
+}
+
+# The parsed body's "error" value, or $null if absent (see Get-SafeProperty).
+function Get-JsonRpcError($parsedBody) {
+    return Get-SafeProperty $parsedBody 'error'
+}
+
+function Get-JsonRpcErrorCode($parsedBody) {
+    $err = Get-JsonRpcError $parsedBody
+    if ($null -eq $err -or $err -is [string]) { return $null }
+    return Get-SafeProperty $err 'code'
+}
+
+# The parsed body's error MESSAGE, safe regardless of whether .error is the
+# legacy string shape (mcp-server.xml's HTTP-layer denials, error_description
+# carries the message there) or the JSON-RPC object shape (.error.message).
+function Get-JsonRpcErrorMessage($parsedBody) {
+    $err = Get-JsonRpcError $parsedBody
+    if ($null -eq $err) { return $null }
+    if ($err -is [string]) { return Get-SafeProperty $parsedBody 'error_description' }
+    return Get-SafeProperty $err 'message'
+}
+
+# Companion to Get-JsonRpcErrorCode: true when .error exists but is the OLD,
+# non-JSON-RPC string shape (an HTTP-layer denial from a check that predates
+# issue 18 -- most likely this token failed the PER-SERVER entitlement check,
+# one layer before the per-tool fragment ever runs, per-tool result therefore
+# undetermined rather than failed).
+function Test-LegacyHttpDenial($parsedBody) {
+    $err = Get-JsonRpcError $parsedBody
+    return ($null -ne $err -and $err -is [string])
+}
+
+# True when the parsed JSON-RPC body is the per-tool gateway denial shape:
+# HTTP 200 with error.code == -32001 (issue 18). Distinguishes the per-tool
+# deny from HTTP 401/403 (per-session/per-server checks) and from a normal
+# tools/call result. Uses Get-JsonRpcErrorCode so a legacy string-shaped
+# .error (see above) safely resolves to "not a -32001 deny" rather than
+# throwing.
+function Test-ToolAuthDenial($parsedBody) {
+    $code = Get-JsonRpcErrorCode $parsedBody
+    return ($null -ne $code -and [int]$code -eq -32001)
+}
+
+# Per-tool authorization (issue 18): set-equality between tools/list and the
+# map keys (both directions), mapped-tool callable, unmapped probe denied, and
+# (if UnderEntitledToken supplied) mapped-tool denied for the under-entitled
+# caller. Generic: same code path for every server instance (issue-18
+# acceptance criterion "expressed as a loop over the server instances").
+# WarnOnly converts Fail calls to ::warning:: (used for server 2 where token
+# entitlement is out-of-band and results may be inconclusive).
+function Assert-ToolAuthorization {
+    param(
+        [string]$Label,
+        [string]$ServerUrl,
+        [string]$Token,
+        [string[]]$ExpectedMapKeys,
+        [string]$MappedToolName,
+        [string]$UnmappedProbeToolName,
+        [string]$UnderEntitledToken = '',
+        [string]$EventHubNamespaceFqdn = '',
+        [string]$EventHubName = '',
+        [switch]$WarnOnly
+    )
+
+    $assertFail = if ($WarnOnly) {
+        { param([string]$msg) Write-Host "::warning::[$Label non-fatal] $msg" }
+    } else {
+        { param([string]$msg) Fail "${Label}: $msg" }
+    }
+
+    # (a) Set-equality: tools/list vs map keys, both directions.
+    # Token is the pinned fully-granted identity: same entitled client already
+    # used for the McpTestClient session (step 2 of invoke-and-assert) and the
+    # existing get_order_status calls. It passes both the per-server entitlement
+    # check and each mapped tool's role/scope check, so tools/list returns the
+    # full server surface without hitting the per-tool gate (which fires only on
+    # tools/call, per mcp-server.xml).
+    Write-Host "[$Label-a] $ServerUrl tools/list set equals tool_authorization_map keys"
+    $listResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/list' -Id 1 -ParamsJson '{}'
+    if (Test-LegacyHttpDenial $listResult) {
+        # This token failed the PER-SERVER entitlement check (issue 17), one
+        # layer before the per-tool fragment (issue 18) ever runs -- e.g. the
+        # "entitled" token supplied is entitled at a DIFFERENT server, not this
+        # one (a real possibility for server 2, whose entitlement this gate
+        # cannot independently provision -- see the call site). Every check
+        # below shares this token (or a variant of it) and would hit the same
+        # wall, so report it ONCE, clearly, and stop for this server rather
+        # than cascading into confusing or crashing downstream results.
+        & $assertFail "tools/list was rejected before reaching the per-tool gate: '$(Get-JsonRpcError $listResult)' ($(Get-JsonRpcErrorMessage $listResult)). This token is not entitled at the PER-SERVER layer for $ServerUrl; per-tool results for this server are UNDETERMINED, not tested. Skipping (b)/(c)/(d) for $Label."
+        Write-Host ''
+        return
+    }
+    $listResultResult = Get-SafeProperty $listResult 'result'
+    $listResultTools = Get-SafeProperty $listResultResult 'tools'
+    if ($null -eq $listResult) {
+        & $assertFail "tools/list response was not valid JSON (the request may have been rejected upstream of the per-tool gate; check token entitlement for this server)."
+    } elseif ($null -ne (Get-JsonRpcError $listResult)) {
+        & $assertFail "tools/list with the entitled token returned a JSON-RPC error (code $(Get-JsonRpcErrorCode $listResult)): $(Get-JsonRpcErrorMessage $listResult). The per-tool gate must not block tools/list (gate fires only on tools/call)."
+    } elseif ($null -eq $listResultResult -or $null -eq $listResultTools) {
+        & $assertFail "tools/list response did not contain a result.tools array (unexpected response shape)."
+    } else {
+        $listedTools = @($listResultTools | ForEach-Object { Get-SafeProperty $_ 'name' })
+        $inListNotMap = @($listedTools | Where-Object { $_ -notin $ExpectedMapKeys })
+        $inMapNotList = @($ExpectedMapKeys | Where-Object { $_ -notin $listedTools })
+        if ($inListNotMap.Count -gt 0) {
+            & $assertFail "tool(s) returned by tools/list but absent from tool_authorization_map -- would be silently default-denied in production: $($inListNotMap -join ', ')."
+        }
+        if ($inMapNotList.Count -gt 0) {
+            & $assertFail "tool_authorization_map key(s) with no matching tool in tools/list -- dead policy branch, renamed or removed tool: $($inMapNotList -join ', ')."
+        }
+        if ($inListNotMap.Count -eq 0 -and $inMapNotList.Count -eq 0) {
+            Pass "${Label}: tools/list and tool_authorization_map key set are equal ($($listedTools.Count) tool(s))."
+        }
+    }
+    Write-Host ''
+
+    # (b) Mapped tool callable: entitled token must NOT be denied by the per-tool
+    # gate. A POSITIVE check (a real result.tools/call succeeded), not merely
+    # "the response wasn't a -32001 error" -- that weaker check would silently
+    # pass on ANY other failure (e.g. it did, once, when the response was
+    # actually a DIFFERENT JSON-RPC error the gate never checked for; see the
+    # Accept-header fix on Invoke-JsonRpc above).
+    Write-Host "[$Label-b] $ServerUrl tools/call '$MappedToolName' with entitled token is NOT denied by the gateway"
+    # get_order_status declares orderId isRequired: true (src/McpTools/Tools/GetOrderStatus.cs);
+    # an empty arguments object never reaches the per-tool gate's pass/fail
+    # outcome -- it fails backend param validation first (-32602), which this
+    # check previously misread as a gate denial. CONTOSO-1001 is a known
+    # synthetic fixture id (SyntheticOrders), so this exercises a real
+    # success path, not just "didn't error on missing params".
+    $callResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/call' -Id 2 `
+        -ParamsJson "{`"name`":`"$MappedToolName`",`"arguments`":{`"orderId`":`"CONTOSO-1001`"}}"
+    if ($null -eq $callResult) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token: response was not valid JSON."
+    } elseif (Test-LegacyHttpDenial $callResult) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token was rejected before reaching the per-tool gate: '$(Get-JsonRpcError $callResult)'; this token is not entitled at the per-server layer."
+    } elseif ($null -ne (Get-JsonRpcError $callResult)) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token returned an unexpected JSON-RPC error (code $(Get-JsonRpcErrorCode $callResult)): $(Get-JsonRpcErrorMessage $callResult). Expected a successful result, not any error."
+    } elseif ($null -eq (Get-SafeProperty $callResult 'result')) {
+        & $assertFail "tools/call '$MappedToolName' with the entitled token returned neither a result nor an error (unexpected response shape)."
+    } else {
+        Pass "${Label}: tools/call '$MappedToolName' succeeded with the entitled token (per-tool check passed, result returned)."
+    }
+    Write-Host ''
+
+    # (c) Unmapped probe denied: the default-deny branch fires for a tool name
+    # absent from the map. The deny response is HTTP 200 + JSON-RPC -32001, with
+    # the request id echoed at the TOP LEVEL of the JSON-RPC envelope (not nested
+    # under error): per mcp-server.xml the body is
+    # {"jsonrpc":"2.0","id":<echoed>,"error":{"code":-32001,"message":"..."}}.
+    $probeId = 42
+    Write-Host "[$Label-c] $ServerUrl tools/call '$UnmappedProbeToolName' IS denied (-32001, id=$probeId echoed)"
+    # Captured immediately before the call that triggers the deny: the Event
+    # Hub consumer's --since cutoff, so it only considers messages enqueued
+    # after THIS check's own deny, never a stale message from an earlier
+    # check or an earlier live-test run against the same ephemeral instance.
+    $unmappedCallTimeUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    $probeResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/call' -Id $probeId `
+        -ParamsJson "{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}"
+    if (-not (Test-ToolAuthDenial $probeResult)) {
+        & $assertFail "tools/call '$UnmappedProbeToolName' was NOT denied with -32001; an unmapped tool name must be default-denied by the gateway."
+    } else {
+        $echoedId = [string](Get-SafeProperty $probeResult 'id')
+        if ($echoedId -ne [string]$probeId) {
+            & $assertFail "tools/call '$UnmappedProbeToolName' returned -32001 but echoed id '$echoedId'; expected '$probeId' (top-level JSON-RPC envelope id field, not nested under error)."
+        } else {
+            Pass "${Label}: tools/call '$UnmappedProbeToolName' denied with -32001 and id=$probeId echoed correctly at the envelope top level."
+            Assert-AuditEventEmitted -ServerLabel "$Label-c" -EventHubNamespaceFqdn $EventHubNamespaceFqdn -EventHubName $EventHubName -ToolName $UnmappedProbeToolName -SinceUtc $unmappedCallTimeUtc -WarnOnly:$WarnOnly
+        }
+    }
+    Write-Host ''
+
+    # (d) Under-entitled caller denied on a mapped tool (optional). Runs only when
+    # UnderEntitledToken is supplied. Same -32001 error shape as (c): the policy
+    # uses a single deny path for both the unmapped and the under-entitled cases
+    # (non-concealment; the audit event carries the tool name for operators who
+    # need to distinguish them).
+    if (-not [string]::IsNullOrEmpty($UnderEntitledToken)) {
+        Write-Host "[$Label-d] $ServerUrl tools/call '$MappedToolName' with under-entitled token IS denied (-32001)"
+        $underEntitledCallTimeUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+        $denyResult = Invoke-JsonRpc -Uri $ServerUrl -Token $UnderEntitledToken -Method 'tools/call' -Id 3 `
+            -ParamsJson "{`"name`":`"$MappedToolName`",`"arguments`":{}}"
+        if (-not (Test-ToolAuthDenial $denyResult)) {
+            & $assertFail "tools/call '$MappedToolName' with the under-entitled token was NOT denied with -32001; a caller missing the required role/scope must be denied by the per-tool check."
+        } else {
+            Pass "${Label}: tools/call '$MappedToolName' with the under-entitled token denied with -32001 (per-tool check enforced)."
+            Assert-AuditEventEmitted -ServerLabel "$Label-d" -EventHubNamespaceFqdn $EventHubNamespaceFqdn -EventHubName $EventHubName -ToolName $MappedToolName -SinceUtc $underEntitledCallTimeUtc -WarnOnly:$WarnOnly
+        }
+        Write-Host ''
+    }
+}
+
+# Asserts a per-tool deny emitted its audit event (issue 18), by reading the
+# ephemeral audit Event Hub the policy's <log-to-eventhub> element writes to,
+# via a bounded-wait Python consumer (scripts/gate/wait_for_eventhub_audit.py
+# -- az CLI has no Event Hubs data-plane receive command; verified
+# 2026-08-07). This REPLACES the Log Analytics/Application Insights KQL path
+# this function used through live-gate round 9 as the thing that gates
+# pass/fail. That query was proven correct three separate times (manually
+# re-run, and via the exact az CLI invocation this script issued, both
+# matched real data every time), but real Application Insights ingestion
+# latency ranged from ~286s to over 600s across rounds 7-9, non-
+# deterministically -- Application Insights documents no latency SLA, so no
+# fixed timeout is provably safe against it. Event Hub delivery has no such
+# batching/ingestion indirection between the policy firing and a consumer
+# reading it (COMPATIBILITY.md, 2026-08-07). The <trace> element and its
+# Application Insights sink are UNCHANGED by this: they still receive every
+# per-tool deny and remain the durable, human-reviewable audit trail; this
+# function just no longer reads them back for pass/fail.
+function Assert-AuditEventEmitted {
+    param(
+        [string]$ServerLabel,
+        [string]$EventHubNamespaceFqdn,
+        [string]$EventHubName,
+        [string]$ToolName,
+        # UTC timestamp (yyyy-MM-ddTHH:mm:ss.fffZ), captured by the caller
+        # immediately before issuing the tools/call that triggers this deny.
+        # Anchors the consumer's starting_position so it only considers
+        # events enqueued after THIS check's own deny -- never a stale event
+        # from an earlier check or an earlier live-test run against the same
+        # ephemeral Event Hub instance name.
+        [string]$SinceUtc,
+        [int]$TimeoutSeconds = 60,
+        [switch]$WarnOnly
+    )
+
+    if ([string]::IsNullOrEmpty($EventHubNamespaceFqdn) -or [string]::IsNullOrEmpty($EventHubName)) {
+        Write-Host "::warning::[$ServerLabel] audit-event assertion skipped: no Event Hub supplied."
+        return
+    }
+
+    $assertFail = if ($WarnOnly) {
+        { param([string]$msg) Write-Host "::warning::[$ServerLabel non-fatal] $msg" }
+    } else {
+        { param([string]$msg) Fail "${ServerLabel}: $msg" }
+    }
+
+    $consumerScript = Join-Path $PSScriptRoot '..' '..' 'scripts' 'gate' 'wait_for_eventhub_audit.py'
+    $raw = python3 $consumerScript `
+        --namespace-fqdn $EventHubNamespaceFqdn `
+        --eventhub-name $EventHubName `
+        --tool-name $ToolName `
+        --since $SinceUtc `
+        --timeout-seconds $TimeoutSeconds 2>&1
+    # The consumer script always prints exactly one JSON object as its last
+    # line and always exits 0 (errors are reported IN the JSON, not via exit
+    # code or a thrown failure) -- Select-Object -Last 1 is defensive against
+    # any incidental SDK log lines landing on the merged stderr stream ahead
+    # of it, not a sign the script itself can fail ambiguously.
+    $result = $null
+    try {
+        $result = ($raw | Select-Object -Last 1) | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        & $assertFail "audit-event check for tool '$ToolName' could not parse the consumer script's output. Raw output: $raw"
+        return
+    }
+
+    if ($result.found) {
+        Pass "${ServerLabel}: audit event found for tool '$ToolName' via Event Hub, dimensioned by caller (enqueued $($result.enqueued_time))."
+    } else {
+        $errDetail = if (Get-SafeProperty $result 'error') { " Consumer error: $($result.error)" } else { '' }
+        & $assertFail "no audit event found for tool '$ToolName' on the audit Event Hub within ${TimeoutSeconds}s.$errDetail Either the deny did not emit its event, or the policy's Event Hub logger is misconfigured (ADR-009)."
+    }
 }
 
 # Default server 2's expected resource to its URL when not given explicitly.
@@ -586,6 +1042,86 @@ foreach ($cname in $chTargets.Keys) {
     }
 }
 Write-Host ''
+
+# ---------------------------------------------------------------------------
+# 9. Per-tool authorization (issue 18): set-equality between tools/list and the
+#    map keys (both directions), mapped-tool callable, unmapped-probe denied
+#    (HTTP 200 + JSON-RPC -32001 Protocol Error, id echoed at the envelope top
+#    level), under-entitled-denied, and (Assert-AuditEventEmitted, called from
+#    within each deny check) that deny emitted its audit event, read back from
+#    the ephemeral audit Event Hub with a short bounded wait (issue 18: see
+#    Assert-AuditEventEmitted for why this replaced the Application Insights
+#    KQL path after live-gate rounds 7-9). Expressed as a loop over configured
+#    server instances (issue-18 acceptance criterion). Server 2 uses WarnOnly
+#    throughout: its token entitlement is out-of-band and results may be
+#    inconclusive.
+# ---------------------------------------------------------------------------
+if (-not [string]::IsNullOrEmpty($AuditWorkspaceId)) {
+    Write-Host "Durable audit trail (Application Insights, unchanged by issue 18's Event Hub check): $AuditWorkspaceId"
+} else {
+    Write-Host "::warning::AuditWorkspaceId not supplied; no pointer to the durable audit trail will be printed. Does not affect the Event Hub audit-event assertion below."
+}
+if ([string]::IsNullOrEmpty($EventHubNamespaceFqdn) -or [string]::IsNullOrEmpty($EventHubName)) {
+    Write-Host "::warning::EventHubNamespaceFqdn/EventHubName not supplied; audit-event assertions will be skipped."
+}
+$perToolServers = [System.Collections.Generic.List[hashtable]]::new()
+if (-not [string]::IsNullOrEmpty($ToolAuthorizationMapKeys) -and -not [string]::IsNullOrEmpty($EntitledToken)) {
+    $perToolServers.Add(@{
+        Label    = '9 (server 1)'; Url = $McpServerUrl
+        MapKeys  = @(($ToolAuthorizationMapKeys -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+        WarnOnly = $false
+    })
+}
+if (-not [string]::IsNullOrEmpty($McpServer2Url) -and
+    -not [string]::IsNullOrEmpty($Server2ToolAuthorizationMapKeys) -and
+    -not [string]::IsNullOrEmpty($EntitledToken)) {
+    $perToolServers.Add(@{
+        Label    = '9 (server 2)'; Url = $McpServer2Url
+        MapKeys  = @(($Server2ToolAuthorizationMapKeys -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+        WarnOnly = $true
+    })
+}
+if ($perToolServers.Count -gt 0) {
+    Write-Host "[9] Per-tool authorization (issue 18)"
+    # Warm-up (not gated): live-gate rounds 11 and 12 observed that the FIRST
+    # deny event through a freshly created eventhub_logger is the slow one --
+    # round 11 (isBuffered default true) took ~16s, round 12 (isBuffered
+    # explicitly false) exceeded the 60s gate timeout entirely -- while a
+    # SECOND event moments later was consistently fast in both rounds (~16s,
+    # ~5.5s). That pattern (first-use slow, subsequent-use fast) is consistent
+    # with a cold-start effect on APIM's connection to a brand-new Event Hub,
+    # not with the per-check timeout itself being too tight. Firing one
+    # throwaway deny here, before check (c)'s timed assertion, moves that
+    # cold-start cost out of a gating check and into a non-fatal warm-up: its
+    # own deny and audit-event result are logged but never call Fail,
+    # regardless of server WarnOnly settings (see COMPATIBILITY.md, "APIM
+    # `log-to-eventhub` policy", and ADR-009, "audit-event pass/fail check",
+    # round 11/12 entries).
+    if (-not [string]::IsNullOrEmpty($EventHubNamespaceFqdn) -and -not [string]::IsNullOrEmpty($EventHubName)) {
+        $warmupServer = $perToolServers[0]
+        Write-Host "[9-warmup] $($warmupServer.Url) throwaway tools/call '$EventHubWarmupToolName' to warm the Event Hub logger connection before timed checks"
+        $warmupCallTimeUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+        Invoke-JsonRpc -Uri $warmupServer.Url -Token $EntitledToken -Method 'tools/call' -Id 41 `
+            -ParamsJson "{`"name`":`"$EventHubWarmupToolName`",`"arguments`":{}}" | Out-Null
+        Assert-AuditEventEmitted -ServerLabel '9-warmup' -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
+            -EventHubName $EventHubName -ToolName $EventHubWarmupToolName -SinceUtc $warmupCallTimeUtc `
+            -TimeoutSeconds 90 -WarnOnly
+        Write-Host ''
+    }
+    foreach ($srv in $perToolServers) {
+        Assert-ToolAuthorization `
+            -Label $srv.Label `
+            -ServerUrl $srv.Url `
+            -Token $EntitledToken `
+            -ExpectedMapKeys $srv.MapKeys `
+            -MappedToolName $MappedToolName `
+            -UnmappedProbeToolName $UnmappedProbeToolName `
+            -UnderEntitledToken $UnderEntitledToken `
+            -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
+            -EventHubName $EventHubName `
+            -WarnOnly:$srv.WarnOnly
+    }
+}
 
 # ---------------------------------------------------------------------------
 if ($script:Failures -gt 0) {

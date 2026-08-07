@@ -20,8 +20,13 @@
        server-audience token: initialize, tools/list, and the two tool
        contracts.
     3. Acquire a second valid server-audience token for a client without
-       Orders.Read, call get_order_status, and require the deterministic
-       tool-level 403 result.
+       Orders.Read, call get_order_status DIRECTLY ON THE BACKEND (issue 18:
+       through the gateway this same client/tool/role is now denied one layer
+       earlier by the per-tool authorization fragment, a JSON-RPC protocol
+       error the SDK throws rather than returns, not what this assertion
+       checks), and require the deterministic tool-level 403 result. The
+       gateway-layer denial for this same client is asserted separately in
+       discovery-assertions.ps1's per-tool under-entitled check.
     4. Run the raw-HTTP discovery assertions (401 / WWW-Authenticate / PRM /
        wrong-audience / shadow mcp_extension key). Multi-server (issue 17): also
        server 2's per-server discovery (its own challenge and path-inserted PRM),
@@ -48,6 +53,28 @@
        path -- see docs/decisions/ADR-006, "OBO exchange: the inbound-token
        gap" and "Testing strategy: the user-context token problem" for why
        that is validated manually, not here.
+    7. Per-tool authorization (issue 18): threads $mcpToken (step 1, the
+       entitled caller) and $missingRoleToken (step 1, the under-entitled
+       caller) into the discovery-assertions.ps1 script as -EntitledToken and
+       -UnderEntitledToken respectively, alongside the Terraform-output
+       -ToolAuthorizationMapKeys, -Server2ToolAuthorizationMapKeys,
+       -AuditWorkspaceId, -EventHubNamespaceFqdn, and -EventHubName strings.
+       The discovery script runs the set-equality, mapped-callable,
+       unmapped-probe-denied, and under-entitled-denied assertions for each
+       configured server, and (from within each deny check) asserts that
+       deny emitted its audit event via a bounded-wait read of the ephemeral
+       audit Event Hub (EventHubNamespaceFqdn/EventHubName) -- NOT the KQL
+       query against AuditWorkspaceId, which live-gate rounds 7-9 proved has
+       no bounded real-world latency (ingestion landed anywhere from ~286s to
+       over 600s after the trace fired, non-deterministically) and so cannot
+       gate a same-run pass/fail. AuditWorkspaceId is still resolved and
+       still receives the SAME per-tool deny events via the policy's <trace>
+       element (unchanged) -- it remains the durable, human-reviewable audit
+       trail; it just no longer decides pass/fail. Wire shape: HTTP 200 +
+       JSON-RPC -32001 Protocol Error with the id echoed at
+       the envelope top level (mcp-server.xml, COMPATIBILITY.md 2026-08-06).
+       Tool-name resolution: gen_ai.tool.name context variable, falling back
+       to the parsed body params.name (COMPATIBILITY.md 2026-08-06).
 
   Exits non-zero if the MCP client, the discovery assertions, or the registry
   convergence assertion fail. Registry convergence is made deterministic by the
@@ -122,7 +149,29 @@ param(
     # Optional dir to write the captured /v0.1/servers response body plus a
     # summary, uploaded as a gate artifact so the (doc-UNVERIFIABLE) live
     # response shape can be pinned in a follow-up. Empty => log only.
-    [string]$EvidenceDir = ''
+    [string]$EvidenceDir = '',
+    # Issue 18: server 1's tool_authorization_map keys, comma-joined (Terraform
+    # output tool_authorization_map_keys). Passed through to discovery-assertions
+    # for the per-tool authorization checks. Optional: when empty, per-tool checks
+    # are skipped.
+    [string]$ToolAuthorizationMapKeys = '',
+    # Issue 18: server 2's tool_authorization_map keys, comma-joined (Terraform
+    # output server_2_tool_authorization_map_keys).
+    [string]$Server2ToolAuthorizationMapKeys = '',
+    # Issue 18: ARM resource ID of the Log Analytics workspace underlying the
+    # audit Application Insights resource (Terraform output audit_workspace_id).
+    # Passed through so discovery-assertions can query back the per-tool deny
+    # audit trace. Optional: when empty, the audit-event assertion is skipped.
+    [string]$AuditWorkspaceId = '',
+    # Issue 18: ephemeral audit Event Hub (Terraform outputs
+    # eventhub_namespace_fqdn / eventhub_name). The live gate's audit-event
+    # pass/fail check reads THIS, not AuditWorkspaceId -- Application Insights
+    # ingestion proved to have no bounded latency in practice (live-gate
+    # rounds 7-9). AuditWorkspaceId / KQL remain for the durable, human-
+    # reviewable audit trail; they no longer gate pass/fail. Optional: when
+    # either is empty, the audit-event assertion is skipped.
+    [string]$EventHubNamespaceFqdn = '',
+    [string]$EventHubName = ''
 )
 
 Set-StrictMode -Version Latest
@@ -211,15 +260,39 @@ Write-Host ''
 
 # ---------------------------------------------------------------------------
 # 3. App-role negative path: valid token reaches the MCP tool, but the caller
-#    lacks Orders.Read and receives the deterministic tool-level 403.
+#    lacks Orders.Read and receives the deterministic tool-level 403 -- the
+#    issue-45 backend check (AppRoleAuthorization.HasOrdersRead), tested
+#    independently of the gateway.
+#
+#    Targets $BackendMcpUrl directly, NOT $McpServerUrl (issue 18). Since the
+#    gateway's per-tool authorization fragment gates get_order_status on the
+#    SAME role (Orders.Read, deliberately -- ADR-009, "kept in step
+#    conceptually, not mechanically"), $missingRoleToken is now ALSO
+#    under-entitled at the gateway layer, one layer earlier than this backend
+#    check. Through the gateway that denial is a JSON-RPC protocol error
+#    (-32001), which the MCP SDK surfaces by THROWING, not by returning a
+#    CallToolResult -- MCP_EXPECT_FORBIDDEN_ROLE's assertion (Program.cs)
+#    expects the latter, so going through the gateway now crashes this step
+#    instead of asserting anything. Calling the backend directly is what this
+#    step always meant to test (the backend's OWN independent check, working
+#    even when a caller reaches it by a path the gateway's per-tool check
+#    does not cover) -- the SAME server-audience token is accepted by the
+#    backend directly regardless of path (verified 2026-07-16 by a direct
+#    backend probe returning 405, not 401; see mcp-server.xml). The
+#    gateway-layer denial for this exact client/tool/role is asserted
+#    separately, in discovery-assertions.ps1's per-tool under-entitled check
+#    ([9]-d, Assert-ToolAuthorization) -- so both layers stay independently
+#    proven, each through the path that actually exercises it.
 # ---------------------------------------------------------------------------
-Write-Host "[3] App-role authorization negative assertion"
+Write-Host "[3] App-role authorization negative assertion (backend, direct)"
+$env:MCP_SERVER_ENDPOINT = $BackendMcpUrl
 $env:MCP_ACCESS_TOKEN = $missingRoleToken
 $env:MCP_EXPECT_FORBIDDEN_ROLE = 'Orders.Read'
 dotnet run --project $McpTestClientProject -c Release
 $missingRoleExit = $LASTEXITCODE
 $env:MCP_EXPECT_FORBIDDEN_ROLE = $null
 $env:MCP_ACCESS_TOKEN = $null
+$env:MCP_SERVER_ENDPOINT = $McpServerUrl
 if ($missingRoleExit -ne 0) {
     throw "McpTestClient missing-role assertion failed (exit $missingRoleExit)."
 }
@@ -238,7 +311,14 @@ Write-Host "[4] Raw-HTTP discovery assertions"
     -McpExtensionKey $McpExtensionKey `
     -McpServer2Url $McpServer2Url `
     -ExpectedResource2 $McpServer2Url `
-    -Server1OnlyToken $server1OnlyToken
+    -Server1OnlyToken $server1OnlyToken `
+    -ToolAuthorizationMapKeys $ToolAuthorizationMapKeys `
+    -Server2ToolAuthorizationMapKeys $Server2ToolAuthorizationMapKeys `
+    -EntitledToken $mcpToken `
+    -UnderEntitledToken $missingRoleToken `
+    -AuditWorkspaceId $AuditWorkspaceId `
+    -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
+    -EventHubName $EventHubName
 if ($LASTEXITCODE -ne 0) {
     throw "Discovery assertions failed (exit $LASTEXITCODE)."
 }

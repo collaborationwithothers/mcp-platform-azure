@@ -158,7 +158,34 @@ resource "azapi_resource" "mcp_server_policy" {
         prm_server_url                 = local.prm_server_url
         required_scope                 = var.required_scope
         required_role                  = var.required_role
+        # Issue 18: rendered into the fragment's per-tool <choose> once that
+        # block lands. Passed through unconsumed until then -- templatefile()
+        # does not require every supplied variable to be referenced by the
+        # template, so this keeps validate green ahead of the fragment change.
+        tool_authorization_map = var.tool_authorization_map
+        eventhub_logger_name   = var.eventhub_logger_name
       })
+    }
+  }
+}
+
+# Per-API diagnostic setting binding this MCP server API to the shared
+# Application Insights audit logger. verbosity = "error" ensures only traces
+# emitted at severity = "error" (the policy fragment's audit <trace> level for
+# per-tool denials) are forwarded to Application Insights; lower-severity traces
+# are suppressed. The fragment's audit event reaches the logger only if its
+# severity >= this verbosity (error >= error: emitted). Microsoft Learn (trace
+# policy), verified 2026-08-06:
+# https://learn.microsoft.com/azure/api-management/trace-policy
+resource "azapi_resource" "mcp_server_diagnostic" {
+  type      = "Microsoft.ApiManagement/service/apis/diagnostics@2022-08-01"
+  name      = "applicationinsights"
+  parent_id = azapi_resource.mcp_server.id
+
+  body = {
+    properties = {
+      loggerId  = var.audit_logger_id
+      verbosity = "error"
     }
   }
 }
