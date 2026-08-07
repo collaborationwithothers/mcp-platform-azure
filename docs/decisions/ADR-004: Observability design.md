@@ -36,8 +36,9 @@ Settings initially use the resource-specific `Dedicated` Log Analytics
 collection mode. A target-specific `AzureDiagnostics` fallback is permitted
 only after an actual gated deployment error proves that target rejects
 `Dedicated`. The deployment fails if a target returns neither logs nor metrics.
-API Center has no documentation-based category contract for this repository, so
-its apply-time category discovery is deliberately fail-closed.
+API Center remains the APIM-linked registry, but it is not a diagnostic target.
+Gated run 31162622718 proved Azure Monitor diagnostic settings are unsupported
+for API Center. There is no fallback or capability registry for it.
 
 Issue 18's narrow per-tool deny audit path remains separate and unchanged. It
 continues to use the Application Insights logger and the ephemeral Event Hubs
@@ -51,12 +52,14 @@ LLM observability tooling).
 
 ## Consequences
 
-Platform diagnostic settings cover the two Function Apps, two App Service
-plans, two storage accounts and their Blob, File, Queue, and Table service
-scopes, the APIM service, API Center, and the Event Hubs namespace. Existing
-storage-account mode needs permission to write diagnostic settings on the
-caller-supplied account. The collection applies to the entire storage account
-and its named service scopes, not only the deployment package.
+Platform diagnostic settings cover 16 supported targets: 14 Function-host
+targets across the two Function App instances, the APIM service, and the Event
+Hubs namespace. The Function-host targets are the two Function Apps, two App
+Service plans, two storage accounts, and their Blob, File, Queue, and Table
+service scopes. Existing storage-account mode needs permission to write
+diagnostic settings on the caller-supplied account. The collection applies to
+the entire storage account and its named service scopes, not only the deployment
+package.
 
 Broad collection has an intentional cost trade-off. `allLogs` is a Microsoft
 managed category group. Azure can add a category to it, which expands

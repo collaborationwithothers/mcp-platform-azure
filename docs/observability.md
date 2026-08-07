@@ -2,11 +2,11 @@
 
 ## Current platform diagnostic routing
 
-Issue 75 configures required Azure Monitor diagnostic settings for 17 current
-resource-level targets. The two S1 Function App instances each contribute the
-Function App, App Service plan, storage account, and Blob, File, Queue, and
-Table service scopes. S2 contributes the APIM service, API Center service, and
-Event Hubs namespace.
+Issue 75 configures required Azure Monitor diagnostic settings for 16 supported
+resource-level targets. The two S1 Function App instances each contribute seven
+Function-host targets: the Function App, App Service plan, storage account, and
+Blob, File, Queue, and Table service scopes. S2 contributes the APIM service
+and Event Hubs namespace.
 
 Each target discovers its logs, category groups, and metric categories at apply
 time. The setting uses `allLogs` when Azure offers it. Otherwise it enables each
@@ -32,11 +32,11 @@ Azure Monitor](https://learn.microsoft.com/azure/azure-monitor/platform/resource
 
 ## Boundaries and proof
 
-The setting fails before creation if a target has neither returned logs nor
-metrics. API Center is fail-closed. Microsoft Learn does not establish an API
-Center diagnostic-category contract usable here, so the category claim is
-**UNVERIFIABLE**. A rejected query, an empty result, or an Azure rejection of
-the setting blocks the deployment rather than silently omitting API Center.
+The setting fails before creation if a supported target has neither returned
+logs nor metrics. API Center remains the APIM-linked registry, but it is not a
+diagnostic target. Gated run 31162622718 proved Azure Monitor diagnostic
+settings are unsupported for API Center. There is no API Center fallback and no
+capability registry.
 
 Storage diagnostics include the whole existing or created account and its Blob,
 File, Queue, and Table service scopes. Existing-account mode therefore requires

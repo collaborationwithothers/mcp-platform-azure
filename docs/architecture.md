@@ -22,9 +22,13 @@ stable workspace-based Application Insights
           shared Log Analytics workspace
              ^                    ^
              |                    |
-   S1 Function and Storage    S2 APIM, API Center,
-    resource diagnostics       and Event Hubs diagnostics
+   S1 Function-host resource   S2 APIM and Event Hubs
+       diagnostics              resource diagnostics
 ```
+
+API Center remains the APIM-linked registry. It is not a diagnostic target:
+gated run 31162622718 proved that Azure Monitor diagnostic settings are
+unsupported for API Center.
 
 The route is separate from issue 18. Issue 18 keeps its narrow APIM per-tool
 deny audit path to the Application Insights logger and its ephemeral Event Hubs

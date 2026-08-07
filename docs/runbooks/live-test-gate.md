@@ -309,8 +309,9 @@ storage module collects the account and its Blob, File, Queue, and Table service
 scopes, so permission must cover the account-level and service-scope settings.
 This is broader than the `deploymentpackage` container.
 
-The existing S1 apply and S2 apply are the configuration proof for the 17
-settings. Do not add a telemetry-ingestion assertion or wait for logs to arrive.
+The existing S1 apply and S2 apply are the configuration proof for the 16
+supported settings. Do not add a telemetry-ingestion assertion or wait for logs
+to arrive.
 Azure documents that resource logs are not collected by default and that
 diagnostic settings route resource logs and platform metrics to destinations.
 See [Diagnostic settings in Azure
@@ -319,10 +320,10 @@ Monitor](https://learn.microsoft.com/azure/azure-monitor/platform/diagnostic-set
 If the gated apply rejects a `Dedicated` destination, preserve the failure
 evidence. Change only the proved target to `AzureDiagnostics`, then rerun the
 same existing apply-call-destroy gate. If category discovery returns no logs or
-metrics, or the API Center query or setting is rejected, stop and report the
-failure. API Center documentation remains **UNVERIFIABLE** for this category
-contract. Do not remove the API Center target or introduce a silent disabled
-path.
+metrics, stop and report the failure. API Center remains the APIM-linked
+registry, but gated run 31162622718 proved Azure Monitor diagnostic settings
+are unsupported there. Do not add an API Center query, setting, fallback, or
+capability registry.
 
 The issue 18 per-tool deny audit path is unchanged. The existing call and both
 destroy stages must remain green. A successful apply proves Azure accepted the

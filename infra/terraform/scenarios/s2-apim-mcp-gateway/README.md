@@ -104,7 +104,7 @@ the `live-test` environment and never run from PR CI.
 | `registry_environment` | object | Passed straight through to `api-center-registry`. |
 | `registry_deployment` | object | Passed straight through to `api-center-registry`. Default matches the module's own default. |
 | `data_reader_principal_ids` | list(string) | Principals granted Azure API Center Data Reader on the registry instance AND Log Analytics Data Reader on the shared observability workspace (issue 18). The tracer passes the live-test OIDC principal that runs ticket 5's bounded poll and the live gate's audit-event check. Empty by default. |
-| `shared_observability_application_insights_id` | string | ARM resource ID of the out-of-band workspace-based Application Insights resource shared by the scenarios. The composition derives its Log Analytics workspace ID for APIM and API Center diagnostic settings, while `apim-gateway` reads the component's ConnectionString. Supplied as `TF_VAR_shared_observability_application_insights_id` on the `live-test` GitHub Environment, never committed. |
+| `shared_observability_application_insights_id` | string | ARM resource ID of the out-of-band workspace-based Application Insights resource shared by the scenarios. The composition derives its Log Analytics workspace ID for APIM diagnostic settings, while `apim-gateway` reads the component's ConnectionString. API Center remains the APIM-linked registry, but gated run 31162622718 proved Azure Monitor diagnostic settings are unsupported there. Supplied as `TF_VAR_shared_observability_application_insights_id` on the `live-test` GitHub Environment, never committed. |
 
 ## Outputs
 

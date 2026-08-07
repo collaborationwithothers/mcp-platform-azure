@@ -55,12 +55,10 @@ workflow. If category discovery, the precondition, or the setting itself fails,
 use the actual Azure error to decide the next action. Do not weaken the target
 set to make the deployment pass.
 
-API Center is the standing exception. Current Microsoft Learn documentation
-does not establish an API Center diagnostic-category contract that this
-repository can safely encode. That fact is **UNVERIFIABLE**, not evidence that
-API Center has no categories. Its apply-time category discovery and non-empty
-precondition must fail closed. Do not omit API Center after a failed query or an
-empty result.
+API Center is not a diagnostic target. It remains the APIM-linked registry, but
+gated run 31162622718 proved Azure Monitor diagnostic settings are unsupported
+for API Center. Do not add category discovery, a fallback, or a capability
+registry for API Center diagnostics.
 
 For Storage, use the account resource and the documented Blob, File, Queue, and
 Table service scopes. A module that accepts an existing account must document

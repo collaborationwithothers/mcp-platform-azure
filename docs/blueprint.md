@@ -370,7 +370,8 @@ architecture, not proof that the tagged v1.0.0 topology collected all platform
 telemetry or completed application correlation.
 
 Issue 75 adds Terraform configuration for Azure Monitor diagnostic settings on
-the current 17 resource-level targets. The workspace is durable and out of band.
+16 supported resource-level targets: 14 Function-host targets, the APIM
+service, and the Event Hubs namespace. The workspace is durable and out of band.
 Both compositions receive one shared Application Insights resource ID and derive
 the Log Analytics workspace ARM ID from its workspace-based
 `WorkspaceResourceId` property. The configuration discovers categories at apply
@@ -380,10 +381,10 @@ and fails if discovery returns no logs or metrics.
 
 The first destination choice is `Dedicated`. A target-specific
 `AzureDiagnostics` fallback requires a real gated deployment error. API Center
-support, category groups, metrics, and destination behavior remain
-**UNVERIFIABLE** from current Microsoft Learn documentation. Its apply-time
-discovery therefore fails closed; it is not omitted on an empty or rejected
-result. Issue 18's separate per-tool deny audit remains unchanged.
+remains the APIM-linked registry, but it is not in the diagnostic target set:
+gated run 31162622718 proved that Azure Monitor diagnostic settings are
+unsupported for that resource. There is no fallback for API Center and no
+capability registry. Issue 18's separate per-tool deny audit remains unchanged.
 
 This correction does not claim a measured workload cost. `allLogs` can expand
 when Azure adds a category, increasing ingestion without a Terraform diff. The

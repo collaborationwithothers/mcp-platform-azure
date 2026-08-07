@@ -2,40 +2,25 @@
 
 Hand-authored module that provisions Azure API Center as the discovery registry
 of the [v1 tracer bullet](../../../../docs/specs/v1-tracer-bullet.md) (scenario
-S3). It uses `azapi` for API Center resources and AzureRM's generic Azure
-Monitor resources for diagnostics. It creates the API Center service, its
-single `default` workspace, one environment, and an API Management **auto-sync**
-source so the MCP server fronted by `apim-gateway`/`apim-mcp-server` appears in
-the inventory automatically. It derives the data-plane registry endpoint URL
-that the integration issue's bounded poll asserts against.
+S3). It uses `azapi` for API Center resources. It creates the API Center
+service, its single `default` workspace, one environment, and an API Management
+**auto-sync** source so the MCP server fronted by
+`apim-gateway`/`apim-mcp-server` appears in the inventory automatically. It
+derives the data-plane registry endpoint URL that the integration issue's
+bounded poll asserts against.
 
 No deployment happens in this ticket: the module is proven by `terraform fmt`,
 `init -backend=false`, `validate`, `tflint`, and `checkov` only. The live
 apply-call-destroy proof (including that the synced server actually appears at
 the registry endpoint) is the integration issue (issue 5 of the tracer epic).
 
-## API Center diagnostics
+## API Center diagnostic-setting support
 
-API Center is a mandatory Azure Monitor diagnostic target. Microsoft Learn's
-generic diagnostic-settings documentation explains that categories vary by
-service, but it is not authoritative for the categories API Center returns.
-This module therefore queries
-`azurerm_monitor_diagnostic_categories` against the deployed API Center service
-at apply time. That discovery is the required proof.
-
-If the query returns `allLogs`, the setting enables that group. Otherwise it
-enables every returned log category. It also enables every returned metric
-category, routes the setting to `log_analytics_workspace_id`, and requests
-resource-specific Log Analytics tables with `Dedicated`. The setting name is
-stable (`mcp-platform-diagnostics`) and is scoped to the API Center service.
-
-Apply fails closed if category discovery fails, returns no usable category, or
-Azure rejects the diagnostic setting. Do not make API Center diagnostics
-optional or replace this generic AzureRM setting with an AzAPI resource. A gated
-apply is the proof that Azure accepts both the discovered categories and
-`Dedicated` for this target.
-
-[Diagnostic settings in Azure Monitor](https://learn.microsoft.com/azure/azure-monitor/platform/diagnostic-settings)
+API Center remains the APIM-linked discovery registry. It is not an Azure
+Monitor diagnostic target. Gated run 31162622718 proved Azure Monitor diagnostic
+settings are unsupported for the API Center service. This module therefore has
+no diagnostic-category query, diagnostic setting, fallback, or capability
+registry for API Center.
 
 ## Verified facts (2026-07-12)
 
@@ -216,7 +201,6 @@ here. Registry security posture is in `docs/security.md`.
 | `name` | string | API Center service name (3-90 chars, letters/digits/hyphens). Also the leftmost registry hostname label. |
 | `location` | string | Azure region. Normalized (lowercase, spaces removed) for the registry hostname region segment. |
 | `resource_group_name` | string | Resource group for the service; assumed in the same subscription as `apim_source_id`. |
-| `log_analytics_workspace_id` | string | Required ARM resource ID of the shared Log Analytics workspace for mandatory API Center diagnostics. |
 | `tags` | map(string) | Tags on the service (tracked resource). Default `{}`. |
 | `apim_source_id` | string | Full ARM id of the APIM instance to auto-sync from. |
 | `environment` | object | `{ title, kind = "development", server_type = "Azure API Management", management_portal_uri = [] }`. The environment the remote MCP server is associated with. |

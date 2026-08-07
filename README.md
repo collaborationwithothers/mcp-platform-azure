@@ -71,8 +71,11 @@ current milestone; see
 
 S1 and S2 route selected Azure Monitor resource logs and exportable platform
 metrics to the Log Analytics workspace behind one durable, workspace-based
-Application Insights resource. The resource-level configuration covers 17
-current targets and discovers each target's categories at apply time. The shared
+Application Insights resource. The resource-level configuration covers 16
+supported targets: 14 Function-host targets, the APIM service, and the Event
+Hubs namespace. It discovers each target's categories at apply time. API Center
+remains the APIM-linked registry, but Azure Monitor diagnostic settings are
+unsupported there, as gated run 31162622718 proved. The shared
 input is `shared_observability_application_insights_id`, supplied only as the
 `live-test` Environment variable
 `TF_VAR_shared_observability_application_insights_id`.
