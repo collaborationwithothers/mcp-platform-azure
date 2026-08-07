@@ -25,12 +25,10 @@ resource "azurerm_service_plan" "this" {
 # Flex Consumption deployment storage. Created here only when the caller asks
 # for it; otherwise this module expects the account to already exist, the
 # same out-of-band pattern the tracer uses for Entra app registrations.
-# Customer-managed-key encryption needs a Key Vault, out of v1 module scope
-# (docs/specs/v1-tracer-bullet.md, Out of Scope: the private-network and
-# observability modules are v1.1/v1.2). checkov's CKV2_AZURE_1/18 graph
-# checks for this are skipped repo-wide in .checkov.yaml, not inline (an
-# inline skip annotation on this resource does not suppress CKV2_* graph
-# checks).
+# Customer-managed-key encryption needs a Key Vault, which is outside this
+# module's scope. Checkov's CKV2_AZURE_1/18 graph checks for this are skipped
+# repo-wide in .checkov.yaml, not inline (an inline skip annotation on this
+# resource does not suppress CKV2_* graph checks).
 resource "azurerm_storage_account" "this" {
   count = var.create_storage_account ? 1 : 0
 
@@ -77,10 +75,7 @@ locals {
 # prevent_destroy would block the gated live-test environment's destroy
 # step; the tracer's whole point is apply-call-destroy leaving nothing
 # running (docs/specs/v1-tracer-bullet.md, Ephemeral). This container holds
-# only the deployment package, not user data. Blob read-request logging
-# (checkov CKV2_AZURE_21) is observability wiring, out of v1 module scope;
-# skipped repo-wide in .checkov.yaml (inline skip comments do not suppress
-# CKV2_* graph checks).
+# only the deployment package, not user data.
 # tflint-ignore: azurerm_resources_missing_prevent_destroy
 resource "azurerm_storage_container" "deployment_package" {
   name                  = "deploymentpackage"

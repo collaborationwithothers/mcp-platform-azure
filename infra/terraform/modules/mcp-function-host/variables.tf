@@ -24,6 +24,17 @@ variable "tags" {
   default     = {}
 }
 
+variable "log_analytics_workspace_id" {
+  type        = string
+  nullable    = false
+  description = "ARM resource ID of the Log Analytics workspace that receives required platform diagnostic logs and metrics."
+
+  validation {
+    condition     = can(regex("(?i)^/subscriptions/[^/]+/resourcegroups/[^/]+/providers/microsoft\\.operationalinsights/workspaces/[^/]+$", var.log_analytics_workspace_id))
+    error_message = "log_analytics_workspace_id must be a Log Analytics workspace ARM resource ID."
+  }
+}
+
 variable "runtime" {
   type = object({
     stack   = optional(string, "dotnet-isolated")
