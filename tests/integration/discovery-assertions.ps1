@@ -108,6 +108,12 @@ param(
     # A synthetic tool name guaranteed absent from any map; used for the
     # unmapped-probe-denied assertion (default-deny branch).
     [string]$UnmappedProbeToolName = 'issue18_unmapped_probe_tool',
+    # A second, distinct synthetic tool name used ONLY to warm the Event Hub
+    # logger's connection before the timed per-tool audit-event checks run
+    # (see the warm-up block ahead of check 9's loop). Kept distinct from
+    # UnmappedProbeToolName so its audit event can never be mistaken for
+    # check (c)'s by the Event Hub consumer's tool-name filter.
+    [string]$EventHubWarmupToolName = 'issue18_eventhub_warmup',
     # ARM resource ID of the Log Analytics workspace underlying the out-of-band
     # Application Insights audit resource (Terraform output audit_workspace_id).
     # No longer queried by this script (see EventHubNamespaceFqdn/EventHubName
@@ -1077,6 +1083,31 @@ if (-not [string]::IsNullOrEmpty($McpServer2Url) -and
 }
 if ($perToolServers.Count -gt 0) {
     Write-Host "[9] Per-tool authorization (issue 18)"
+    # Warm-up (not gated): live-gate rounds 11 and 12 observed that the FIRST
+    # deny event through a freshly created eventhub_logger is the slow one --
+    # round 11 (isBuffered default true) took ~16s, round 12 (isBuffered
+    # explicitly false) exceeded the 60s gate timeout entirely -- while a
+    # SECOND event moments later was consistently fast in both rounds (~16s,
+    # ~5.5s). That pattern (first-use slow, subsequent-use fast) is consistent
+    # with a cold-start effect on APIM's connection to a brand-new Event Hub,
+    # not with the per-check timeout itself being too tight. Firing one
+    # throwaway deny here, before check (c)'s timed assertion, moves that
+    # cold-start cost out of a gating check and into a non-fatal warm-up: its
+    # own deny and audit-event result are logged but never call Fail,
+    # regardless of server WarnOnly settings (see COMPATIBILITY.md, "APIM
+    # `log-to-eventhub` policy", and ADR-009, "audit-event pass/fail check",
+    # round 11/12 entries).
+    if (-not [string]::IsNullOrEmpty($EventHubNamespaceFqdn) -and -not [string]::IsNullOrEmpty($EventHubName)) {
+        $warmupServer = $perToolServers[0]
+        Write-Host "[9-warmup] $($warmupServer.Url) throwaway tools/call '$EventHubWarmupToolName' to warm the Event Hub logger connection before timed checks"
+        $warmupCallTimeUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+        Invoke-JsonRpc -Uri $warmupServer.Url -Token $EntitledToken -Method 'tools/call' -Id 41 `
+            -ParamsJson "{`"name`":`"$EventHubWarmupToolName`",`"arguments`":{}}" | Out-Null
+        Assert-AuditEventEmitted -ServerLabel '9-warmup' -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
+            -EventHubName $EventHubName -ToolName $EventHubWarmupToolName -SinceUtc $warmupCallTimeUtc `
+            -TimeoutSeconds 90 -WarnOnly
+        Write-Host ''
+    }
     foreach ($srv in $perToolServers) {
         Assert-ToolAuthorization `
             -Label $srv.Label `

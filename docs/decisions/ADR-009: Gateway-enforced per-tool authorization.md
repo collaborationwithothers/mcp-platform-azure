@@ -363,15 +363,33 @@ redesign will not have solved the problem it was made for, and the honest
 next step is measuring and labelling the real number (COMPATIBILITY.md rule
 on unmeasured figures), not widening the timeout again.
 
-**Round 11 result (2026-08-07, gate run 31145487738): the bet held.** Both the
-unmapped-probe deny and the under-entitled deny were confirmed via Event Hub
-in ~16s, against the 60s gate timeout -- a wide margin, and roughly 18-40x
-faster than the Application Insights figures this redesign replaced. This is
-one round, two data points, with `isBuffered` still at its default `true`
-(the explicit `isBuffered = false` change had not yet run live); it is
-directional evidence the bet is sound, not a characterized latency
-distribution. See COMPATIBILITY.md, "APIM `log-to-eventhub` policy," for the
-measurement and its caveats.
+**Round 11 result (2026-08-07, gate run 31145487738): the bet held, with a
+caveat round 12 sharpened.** Both the unmapped-probe deny and the
+under-entitled deny were confirmed via Event Hub in ~16s, against the 60s
+gate timeout -- a wide margin, and roughly 18-40x faster than the Application
+Insights figures this redesign replaced. `isBuffered` was still at its
+default `true`.
+
+**Round 12 result (2026-08-07, gate run 31147183034): the FIRST event missed
+the timeout entirely.** With `isBuffered = false` now live for the first
+time, the unmapped-probe deny (the first audit event through that run's
+freshly created `eventhub_logger`) was never observed within 60s -- a real
+gate failure, not a flake dismissed without evidence. The under-entitled
+deny, firing about a second later, was confirmed in ~5.5s. Read together with
+round 11 (whose own first event, ~16s, was also the slower of its two),
+the pattern across both rounds is: first use of a freshly created
+`eventhub_logger` is the slow/at-risk case, a subsequent use moments later is
+fast every time. That reads as a cold-start effect on APIM's connection to a
+brand-new Event Hub, not as evidence that `isBuffered = false` itself is the
+regression -- each configuration has exactly one data point, confounded with
+being first-vs-second use within its own run. Per this ADR's own rule above
+(measure and label, don't just widen the timeout), the fix is structural, not
+a bigger number: the live gate now fires one throwaway, non-gated warm-up
+deny before check 9's timed assertions run, moving the cold-start cost out of
+the checks that decide pass/fail
+(`tests/integration/discovery-assertions.ps1`). Not yet re-run live as of
+this entry. See COMPATIBILITY.md, "APIM `log-to-eventhub` policy," for both
+measurements and their caveats.
 
 The live gate (`tests/integration/discovery-assertions.ps1`,
 `Assert-AuditEventEmitted`) now reads the Event Hub with a short bounded wait
