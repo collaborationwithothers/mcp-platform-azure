@@ -601,9 +601,14 @@ function Assert-ToolAuthorization {
 # Application Insights ingestion has no documented latency SLA -- the closest
 # public number is the FAQ's informal "most data has a latency of under 5
 # minutes; some data can take longer" (Microsoft Learn, application-insights-faq,
-# verified 2026-08-06) -- so a single immediate query is not safe. Default
-# timeout is sized to that number with headroom, not a guarantee; this is an
-# accepted flake-risk tradeoff, not a hidden one (COMPATIBILITY.md, 2026-08-06).
+# verified 2026-08-06). Rounds 7 and 8 of the live gate independently confirmed
+# this is not occasional flake at a 300s timeout: the query itself is correct
+# (manually re-run with a widened time window after each timeout, it found the
+# row both times), but real ingestion landed somewhere between ~286s and ~320s
+# after the trace fired, on every one of 4 independent check instances across
+# those two rounds -- consistent with a batch-flush interval sitting right at
+# the 300s mark, not random jitter. 600s gives real headroom past that, not a
+# guess.
 #
 # The KQL deliberately does NOT filter on the <trace> element's "source"
 # attribute: which AppTraces column it lands in is UNVERIFIABLE from Microsoft
@@ -621,7 +626,7 @@ function Assert-AuditEventEmitted {
         [string]$ServerLabel,
         [string]$WorkspaceCustomerId,
         [string]$ToolName,
-        [int]$TimeoutSeconds = 300,
+        [int]$TimeoutSeconds = 600,
         [int]$IntervalSeconds = 20,
         [switch]$WarnOnly
     )
