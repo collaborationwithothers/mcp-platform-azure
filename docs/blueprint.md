@@ -360,3 +360,34 @@ read as exhaustive: interactive sign-in resolution (#42), and the Entra Agent ID
 -> second-OBO-hop chain, which Microsoft Learn documents as shape-compatible but
 which has NOT been measured in this repository (ADR-006, 2026-07-19 freshness
 note). Neither is claimed as done.
+
+## 19. Correction: platform diagnostic routing, added 2026-08-07 (issue 75)
+
+This is an appended correction. Sections 1 through 18 retain the 2026-07-08
+plan and later historical amendments. In particular, the earlier
+"observability-complete" and workbook-and-alert language was aspirational
+architecture, not proof that the tagged v1.0.0 topology collected all platform
+telemetry or completed application correlation.
+
+Issue 75 adds Terraform configuration for Azure Monitor diagnostic settings on
+the current 17 resource-level targets. The workspace is durable and out of band.
+Both compositions receive one shared Application Insights resource ID and derive
+the Log Analytics workspace ARM ID from its workspace-based
+`WorkspaceResourceId` property. The configuration discovers categories at apply
+time, uses `allLogs` when the target offers it and individual log categories
+otherwise, enables returned metric categories subject to Azure exportability,
+and fails if discovery returns no logs or metrics.
+
+The first destination choice is `Dedicated`. A target-specific
+`AzureDiagnostics` fallback requires a real gated deployment error. API Center
+support, category groups, metrics, and destination behavior remain
+**UNVERIFIABLE** from current Microsoft Learn documentation. Its apply-time
+discovery therefore fails closed; it is not omitted on an empty or rejected
+result. Issue 18's separate per-tool deny audit remains unchanged.
+
+This correction does not claim a measured workload cost. `allLogs` can expand
+when Azure adds a category, increasing ingestion without a Terraform diff. The
+post-deployment measurement procedure in `docs/cost.md` is the source of any
+future estimate. Platform diagnostic settings alone still do not provide the
+request and dependency correlation, workbook, or alert work deferred by
+ADR-004.
