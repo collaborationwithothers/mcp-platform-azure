@@ -180,6 +180,50 @@ no longer prove the backend layer (see the migration note above).
    the APIM policy admits it to the backend. The positive test client remains
    the first entry because the workflow reads index 0 for its ordinary call.
 
+### Since issue #18: the gateway denies this client before the backend does
+
+The Entra configuration above is CORRECT and UNCHANGED. What has changed since
+issue #18 is which layer denies this client first, and therefore which endpoint
+the live gate has to call to prove the backend layer.
+
+The gateway's `tool_authorization_map` now gates `get_order_status` on the same
+`Orders.Read` role the backend's `AppRoleAuthorization` check requires. That
+sameness is deliberate (ADR-009, "Two enforcement layers must be kept in step
+conceptually, not mechanically"), but it means this client is now under-entitled
+at BOTH layers. When it calls through APIM it is denied at the GATEWAY, as a
+JSON-RPC protocol error (`-32001`), one layer earlier than the backend check it
+was created to exercise. The backend never sees the call.
+
+So the introductory paragraph of this section, which explains that this client
+holds `Orders.Invoke.All` because otherwise "the gateway would 403 it first and
+the test would no longer prove the backend layer", and step 3's parenthetical
+that "the gateway role lets it connect and call the tool", both now describe
+only the pre-issue-18 path through the gateway. The gateway denies this client
+first regardless of the `Orders.Invoke.All` grant, at the per-tool check rather
+than the per-server one.
+
+The live gate handles that by proving each layer through the path that actually
+exercises it, and the two proofs are separate:
+
+- **Backend layer** (`AppRoleAuthorization`, issue #45): `scripts/gate/invoke-and-assert.ps1`
+  step [3] sets `$env:MCP_SERVER_ENDPOINT = $BackendMcpUrl` and calls the
+  Functions host DIRECTLY, bypassing APIM, so the backend's own check is the
+  thing that returns the deterministic tool-level 403. The same server-audience
+  token is accepted by the backend regardless of the path it arrived by, which
+  was checked on 2026-07-16 by probing the backend hostname directly and getting
+  a 405, not a 401 (see the comment on step [3] and `mcp-server.xml`).
+- **Gateway layer** (per-tool `tool_authorization_map`, issue #18):
+  `tests/integration/discovery-assertions.ps1` check [9]-d
+  (`Assert-ToolAuthorization`, the `UnderEntitledToken` branch) calls the tool
+  through APIM with this same client's token and asserts the `-32001` denial.
+
+**Do not remove the `Orders.Invoke.All` grant.** It is still required, for a
+different reason than the one the introductory paragraph gives. Check [9]-d
+needs this client to CLEAR the gateway's per-server check and then be denied at
+the per-TOOL check. Without `Orders.Invoke.All` it would be denied at the
+per-server check instead, and the per-tool layer would go unproven. The client
+must still NOT have `Orders.Read`; that absence is what both proofs turn on.
+
 ## 3a. Cross-server negative-test client (entitled to server 1 only)
 
 A confidential client that proves grant-level cross-server isolation for the

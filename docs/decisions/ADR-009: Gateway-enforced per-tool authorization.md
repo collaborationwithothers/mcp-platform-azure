@@ -557,6 +557,23 @@ and forces the escape-hatch choice.
   can disagree; the mitigation is that disagreement fails CLOSED in the direction
   that matters (a caller denied at the gateway never reaches the backend, and a
   caller admitted by a too-permissive gateway map still faces the backend check).
+  The operational consequence of that sameness, recorded here on 2026-08-07:
+  because both layers name `Orders.Read` for `get_order_status`, the gateway
+  ALWAYS denies first on the gateway path, so a caller under-entitled for this
+  tool is under-entitled at both layers and the backend check becomes
+  unreachable through APIM. Any test that intends to prove the BACKEND layer for
+  this tool must therefore call the backend hostname directly. The live gate
+  does exactly that, and keeps the two proofs separate: the backend layer is
+  proven by `scripts/gate/invoke-and-assert.ps1` step [3], which targets
+  `$BackendMcpUrl` rather than the gateway (commit `e6f8967`, shipped in PR #74,
+  which retargeted that step after it began failing on the gateway's `-32001`
+  protocol error); the gateway layer is proven by
+  `tests/integration/discovery-assertions.ps1` check [9]-d
+  (`Assert-ToolAuthorization`, the `UnderEntitledToken` branch), which sends the
+  same under-entitled token through APIM. Both layers stay independently proven,
+  each through the path that actually exercises it. The runbook consequence for
+  the negative-test client's Entra grants is recorded in
+  `docs/runbooks/entra-app-registrations.md`, section 3.
 - **Nothing here changes the shared-audience non-conformance.** Per-tool
   authorization gates on `scp`/`roles` values within one audience, exactly as the
   per-server check does. The audience-binding deviation and its owner (issue #42)
