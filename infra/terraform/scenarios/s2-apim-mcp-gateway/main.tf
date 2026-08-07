@@ -20,7 +20,7 @@ data "terraform_remote_state" "s1" {
 
 # The shared observability Application Insights component is provisioned out of
 # band. Its workspace-based component properties identify the Log Analytics
-# workspace passed to the diagnostics on the APIM and API Center resources.
+# workspace passed to diagnostics on the APIM resource.
 data "azapi_resource" "shared_observability_application_insights" {
   type        = "Microsoft.Insights/components@2020-02-02"
   resource_id = var.shared_observability_application_insights_id
@@ -207,6 +207,5 @@ module "api_center_registry" {
   environment    = var.registry_environment
   deployment     = var.registry_deployment
 
-  data_reader_principal_ids  = var.data_reader_principal_ids
-  log_analytics_workspace_id = data.azapi_resource.shared_observability_application_insights.output.properties.WorkspaceResourceId
+  data_reader_principal_ids = var.data_reader_principal_ids
 }
