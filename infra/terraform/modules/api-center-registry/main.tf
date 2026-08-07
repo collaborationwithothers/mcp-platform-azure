@@ -1,9 +1,8 @@
 # Hand-authored API Center module: the S3 registry surface of
 # the v1 tracer bullet. API Center has no native azurerm resource
 # (hashicorp/terraform-provider-azurerm#26200, still open, confirmed
-# 2026-07-12), so API Center resources here are azapi. AzureRM provides the
-# supplemental generic diagnostic setting in diagnostics.tf. All ARM shapes
-# below are pinned to 2024-06-01-preview and verified 2026-07-12 against the
+# 2026-07-12), so API Center resources here are azapi. All ARM shapes below are
+# pinned to 2024-06-01-preview and verified 2026-07-12 against the
 # Microsoft.ApiCenter ARM template reference; see README.md and
 # COMPATIBILITY.md for the pins.
 #

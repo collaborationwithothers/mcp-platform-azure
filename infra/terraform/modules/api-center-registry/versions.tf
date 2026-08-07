@@ -3,20 +3,15 @@
 # COMPATIBILITY.md. API Center has no native azurerm resource (provider issue
 # hashicorp/terraform-provider-azurerm#26200, still open, confirmed
 # 2026-07-12), so the API Center service and its child resources remain azapi.
-# AzureRM supplies the generic Azure Monitor diagnostic category discovery and
-# diagnostic setting resources. The two non-API-Center resources -- the API
-# Management Service Reader role assignment the managed identity needs to read
-# APIM, and the Azure API Center Data Reader grants for the data-plane poll
-# principal(s) -- remain azapi (Microsoft.Authorization/roleAssignments).
+# The two non-API-Center resources, the API Management Service Reader role
+# assignment the managed identity needs to read APIM and the Azure API Center
+# Data Reader grants for the data-plane poll principal(s), also remain azapi
+# (Microsoft.Authorization/roleAssignments).
 
 terraform {
   required_version = ">= 1.15.8, < 2.0.0"
 
   required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.80"
-    }
     azapi = {
       source  = "azure/azapi"
       version = "~> 2.10"
