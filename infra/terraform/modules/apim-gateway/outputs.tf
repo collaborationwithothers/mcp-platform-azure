@@ -38,7 +38,7 @@ output "audit_logger_id" {
 
 output "shared_observability_workspace_id" {
   value       = var.log_analytics_workspace_id
-  description = "ARM resource ID of the out-of-band Log Analytics workspace shared by the issue 18 audit path and the issue 75 platform diagnostic settings. The live gate resolves this to the workspace's own GUID (az monitor log-analytics workspace show --query customerId) before running its audit-event KQL assertion."
+  description = "ARM resource ID of the out-of-band Log Analytics workspace shared by the issue 18 audit path and the issue 75 platform diagnostic settings. The live gate passes it only as a pointer to the durable observability trail; Event Hubs remains the pass/fail source for per-tool audit events."
 }
 
 output "eventhub_logger_name" {
