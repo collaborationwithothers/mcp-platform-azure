@@ -103,8 +103,8 @@ the `live-test` environment and never run from PR CI.
 | `registry_name` | string | BASE name of the API Center service; a per-deployment suffix is appended (see Global names and soft-delete). |
 | `registry_environment` | object | Passed straight through to `api-center-registry`. |
 | `registry_deployment` | object | Passed straight through to `api-center-registry`. Default matches the module's own default. |
-| `data_reader_principal_ids` | list(string) | Principals granted Azure API Center Data Reader on the registry instance AND Log Analytics Data Reader on the audit workspace (issue 18). The tracer passes the live-test OIDC principal that runs ticket 5's bounded poll and the live gate's audit-event KQL assertion. Empty by default. |
-| `audit_application_insights_id` | string | ARM resource ID of the out-of-band Application Insights resource that receives per-tool deny audit events (issue 18). See `docs/runbooks/observability-bootstrap.md`; supplied as `TF_VAR_audit_application_insights_id` on the `live-test` GitHub Environment, never committed. |
+| `data_reader_principal_ids` | list(string) | Principals granted Azure API Center Data Reader on the registry instance AND Log Analytics Data Reader on the shared observability workspace (issue 18). The tracer passes the live-test OIDC principal that runs ticket 5's bounded poll and the live gate's audit-event check. Empty by default. |
+| `shared_observability_application_insights_id` | string | ARM resource ID of the out-of-band workspace-based Application Insights resource shared by the scenarios. The composition derives its Log Analytics workspace ID for APIM and API Center diagnostic settings, while `apim-gateway` reads the component's ConnectionString. Supplied as `TF_VAR_shared_observability_application_insights_id` on the `live-test` GitHub Environment, never committed. |
 
 ## Outputs
 
@@ -116,6 +116,7 @@ the `live-test` environment and never run from PR CI.
 | `mcp_server_2_url` | Client-facing MCP endpoint for server 2 (issue 17). The cross-server negative asserts the server-1-only client is rejected here. |
 | `prm_url` | Gateway-root PRM URL (server 1's document, the s3.3 fail-closed guard). The no-token discovery assertion checks the client-visible challenge. |
 | `prm_server_urls` | Map of RFC 9728 s3.1 path-inserted PRM URLs keyed by server resource URL (issue 17). The gate asserts each returns 200 with `resource` equal to that server's URL exactly. |
+| `shared_observability_workspace_id` | ARM resource ID of the shared Log Analytics workspace derived from the out-of-band workspace-based Application Insights resource. |
 | `registry_endpoint_url` | Data-plane MCP registry endpoint. The bounded registry poll asserts the tracer server appears here. |
 | `api_center_name` | Resource name of the API Center service. |
 

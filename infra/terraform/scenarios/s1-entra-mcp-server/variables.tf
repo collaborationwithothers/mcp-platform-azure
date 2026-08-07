@@ -12,6 +12,11 @@ variable "location" {
   description = "Azure region for every resource this composition creates."
 }
 
+variable "shared_observability_application_insights_id" {
+  type        = string
+  description = "ARM resource ID of the out-of-band workspace-based Application Insights resource shared by the scenarios. The composition reads its WorkspaceResourceId and passes it to both mcp-function-host instances for diagnostic settings. Supplied as TF_VAR_shared_observability_application_insights_id in the live-test environment; never committed."
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags applied to every resource this composition creates, expected to include the ephemeral expiry tag used by the cleanup sweep."

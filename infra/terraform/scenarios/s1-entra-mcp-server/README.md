@@ -36,6 +36,7 @@ the `live-test` environment and never run from PR CI.
 |---|---|---|
 | `resource_group_name` | string | Out-of-band resource group this composition deploys into. |
 | `location` | string | Azure region. |
+| `shared_observability_application_insights_id` | string | ARM resource ID of the out-of-band workspace-based Application Insights resource shared by the scenarios. The composition derives its Log Analytics workspace ID for both Function App diagnostic settings. Supplied as `TF_VAR_shared_observability_application_insights_id` in the `live-test` environment, never committed. |
 | `tags` | map(string) | Tags applied to every resource, expected to include the ephemeral expiry tag. |
 | `name_prefix` | string | Prefix used to derive resource names. Passed straight through to `mcp-function-host`. |
 | `deployment_profile` | string | `"public-demo"` (default and only v1-scope value). Selects the Flex Consumption sizing profile. |

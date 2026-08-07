@@ -38,9 +38,9 @@ output "tool_authorization_map_keys" {
   description = "Server 1's tool_authorization_map key set, comma-joined (issue 18). The live gate's per-server set-equality assertion compares this against the deployed server's own tools/list, failing on any difference in either direction."
 }
 
-output "audit_workspace_id" {
-  value       = module.apim_gateway.audit_workspace_id
-  description = "ARM resource ID of the Log Analytics workspace underlying the out-of-band Application Insights audit resource (issue 18). The live gate resolves this to the workspace's own GUID before running its audit-event KQL assertion."
+output "shared_observability_workspace_id" {
+  value       = module.apim_gateway.shared_observability_workspace_id
+  description = "ARM resource ID of the shared Log Analytics workspace derived from the out-of-band workspace-based Application Insights resource. The live gate passes it to the discovery script as a durable observability-trail pointer."
 }
 
 output "eventhub_namespace_fqdn" {

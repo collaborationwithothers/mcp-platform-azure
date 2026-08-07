@@ -58,16 +58,17 @@
        caller) into the discovery-assertions.ps1 script as -EntitledToken and
        -UnderEntitledToken respectively, alongside the Terraform-output
        -ToolAuthorizationMapKeys, -Server2ToolAuthorizationMapKeys,
-       -AuditWorkspaceId, -EventHubNamespaceFqdn, and -EventHubName strings.
+       -SharedObservabilityWorkspaceId, -EventHubNamespaceFqdn, and
+       -EventHubName strings.
        The discovery script runs the set-equality, mapped-callable,
        unmapped-probe-denied, and under-entitled-denied assertions for each
        configured server, and (from within each deny check) asserts that
        deny emitted its audit event via a bounded-wait read of the ephemeral
        audit Event Hub (EventHubNamespaceFqdn/EventHubName) -- NOT the KQL
-       query against AuditWorkspaceId, which live-gate rounds 7-9 proved has
+       query against SharedObservabilityWorkspaceId, which live-gate rounds 7-9 proved has
        no bounded real-world latency (ingestion landed anywhere from ~286s to
        over 600s after the trace fired, non-deterministically) and so cannot
-       gate a same-run pass/fail. AuditWorkspaceId is still resolved and
+       gate a same-run pass/fail. SharedObservabilityWorkspaceId is still resolved and
        still receives the SAME per-tool deny events via the policy's <trace>
        element (unchanged) -- it remains the durable, human-reviewable audit
        trail; it just no longer decides pass/fail. Wire shape: HTTP 200 +
@@ -158,16 +159,17 @@ param(
     # Issue 18: server 2's tool_authorization_map keys, comma-joined (Terraform
     # output server_2_tool_authorization_map_keys).
     [string]$Server2ToolAuthorizationMapKeys = '',
-    # Issue 18: ARM resource ID of the Log Analytics workspace underlying the
-    # audit Application Insights resource (Terraform output audit_workspace_id).
-    # Passed through so discovery-assertions can query back the per-tool deny
-    # audit trace. Optional: when empty, the audit-event assertion is skipped.
-    [string]$AuditWorkspaceId = '',
+    # ARM resource ID of the shared Log Analytics workspace underlying the
+    # out-of-band workspace-based Application Insights resource (Terraform
+    # output shared_observability_workspace_id).
+    # Passed through so discovery-assertions can report the durable
+    # observability trail. Optional: when empty, the pointer is omitted.
+    [string]$SharedObservabilityWorkspaceId = '',
     # Issue 18: ephemeral audit Event Hub (Terraform outputs
     # eventhub_namespace_fqdn / eventhub_name). The live gate's audit-event
-    # pass/fail check reads THIS, not AuditWorkspaceId -- Application Insights
+    # pass/fail check reads THIS, not SharedObservabilityWorkspaceId -- Application Insights
     # ingestion proved to have no bounded latency in practice (live-gate
-    # rounds 7-9). AuditWorkspaceId / KQL remain for the durable, human-
+    # rounds 7-9). SharedObservabilityWorkspaceId / KQL remain for the durable, human-
     # reviewable audit trail; they no longer gate pass/fail. Optional: when
     # either is empty, the audit-event assertion is skipped.
     [string]$EventHubNamespaceFqdn = '',
@@ -316,7 +318,7 @@ Write-Host "[4] Raw-HTTP discovery assertions"
     -Server2ToolAuthorizationMapKeys $Server2ToolAuthorizationMapKeys `
     -EntitledToken $mcpToken `
     -UnderEntitledToken $missingRoleToken `
-    -AuditWorkspaceId $AuditWorkspaceId `
+    -SharedObservabilityWorkspaceId $SharedObservabilityWorkspaceId `
     -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
     -EventHubName $EventHubName
 if ($LASTEXITCODE -ne 0) {

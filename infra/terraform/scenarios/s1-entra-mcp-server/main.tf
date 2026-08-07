@@ -14,6 +14,16 @@ locals {
   }
 }
 
+# The shared observability Application Insights component is provisioned out of
+# band. Its workspace-based component properties identify the Log Analytics
+# workspace that receives this scenario's Function App diagnostics.
+data "azapi_resource" "shared_observability_application_insights" {
+  type        = "Microsoft.Insights/components@2020-02-02"
+  resource_id = var.shared_observability_application_insights_id
+
+  response_export_values = ["properties.WorkspaceResourceId"]
+}
+
 module "mcp_function_host" {
   source = "../../modules/mcp-function-host"
 
@@ -22,9 +32,10 @@ module "mcp_function_host" {
   resource_group_name = var.resource_group_name
   tags                = var.tags
 
-  storage_account_name   = var.storage_account_name
-  create_storage_account = var.create_storage_account
-  flex_consumption       = local.profile_flex_consumption[var.deployment_profile]
+  storage_account_name       = var.storage_account_name
+  create_storage_account     = var.create_storage_account
+  flex_consumption           = local.profile_flex_consumption[var.deployment_profile]
+  log_analytics_workspace_id = data.azapi_resource.shared_observability_application_insights.output.properties.WorkspaceResourceId
 
   entra_auth = var.entra_auth
   prm_scope  = var.prm_scope
@@ -58,9 +69,10 @@ module "downstream_orders_api" {
   resource_group_name = var.resource_group_name
   tags                = var.tags
 
-  storage_account_name   = var.downstream_storage_account_name
-  create_storage_account = var.downstream_create_storage_account
-  flex_consumption       = local.profile_flex_consumption[var.deployment_profile]
+  storage_account_name       = var.downstream_storage_account_name
+  create_storage_account     = var.downstream_create_storage_account
+  flex_consumption           = local.profile_flex_consumption[var.deployment_profile]
+  log_analytics_workspace_id = data.azapi_resource.shared_observability_application_insights.output.properties.WorkspaceResourceId
 
   entra_auth = {
     tenant_id              = var.downstream_entra_auth.tenant_id
