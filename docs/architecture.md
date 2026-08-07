@@ -14,17 +14,11 @@ own the target resources. Those modules add resource-level diagnostic settings
 for the current target set and route the selected exportable logs and metrics to
 the shared workspace.
 
-```text
-stable workspace-based Application Insights
-                 |
-                 | WorkspaceResourceId
-                 v
-          shared Log Analytics workspace
-             ^                    ^
-             |                    |
-   S1 Function-host resource   S2 APIM and Event Hubs
-       diagnostics              resource diagnostics
-```
+![Issue 75 diagnostic routing: the 16 supported Function-host, API Management,
+and Event Hubs targets route exportable platform diagnostics to the persistent
+Log Analytics workspace. API Center remains an APIM-linked registry without
+Azure Monitor diagnostics, and the separate issue 18 deny audit route remains
+unchanged.](diagrams/diagnostic-routing.drawio.svg)
 
 API Center remains the APIM-linked registry. It is not a diagnostic target:
 gated run 31162622718 proved that Azure Monitor diagnostic settings are
@@ -37,7 +31,5 @@ authorization decision or audit semantics.
 
 This routing provides platform resource telemetry. It is not application
 instrumentation and does not complete distributed request or dependency
-correlation. Workbooks and alerts remain deferred by ADR-004. The current
-resource topology is shown in the human-exported diagnostic-routing diagram
-when that export is committed; agent-owned diagram source alone is not a
-completed public-diagram update.
+correlation. Workbooks and alerts remain deferred by ADR-004. The diagram above
+is the human-exported editable SVG; its Draw.io source remains alongside it.
