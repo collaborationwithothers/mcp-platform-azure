@@ -162,21 +162,57 @@ PR can touch.
 **Hari must update the `S2_TFVARS_JSON` secret** to add `get_service_info` to
 BOTH maps above. This is a manual step; no PR can perform it.
 
+The secret update is necessary but NOT sufficient to make the tool callable.
+The app role it names has to exist and be granted as well: `ServiceInfo.Read`
+is not in `docs/runbooks/entra-app-registrations.md` or anywhere under `infra/`
+at the time of writing. Issue #79 shipped the tool and deferred all Entra work
+to issue #80, whose steps 1-5 create the role and entitle a caller. Doing only
+the secret update leaves `get_service_info` mapped but uncallable by every
+principal. Follow #80 for the Entra half.
+
 Both APIM servers forward to the same backend, so once `get_service_info`
 ships, BOTH servers' `tools/list` return it, whether or not the secret has
 been updated yet. The live gate's check [9]-a is set-equality in BOTH
 directions between `tools/list` and the map keys: a tool with no matching map
-key fails it, and a map key with no matching tool fails it too. Until the
-secret is updated, the gate will report drift.
+key fails it, and a map key with no matching tool fails it too.
 
-That drift window cannot be closed by reordering the rollout. Shipping the
-map key first (before the tool exists) fails set-equality the other way: a
-map key with no matching tool. The window exists in either order because the
-two halves -- the code and the secret -- deploy through separate paths with
-no shared transaction. It must NOT be engineered away by weakening the
+Until the secret is updated, the two servers behave DIFFERENTLY, and the
+difference matters if you are reading gate output:
+
+- **Server 1 FAILS the gate.** `Assert-ToolAuthorization` runs without
+  `-WarnOnly` for server 1 (`tests/integration/discovery-assertions.ps1`,
+  server list entry `WarnOnly = $false`), so the mismatch calls `Fail`,
+  increments `$script:Failures`, and the script exits 1.
+- **Server 2 only WARNS.** The identical condition is passed
+  `-WarnOnly:$srv.WarnOnly` with `WarnOnly = $true` for server 2, which
+  converts the same `Fail` into a non-fatal `::warning::`.
+
+So "the gate reports drift" understates it for server 1 and overstates it for
+server 2. Expect a red run, not a warning.
+
+That drift window cannot be closed by reordering the rollout. Shipping the map
+key first (before the tool exists) fails set-equality the other way: a map key
+with no matching tool. It must NOT be engineered away by weakening the
 assertion. The assertion's strictness is its entire value; ADR-009 rejects a
 fixed expected-tool list for exactly this reason, because a loose check would
 stop proving that the deployed map matches the deployed tool set.
+
+**Known discrepancy with ADR-009, recorded rather than resolved (2026-08-08).**
+ADR-009's "Deployment coupling" section states that default-deny plus the
+set-equality assertion "means that ADDING A TOOL TO THE FUNCTIONS BACKEND FAILS
+INFRASTRUCTURE CI until the Terraform map is updated in the same change", and
+says that is correct only because "the Functions app and the Terraform map must
+move together, in the same deployment unit. In this repository they do."
+
+For the `tool_authorization_map` inputs, they do not. The map lives in a GitHub
+Environment secret, and `ephemeral-env.yml` is manual-dispatch only, never
+triggered by `pull_request` or `push`. Issue #79 added a tool and the required
+`terraform-checks` job stayed green, because nothing in PR CI reads that secret
+or evaluates set-equality. The ADR's stated mechanism does not operate for this
+class of change; the assertion still holds, but it holds at live-gate time, not
+at PR time. This runbook does not amend the ADR. Resolving the discrepancy (by
+correcting the ADR, by moving the maps out of the secret, or by accepting the
+gap explicitly) is a decision for its own ticket.
 
 ## Maintenance: adding a new required variable
 

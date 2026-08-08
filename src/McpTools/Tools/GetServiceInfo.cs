@@ -40,12 +40,17 @@ namespace McpTools.Tools;
 /// denied in this deployment. That is a decision, not an oversight. The
 /// app-role grant made to the client application does not appear in a
 /// delegated token that application obtains, so the caller does not hold
-/// ServiceInfo.Read. The boundary is worth stating precisely: a delegated
-/// caller WOULD pass if the signed-in user had themselves been assigned the
-/// ServiceInfo.Read app role, because a user's own role assignment does
-/// surface in the roles claim. This deployment does not assign app roles to
-/// users, so that path is unreached in practice, not unreachable by
-/// construction; there is still only one role check to write, unlike
+/// ServiceInfo.Read. The boundary is worth stating precisely, and so is how far
+/// away it is. A delegated caller would pass this check only if the app role had
+/// been assigned to the signed-in user (or a group they are in), because such an
+/// assignment DOES surface in the roles claim. This deployment cannot reach that
+/// state by accident: it defines its app roles with Allowed member types =
+/// Applications only (docs/runbooks/entra-app-registrations.md), and an
+/// Applications-only role cannot be assigned to a user at all. Getting there
+/// takes two deliberate changes, widening allowedMemberTypes and then assigning.
+/// So the path is unreached by configuration rather than by protocol, but it is
+/// two decisions away, not one toggle. There is still only one role check to
+/// write, unlike
 /// get_order_status's OBO split. Do not restate this as "delegated tokens never
 /// carry roles"; Microsoft Learn contradicts that blanket form. Verified
 /// 2026-08-08 against "Identify the permission type for an access token"; see

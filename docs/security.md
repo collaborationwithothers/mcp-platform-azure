@@ -179,6 +179,8 @@ carries the app roles it has actually been granted in its `roles` claim, and
 never carries `scp`. A
 delegated (user-context) token carries `scp`, and MAY also carry a `roles`
 claim, but when it does, that claim lists roles assigned to the SIGNED-IN USER
+(or to a group that user belongs to; Graph's `allowedMemberTypes` uses one
+`User` value covering both, with no separate group value)
 on the resource API -- it does not carry the role grant made to the calling
 application (Microsoft Learn's Entra ID troubleshooting guidance on
 delegated-permission access tokens). This deployment does not assign app
@@ -187,6 +189,18 @@ the check fails for every delegated call today. The denial is therefore
 configurational, not structural: a delegated caller WOULD pass this check if
 the signed-in user had themselves been assigned `ServiceInfo.Read` on this
 API, because that is a separate grant that does surface in the `roles` claim.
+
+Be precise about how far away that counterfactual is, because "configurational"
+should not be read as "one setting away". This repo defines its app roles with
+**Allowed member types = Applications** only
+(`docs/runbooks/entra-app-registrations.md`). Microsoft Graph's `appRole` model
+treats `allowedMemberTypes` `["User"]` as covering users AND groups, and
+`["Application"]` as covering other applications only. An Applications-only role
+therefore **cannot be assigned to a user at all**. Reaching the counterfactual
+takes two deliberate changes, not one: widen the role's `allowedMemberTypes` to
+include `User`, and then assign it. So the denial is configurational in the
+sense that configuration could change it, but it is not one toggle away, and no
+accidental assignment can produce it.
 
 Because the tool calls nothing downstream, there is no OBO exchange and no
 downstream token acquisition anywhere on this path: authorization begins and
