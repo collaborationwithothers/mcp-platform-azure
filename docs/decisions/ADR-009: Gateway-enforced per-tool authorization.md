@@ -2,15 +2,42 @@
 
 Status: Accepted (issue #18; one provenance implemented, one described)
 Date: 2026-08-06
+Amended: 2026-08-07, interception order between the two enforcement layers
+(see Consequences, C5).
+Restructured: 2026-08-08. Presentation only. No decision, measurement, or
+verification in this document was changed, added, or removed by that
+restructure; the engineering log and the corrections to earlier drafts moved
+from the body into Appendix A and Appendix B verbatim.
 
-The decision below is accepted in full. Its two halves are NOT equally proven,
-and the status says so rather than collapsing them: the enforcement fragment and
-the HAND-MAINTAINED (passthrough) map provenance are implemented in the issue #18
-PR; the DERIVED (REST-export) map provenance is named here as a growth path,
-described and not demonstrated, and is owned by issue #58. This follows the
-ADR-006 precedent explicitly (see "Growth path: derived provenance" below):
-record the decision when it is made, name the growth path, and let the status
-reflect only what a running system has actually proven.
+## Summary
+
+MCP `tools/call` requests reaching this platform were authorized per SERVER but
+never per TOOL. This ADR records how per-tool authorization was added.
+
+Five decisions, each expanded below:
+
+- **D1.** Enforce per tool at the GATEWAY, in an APIM policy fragment at server
+  scope, and KEEP the existing backend app-role check as a genuine second layer.
+  Neither supersedes the other.
+- **D2.** Deny by default, from a TOTAL map of tool name to required claim. The
+  map is not a list of forbidden tools; it is the list of the only tools that can
+  be invoked.
+- **D3.** The map has two provenances, and which one applies follows who owns the
+  TOOL SURFACE, not where policy attaches. Policy attaches at server scope for
+  both server types, because no other scope exists.
+- **D4.** Enforce without concealing. `tools/list` returns every tool to every
+  caller who reaches the server. Concealment at tool granularity is forbidden by
+  a documented platform constraint, not declined; concealment at SERVER
+  granularity already exists and is the supported substitute.
+- **D5.** Audit every deny, to a sink that outlives the ephemeral environment.
+
+Two halves of this decision are NOT equally proven, and the Status line says so
+rather than collapsing them. The enforcement fragment and the HAND-MAINTAINED
+(passthrough) map provenance are implemented in the issue #18 PR. The DERIVED
+(REST-export) map provenance is a named growth path, described and not
+demonstrated, owned by issue #58. This follows the ADR-006 precedent: record the
+decision when it is made, name the growth path, and let the status reflect only
+what a running system has actually proven.
 
 ## Context
 
@@ -47,7 +74,7 @@ per-tool authorization through operation-scoped policies. That is refuted.
 Microsoft Learn states, in identical wording on both the export and the
 passthrough pages, that "the policies apply to all API operations exposed as
 tools in the MCP server". No per-tool or per-operation policy scope exists for
-MCP servers of EITHER server type; what REST-export provides is static tool
+MCP servers of EITHER server type. What REST-export provides is static tool
 SELECTION (choosing which backend operations become tools via the Tools blade or
 `backingOperationId`), which is a deployment-time surface choice, not a runtime
 authorization decision (COMPATIBILITY.md, "APIM MCP server policy scope (both
@@ -62,7 +89,7 @@ architecture of.
 
 ## Decision
 
-### Per-tool authorization is enforced at the gateway, and the MCP-layer app-role check remains a real second layer
+### D1. Enforce at the gateway, and keep the backend check as a real second layer
 
 Per-tool authorization is enforced by an APIM policy fragment at server scope, in
 `inbound`, before the backend is called
@@ -70,25 +97,6 @@ Per-tool authorization is enforced by an APIM policy fragment at server scope, i
 AFTER the issue-17 per-server entitlement check, so a caller must clear both: the
 server-scope check answers "may you reach this server", the per-tool check
 answers "may you invoke this tool".
-
-The fragment gates `tools/call` only. It reads the JSON-RPC request body once
-(`context.Request.Body.As<JObject>(preserveContent: true)`), and every other
-JSON-RPC method, `tools/list` included, falls through unchanged. It resolves the
-tool name primarily from the documented `gen_ai.tool.name` context variable,
-which Microsoft Learn documents as an MCP telemetry dimension populated on every
-`tools/call` request, with a fallback to the already-parsed body's `params.name`
-(COMPATIBILITY.md, "APIM `gen_ai.tool.name` context variable", 2026-08-06,
-https://learn.microsoft.com/azure/api-management/monitor-mcp-servers#mcp-telemetry-reference).
-Both mechanisms are built deliberately, per operator decision on 2026-08-06: the
-live gate settles which one fires on this preview surface, and the unused path is
-pruned afterwards. The fragment's CONTRACT is independent of which one wins, so
-that pruning is not an architectural change.
-
-It resolves the tool name against a TOTAL map of tool name to required scope,
-required role, or an explicit `unrestricted` marker, rendered into the policy by
-`templatefile()`. Any tool name with no map entry is denied. Default-deny is the
-whole point of the map being total: it is not a list of forbidden tools, it is a
-list of the only tools that can be invoked.
 
 **Both layers are real; neither supersedes the other.** This is defense in depth
 in the specific sense ADR-006 already uses for the issue-53 issuance gate versus
@@ -101,7 +109,7 @@ distinct moments, each catching something the other cannot.
   containment (the denied call spends no Functions execution, and, once #19
   lands, no Content Safety transaction), and audit AT THE EDGE (the deny is
   recorded on the shared control point that fronts every server, not scattered
-  across per-server backend logs). It also generalises: it is the ONLY layer that
+  across per-server backend logs). It also generalises: it is the only layer that
   can decide per tool for a server whose backend this repo does not own, which is
   precisely the REST-export case #58 will add.
 - The MCP-layer check is the last line if the gateway layer is bypassed or
@@ -114,11 +122,19 @@ distinct moments, each catching something the other cannot.
   to apply would all be invisible to the gateway layer and caught here.
 
 Neither layer is redundant with the other, and the existence of one is not a
-reason to weaken the other. The gateway layer is deliberately NOT given
-authority the backend lacks, and the backend layer is deliberately NOT removed
-now that the gateway can decide.
+reason to weaken the other. The gateway layer is deliberately NOT given authority
+the backend lacks, and the backend layer is deliberately NOT removed now that the
+gateway can decide.
 
-### The spine: surface ownership, not policy attachment point
+### D2. Deny by default, from a total map
+
+The fragment resolves the tool name against a TOTAL map of tool name to required
+scope, required role, or an explicit `unrestricted` marker, rendered into the
+policy by `templatefile()`. Any tool name with no map entry is denied.
+Default-deny is the whole point of the map being total: it is not a list of
+forbidden tools, it is a list of the only tools that can be invoked.
+
+### D3. Map provenance follows tool-surface ownership
 
 The map has two provenances, and the difference between them is the spine of this
 decision. It is a difference in WHO OWNS THE TOOL SURFACE, not in where policy
@@ -156,7 +172,7 @@ tool-name-to-claim map as an INPUT
 #58 is a thickening of this decision rather than a prerequisite for it, and why
 this ADR can be written and accepted before #58 exists.
 
-### Non-concealment is chosen deliberately, and has a named mechanism where it is genuinely needed
+### D4. Enforce without concealing
 
 The gateway ENFORCES but does not HIDE. `tools/list` returns every tool's name
 and input schema to every caller who reaches this server, whether or not that
@@ -167,15 +183,15 @@ and being denied.
 This is a choice, and it is made on two grounds.
 
 **Concealment is unachievable at the gateway on the passthrough path.** Filtering
-`tools/list` means rewriting a response body, and Microsoft Learn states
-plainly: "Don't access the response body by using the `context.Response.Body`
-variable within MCP server policies. Doing so triggers response buffering, which
+`tools/list` means rewriting a response body, and Microsoft Learn states plainly:
+"Don't access the response body by using the `context.Response.Body` variable
+within MCP server policies. Doing so triggers response buffering, which
 interferes with the streaming behavior required by MCP servers."
 (COMPATIBILITY.md, "APIM MCP server response-body access in policies", verified
 2026-07-27,
 https://learn.microsoft.com/azure/api-management/expose-existing-mcp-server#configure-policies-for-the-mcp-server).
-The alternative -- filtering at the backend, where tool registration happens --
-was not available either: the Functions MCP extension registers tool metadata at
+The alternative, filtering at the backend where tool registration happens, was
+not available either: the Functions MCP extension registers tool metadata at
 startup and no per-request hook was found, and that negative is recorded as
 UNVERIFIED rather than asserted. So concealment at the gateway is not a thing
 this repo declined to build; it is a thing the documented platform constraint
@@ -199,9 +215,9 @@ Functions app (or at minimum a second, separately-deployed tool registration)
 behind it. That is a deployment-topology change, not a config change. On the
 export path (#58), partitioning is a config-level operation selection over ONE
 shared backend: two MCP servers, two operation subsets, one Orders API. The
-asymmetry is the same surface-ownership asymmetry as above, showing up a second
-time, and it is the reason "just partition it" is cheap advice for export
-servers and expensive advice for passthrough ones.
+asymmetry is the same surface-ownership asymmetry as D3, showing up a second
+time, and it is the reason "just partition it" is cheap advice for export servers
+and expensive advice for passthrough ones.
 
 **The named non-goal, with its cause.** Tool names and input schemas remain
 visible to callers who cannot invoke them. Two real costs follow: a wasted
@@ -210,6 +226,61 @@ schemas for tools it can never use. Both are currently ZERO here, because this
 server exposes exactly one tool. They are not zero at a realistic tool count, and
 that is the condition under which this decision should be revisited (see
 Trigger).
+
+### D5. Audit every deny, to a sink that outlives the environment
+
+Every deny emits exactly one audit event, dimensioned by caller and tool, before
+the deny response is returned.
+
+**Why the sink is provisioned out of band, and not by the s2 composition.** The
+audit record needs somewhere durable to land. The live-test environment is
+ephemeral by construction: `.github/workflows/ephemeral-env.yml` creates a
+per-run resource group (`rg-mcp-tracer-<run_id>`) with a 4-hour expiry tag and
+deletes it at the end of the run, verifying the deletion. Anything the s2
+composition creates dies with that resource group. An audit trail that is
+destroyed at the end of every run cannot demonstrate an audit trail; worse, it
+would teach exactly the wrong lesson for a repository whose subject is enterprise
+governance.
+
+The Log Analytics workspace and Application Insights resource are therefore
+provisioned OUT OF BAND, in their own resource group, outside the ephemeral
+lifecycle, by a runbook rather than by the s2 Terraform. This is not a new
+pattern in this repo; it is the third instance of one already established twice:
+
+- The Terraform state storage account is bootstrapped out of band in its own
+  resource group specifically "so this run's cleanup can never reach it"
+  (`.github/workflows/ephemeral-env.yml`).
+- The Entra app registrations are created once by a documented manual runbook and
+  survive every teardown (`docs/runbooks/entra-app-registrations.md`; the same
+  pattern in `docs/runbooks/obo-app-registrations.md`).
+
+The rule those three share is worth stating as a rule, because it will come up
+again: **an object whose VALUE depends on outliving the environment does not
+belong to the environment's lifecycle.** State, identity, and audit all qualify.
+Compute, gateway, and policy do not.
+
+The mechanism, the roles, and the separate gate-verification path are described
+under "How it is built" below.
+
+## How it is built
+
+This section is mechanism, not decision. A reader who only needs the
+architecture can stop at the end of the Decision section.
+
+### The policy fragment
+
+The fragment gates `tools/call` only. It reads the JSON-RPC request body once
+(`context.Request.Body.As<JObject>(preserveContent: true)`), and every other
+JSON-RPC method, `tools/list` included, falls through unchanged. It resolves the
+tool name primarily from the documented `gen_ai.tool.name` context variable,
+which Microsoft Learn documents as an MCP telemetry dimension populated on every
+`tools/call` request, with a fallback to the already-parsed body's `params.name`
+(COMPATIBILITY.md, "APIM `gen_ai.tool.name` context variable", 2026-08-06,
+https://learn.microsoft.com/azure/api-management/monitor-mcp-servers#mcp-telemetry-reference).
+Both mechanisms are built deliberately, per operator decision on 2026-08-06: the
+live gate settles which one fires on this preview surface, and the unused path is
+pruned afterwards. The fragment's CONTRACT is independent of which one wins, so
+that pruning is not an architectural change.
 
 ### The deny wire shape
 
@@ -224,22 +295,20 @@ violations). This was verified directly against the MCP specification revision
 -32602 "Unknown tool" would misdescribe a mapped-but-under-entitled denial, is
 recorded in COMPATIBILITY.md, "MCP tools/call denial wire shape", 2026-08-06
 (https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling
-and
-https://modelcontextprotocol.io/specification/2025-06-18/basic/transports). It is
-implementation detail more than architecture, and this ADR does not re-derive it.
+and https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).
 
-One architectural consequence of that shape does belong here: there is ONE deny
-path for both the unmapped and the under-entitled case, and the wire response
-does not distinguish them. That is consistent with non-concealment being a
-posture about the tool LIST rather than about individual denials, and it keeps
-the deny path single, which is what the gate asserts against.
+One consequence of that shape is architectural rather than incidental: there is
+ONE deny path for both the unmapped and the under-entitled case, and the wire
+response does not distinguish them. That is consistent with non-concealment (D4)
+being a posture about the tool LIST rather than about individual denials, and it
+keeps the deny path single, which is what the gate asserts against. Operators who
+need to tell the two cases apart use the audit event, which carries the tool
+name.
 
-### The audit design: a persistent sink, out of band from the ephemeral environment
+### The audit event, and the roles that carry it
 
-Every deny emits exactly one audit event, dimensioned by caller and tool, before
-the deny response is returned. The mechanism is an APIM `<trace>` element with
-`severity="error"`, placed directly in `<inbound>` immediately before the deny
-`<return-response>`.
+The audit mechanism is an APIM `<trace>` element with `severity="error"`, placed
+directly in `<inbound>` immediately before the deny `<return-response>`.
 
 Three properties of that mechanism are load-bearing and were verified rather than
 assumed (COMPATIBILITY.md, "APIM trace policy for custom audit telemetry",
@@ -249,58 +318,25 @@ assumed (COMPATIBILITY.md, "APIM trace policy for custom audit telemetry",
   stream that Application Insights sampling could thin is not an audit stream;
   this is why `<trace>` was chosen over any telemetry mechanism subject to
   sampling.
-- **`severity` is a monotonic gate, not an exact-match contract.** APIM records
-  a trace only when the trace's severity is at or above the diagnostic
-  setting's configured verbosity. `severity="error"` in the fragment is the
-  MAXIMUM tier, so it clears that gate at ANY verbosity the diagnostic
-  setting is configured to (verbose, information, or error) -- an earlier
-  draft of this ADR described this as requiring an exact match and called it
-  "the single most fragile thing in the audit design," which independent
-  re-verification refuted: it is a robust relationship precisely because
-  `error` is the ceiling, and the only way this audit event drops is the
-  diagnostic setting's Application Insights integration being disabled
-  outright (a loud, detectable misconfiguration, not a silent one).
+- **`severity` is a monotonic gate, not an exact-match contract.** APIM records a
+  trace only when the trace's severity is at or above the diagnostic setting's
+  configured verbosity. `severity="error"` is the MAXIMUM tier, so it clears that
+  gate at ANY verbosity the diagnostic setting is configured to (verbose,
+  information, or error). See Appendix B, correction 1.
 - **`on-error` is not an option.** The documented policy sections for `<trace>`
   are `inbound`, `outbound`, and `backend`. The audit event therefore cannot be
   deferred to `on-error`; it sits inline in `inbound`, matching the placement the
   issue-17 entitlement check already established.
 
-**Why the sink is provisioned out of band, and not by the s2 composition.** The
-trace needs somewhere durable to land. The live-test environment is ephemeral by
-construction: `.github/workflows/ephemeral-env.yml` creates a per-run resource
-group (`rg-mcp-tracer-<run_id>`) with a 4-hour expiry tag and deletes it at the
-end of the run, verifying the deletion. Anything the s2 composition creates dies
-with that resource group. An audit trail that is destroyed at the end of every
-run cannot demonstrate an audit trail; worse, it would teach exactly the wrong
-lesson for a repository whose subject is enterprise governance.
-
-The Log Analytics workspace and Application Insights resource are therefore
-provisioned OUT OF BAND, in their own resource group, outside the ephemeral
-lifecycle, by a runbook rather than by the s2 Terraform (companion change in this
-PR). This is not a new pattern in this repo; it is the third instance of one
-already established twice:
-
-- The Terraform state storage account is bootstrapped out of band in its own
-  resource group specifically "so this run's cleanup can never reach it"
-  (`.github/workflows/ephemeral-env.yml`).
-- The Entra app registrations are created once by a documented manual runbook and
-  survive every teardown (`docs/runbooks/entra-app-registrations.md`; the same
-  pattern in `docs/runbooks/obo-app-registrations.md`).
-
-The rule those three share is worth stating as a rule, because it will come up
-again: an object whose VALUE depends on outliving the environment does not belong
-to the environment's lifecycle. State, identity, and audit all qualify. Compute,
-gateway, and policy do not.
-
-**How APIM reaches it.** The APIM service already has a system-assigned managed
-identity (`infra/terraform/modules/apim-gateway/main.tf`, `managed_identities`;
-the principal id is already an output). That identity is granted Monitoring
-Metrics Publisher on the cross-resource-group Application Insights resource,
-which is the documented requirement for managed-identity credential mode. The
-cross-resource-group arrangement itself is documented and supported: "The
-Application Insights resource can be in a different subscription or even a
-different tenant than the API Management resource" (COMPATIBILITY.md, "APIM
-cross-resource-group Application Insights logger", 2026-08-06,
+**How APIM reaches the sink.** The APIM service already has a system-assigned
+managed identity (`infra/terraform/modules/apim-gateway/main.tf`,
+`managed_identities`; the principal id is already an output). That identity is
+granted Monitoring Metrics Publisher on the cross-resource-group Application
+Insights resource, which is the documented requirement for managed-identity
+credential mode. The cross-resource-group arrangement itself is documented and
+supported: "The Application Insights resource can be in a different subscription
+or even a different tenant than the API Management resource" (COMPATIBILITY.md,
+"APIM cross-resource-group Application Insights logger", 2026-08-06,
 https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights#prerequisites).
 The cross-tenant caveat on that page (the portal wizard cannot do it) is moot
 here, because this repo provisions through `azapi`/`azurerm` and never the
@@ -310,118 +346,52 @@ The traces land as Trace telemetry (`traces` / `AppTraces`), not `customEvents`,
 and are queryable per deny, dimensioned by caller (`oid`, falling back to `azp`)
 and tool.
 
-### The audit-event pass/fail check: a second, parallel Event Hub signal, not a replacement
+### The audit-event pass/fail check: a second signal, not a replacement
 
 Everything above is unchanged and remains true: the `<trace>` element still fires
-on every deny, the Application Insights sink is still the durable,
-human-reviewable audit trail, and it is still provisioned out of band for the
-same reason (an audit trail that dies with the ephemeral environment is not an
-audit trail).
+on every deny, and the Application Insights sink is still the durable,
+human-reviewable audit trail, still provisioned out of band for the reason given
+in D5.
 
 What changed is which signal the LIVE GATE reads to decide pass/fail. Through
-issue-18's first nine live-gate rounds, the gate polled Application Insights
-with a bounded-timeout KQL query after each deny. That query was correct --
-every fix to it was proven correct by direct re-execution against real data,
-repeatedly (COMPATIBILITY.md, "Kusto `contains` operator on a `dynamic`
-column") -- but Application Insights ingestion documents no latency SLA at
-all, and real measured latency ranged from ~286s to over 600s across three
-independent rounds, non-deterministically. A widened timeout (300s, then
-600s) bought headroom twice and was exceeded a third time. No fixed timeout
-is provably safe against an undocumented, unbounded latency characteristic;
-widening it further would only have been picking a new number to eventually
-exceed again.
+issue-18's first nine live-gate rounds the gate polled Application Insights with
+a bounded-timeout KQL query after each deny. Application Insights ingestion
+documents no latency SLA at all, and real measured latency ranged from ~286s to
+over 600s across three independent rounds, non-deterministically. No fixed
+timeout is provably safe against an undocumented, unbounded latency
+characteristic. The full record of that saga, including every measurement, is
+Appendix A.
 
-The fix is not a better timeout: it is a second delivery path with a
-fundamentally different latency characteristic. The policy fragment now also
-emits the same tool/caller pair via a second, independent policy element,
-`<log-to-eventhub>`, to an EPHEMERAL Event Hub namespace (Basic tier, single
-partition) provisioned by the s2 composition itself -- unlike the Application
-Insights resource, this one is NOT out of band, because nothing about it
-needs to outlive the run that produced it: no human ever reads it, and the
-live gate that does read it runs entirely within that run's own lifetime.
-An earlier draft of this ADR claimed Event Hub delivery has "no batching or
-ingestion indirection between the policy firing and a consumer reading it."
-Independent re-verification refuted that (COMPATIBILITY.md, "APIM
-`log-to-eventhub` policy"): an `azureEventHub` logger defaults `isBuffered` to
-`true`, Microsoft's own "sophisticated buffer" language describes Event Hub
-decoupling APIM from slow DOWNSTREAM consumers (not fast delivery TO the first
-consumer), and no numeric latency SLA is documented for `log-to-eventhub` any
-more than for Application Insights. The one documented signal is qualitative,
-not a guarantee: the observability overview's feature-comparison table lists
-"Seconds" of data lag for Event Hub logging against "Minutes" for Azure
-Monitor Logs. The `eventhub_logger` resource now sets `isBuffered = false`
-explicitly, the documented direction for reducing buffering, but Microsoft
-does not state a timing effect for that flag beyond the binary buffered/not
-semantic.
-
-So this is not a documented low-latency delivery path; it is an ENGINEERING
-BET that Event Hub's "Seconds" category will in practice clear a bounded gate
-wait more reliably than Application Insights' undocumented, empirically
-286-620s ingestion did. The bet is falsifiable and is exactly what the live
-gate at round 10/11 tests: if Event Hub also overruns its timeout, this
-redesign will not have solved the problem it was made for, and the honest
-next step is measuring and labelling the real number (COMPATIBILITY.md rule
-on unmeasured figures), not widening the timeout again.
-
-**Round 11 result (2026-08-07, gate run 31145487738): the bet held, with a
-caveat round 12 sharpened.** Both the unmapped-probe deny and the
-under-entitled deny were confirmed via Event Hub in ~16s, against the 60s
-gate timeout -- a wide margin, and roughly 18-40x faster than the Application
-Insights figures this redesign replaced. `isBuffered` was still at its
-default `true`.
-
-**Round 12 result (2026-08-07, gate run 31147183034): the FIRST event missed
-the timeout entirely.** With `isBuffered = false` now live for the first
-time, the unmapped-probe deny (the first audit event through that run's
-freshly created `eventhub_logger`) was never observed within 60s -- a real
-gate failure, not a flake dismissed without evidence. The under-entitled
-deny, firing about a second later, was confirmed in ~5.5s. Read together with
-round 11 (whose own first event, ~16s, was also the slower of its two),
-the pattern across both rounds is: first use of a freshly created
-`eventhub_logger` is the slow/at-risk case, a subsequent use moments later is
-fast every time. That reads as a cold-start effect on APIM's connection to a
-brand-new Event Hub, not as evidence that `isBuffered = false` itself is the
-regression -- each configuration has exactly one data point, confounded with
-being first-vs-second use within its own run. Per this ADR's own rule above
-(measure and label, don't just widen the timeout), the fix is structural, not
-a bigger number: the live gate now fires one throwaway, non-gated warm-up
-deny before check 9's timed assertions run, moving the cold-start cost out of
-the checks that decide pass/fail
-(`tests/integration/discovery-assertions.ps1`).
-
-**Round 13 result (2026-08-07, gate run 31148903377): the warm-up fix
-confirmed.** With the throwaway warm-up deny now firing before check 9's
-timed assertions, the warm-up itself absorbed the cold-start cost (~7.6s to
-its own, non-gated audit confirmation), and BOTH real gating checks that
-followed were fast and consistent: unmapped-probe deny ~7.1s, under-entitled
-deny ~6.1s, against the 60s timeout, with `isBuffered = false` still in
-effect. This is check (c) specifically -- the one that overran 60s entirely
-in round 12 -- now passing comfortably once it is no longer the first event
-through the logger. Three rounds in, the pattern holds without exception:
-whichever event is first through a freshly created `eventhub_logger` is the
-one at risk (16s, then >60s); every subsequent event has been fast (16s,
-5.5s, 7.1s, 6.1s), independent of `isBuffered`. See COMPATIBILITY.md, "APIM
-`log-to-eventhub` policy," for all three rounds' measurements and their
-caveats.
+The fix was not a better timeout. It was a second delivery path with a different
+latency characteristic. The policy fragment now ALSO emits the same tool/caller
+pair via an independent policy element, `<log-to-eventhub>`, to an EPHEMERAL
+Event Hub namespace (Basic tier, single partition) provisioned by the s2
+composition itself. Unlike the Application Insights resource this one is NOT out
+of band, because nothing about it needs to outlive the run that produced it: no
+human ever reads it, and the live gate that does read it runs entirely within
+that run's own lifetime. That is D5's rule applied correctly, not an exception to
+it.
 
 The live gate (`tests/integration/discovery-assertions.ps1`,
-`Assert-AuditEventEmitted`) now reads the Event Hub with a short bounded wait
-(`scripts/gate/wait_for_eventhub_audit.py`, using the `azure-eventhub` SDK --
-`az` CLI has no Event Hubs data-plane receive command) instead of the KQL
-query. Managed-identity credential mode throughout, matching the Application
-Insights logger's pattern exactly (no connection string or key in the repo):
-the APIM identity holds Event Hubs Data Sender on the Event Hub, and the live
-gate's OIDC principal holds Event Hubs Data Receiver, both via the same
-`data_reader_principal_ids` variable already used for the Application
-Insights path (extended, not duplicated).
+`Assert-AuditEventEmitted`) reads the Event Hub with a short bounded wait
+(`scripts/gate/wait_for_eventhub_audit.py`, using the `azure-eventhub` SDK, since
+`az` CLI has no Event Hubs data-plane receive command) instead of the KQL query.
+Managed-identity credential mode throughout, matching the Application Insights
+logger's pattern exactly (no connection string or key in the repo): the APIM
+identity holds Event Hubs Data Sender on the Event Hub, and the live gate's OIDC
+principal holds Event Hubs Data Receiver, both via the same
+`data_reader_principal_ids` variable already used for the Application Insights
+path (extended, not duplicated).
 
-This is the same "surface ownership, not policy attachment point" spine
-applied one level down: the AUDIT TRAIL and the GATE VERIFICATION are two
-different consumers with two different requirements (durability and human
-readability vs. bounded latency within one run), and conflating them into one
-sink was the actual defect -- not the KQL, not the timeout, the coupling.
+This is D3's "surface ownership, not policy attachment point" spine applied one
+level down. The AUDIT TRAIL and the GATE VERIFICATION are two different consumers
+with two different requirements (durability and human readability, versus bounded
+latency within one run). Conflating them into one sink was the actual defect. Not
+the KQL, not the timeout: the coupling.
 
-### Deployment coupling: an accepted constraint, not an oversight
+## Constraints accepted
+
+### Deployment coupling
 
 Default-deny plus the set-equality gate assertion means that ADDING A TOOL TO THE
 FUNCTIONS BACKEND FAILS INFRASTRUCTURE CI until the Terraform map is updated in
@@ -430,12 +400,12 @@ hand-maintained map might drift" from a standing risk into a build failure.
 
 It is correct ONLY under a condition this ADR names and accepts: the Functions
 app and the Terraform map must move together, in the same deployment unit. In
-this repository they do -- one repo, one gate, one apply, and the gate runs both
-compositions against one ephemeral environment. Under independent deployment
-cadences (backend shipped by one pipeline, gateway configuration by another) the
-same design produces a PRODUCTION DENIAL THAT CI NEVER SAW: the new tool goes
-live, the map does not know about it, and every call to it is default-denied by a
-gate that was green.
+this repository they do (one repo, one gate, one apply, and the gate runs both
+compositions against one ephemeral environment). Under independent deployment
+cadences, with the backend shipped by one pipeline and gateway configuration by
+another, the same design produces a PRODUCTION DENIAL THAT CI NEVER SAW: the new
+tool goes live, the map does not know about it, and every call to it is
+default-denied by a gate that was green.
 
 This is a real constraint this repo is choosing to accept, with its eyes open,
 because the alternative (default-allow, discussed under Alternatives) trades a
@@ -455,9 +425,9 @@ get them wrong:
 
 - It is **never a global fallback**. A gateway-wide or fragment-wide
   default-allow would silently weaken every server, including ones whose
-  operators never asked for it, and would make the security posture of a server
-  a property of the gateway rather than of the server. Per-server, explicit, opt
-  in, visible in that server's Terraform block.
+  operators never asked for it, and would make the security posture of a server a
+  property of the gateway rather than of the server. Per-server, explicit, opt in,
+  visible in that server's Terraform block.
 - It **does not disable the set-equality assertion**. A default-allow server
   still asserts that its map matches its tool surface; the assertion is a drift
   detector, and drift is MORE interesting, not less, when the consequence of an
@@ -466,13 +436,13 @@ get them wrong:
 This escape hatch is described here for completeness. It is NOT implemented, and
 implementing it is explicitly out of scope for issue #18.
 
-### Growth path: derived provenance (#58), described and not demonstrated
+## Growth path: derived provenance (#58), described and not demonstrated
 
-The derived (REST-export) map provenance described under "The spine" above is a
-NAMED GROWTH PATH. It is anticipated by this ADR, and the fragment's input
-contract was designed for it, but it is not demonstrated by anything running:
-there is no REST-export MCP server in this repository today, and no derived map
-has been rendered, deployed, or gated.
+The derived (REST-export) map provenance described under D3 is a NAMED GROWTH
+PATH. It is anticipated by this ADR, and the fragment's input contract was
+designed for it, but it is not demonstrated by anything running: there is no
+REST-export MCP server in this repository today, and no derived map has been
+rendered, deployed, or gated.
 
 This ADR states that plainly rather than describing the design as if it existed,
 following the ADR-006 precedent directly. ADR-006's "Growth paths" section named
@@ -481,12 +451,12 @@ trade-offs, at a point when neither was built; issue 17 then landed one of them
 and AMENDED that ADR to record what had actually been proven, including
 correcting a prediction that had gone stale in the meantime. The same mechanic
 applies here: **issue #58 amends THIS ADR** to flip the derived half from
-described to demonstrated, and to correct anything in this section that the
-implementation refutes. Until then, the status line at the top of this document
-is the accurate summary, and no reader should take "the map is derived from the
-operation list" as a description of running code.
+described to demonstrated, and to correct anything in D3 that the implementation
+refutes. Until then, the Status line at the top of this document is the accurate
+summary, and no reader should take "the map is derived from the operation list"
+as a description of running code.
 
-### Out of scope for this ADR
+## Out of scope for this ADR
 
 - **Policy ordering and buffering with Content Safety (#19).** The spec's
   standing note is that the ordering and buffering constraints shared by #18 and
@@ -498,86 +468,90 @@ operation list" as a description of running code.
   alongside a second body-reading policy are #19's to establish, not this ADR's
   to guess at.
 - **`tools/list` filtering, concealment mechanisms, and posture toggles.** No
-  toggle is built; see "Non-concealment" for why, and for the mechanism that
-  exists where concealment is genuinely required.
+  toggle is built; see D4 for why, and for the mechanism that exists where
+  concealment is genuinely required.
 - **Backend changes.** The MCP-layer app-role check is unchanged by this ticket.
 
-### Trigger
+## Trigger
 
-Revisit this decision if any of the following becomes true: (a) APIM gains a
-genuine per-tool or per-operation policy scope for MCP servers, which would
-replace the map lookup with native attachment and retire the drift problem
-entirely; (b) a server's tool count grows to the point where the per-turn context
-cost of advertising unusable schemas is measurable, which is the condition under
-which non-concealment stops being free; (c) the Functions MCP extension gains a
-per-request tool-registration hook, which would make backend-side `tools/list`
-filtering achievable and reopen the concealment question on the passthrough path;
-or (d) an adopting estate deploys the Functions app and the Terraform map on
-independent cadences, which invalidates the deployment-coupling condition above
-and forces the escape-hatch choice.
+Revisit this decision if any of the following becomes true:
+
+- (a) APIM gains a genuine per-tool or per-operation policy scope for MCP
+  servers, which would replace the map lookup with native attachment and retire
+  the drift problem entirely.
+- (b) A server's tool count grows to the point where the per-turn context cost of
+  advertising unusable schemas is measurable, which is the condition under which
+  non-concealment stops being free.
+- (c) The Functions MCP extension gains a per-request tool-registration hook,
+  which would make backend-side `tools/list` filtering achievable and reopen the
+  concealment question on the passthrough path.
+- (d) An adopting estate deploys the Functions app and the Terraform map on
+  independent cadences, which invalidates the deployment-coupling condition above
+  and forces the escape-hatch choice.
 
 ## Consequences
 
-- **A gateway denial is a FOURTH error surface**, extending the three-surface
-  contract ADR-006 records under "Request outcomes: HTTP status vs MCP errors": a
-  gateway-layer rejection that never reaches the backend, arriving as an HTTP 200
-  JSON-RPC protocol error. A robust client already had to inspect HTTP status,
-  the JSON-RPC `error` object, and `isError` independently; this adds a case to
-  the second of those, not a fourth thing to inspect. The error-taxonomy
-  documentation is extended by this ticket in `docs/mcp-request-flow.md`, with
-  the overlap against issue #52's error-contract section deduplicated there
-  rather than restated here.
-- **The map is a maintenance obligation on the passthrough path**, and its only
-  defence is the gate. Anyone adding a tool to `src/McpTools` must add a map
-  entry in the same change or CI fails. That is the design working, and it will
-  read as friction the first time someone hits it.
-- **The `severity`/verbosity relationship is robust, not a silent-failure
-  mode.** An earlier draft of this ADR claimed denies stop being silently
-  audited if the diagnostic setting's verbosity is "raised above `error`";
-  that describes an impossible state, because `error` is already the
-  strictest/highest tier the verbosity enum has (verbose < information <
-  error; COMPATIBILITY.md). The only way this audit event actually drops is
-  disabling the diagnostic setting's Application Insights integration
-  outright, which is a loud, visible configuration change, not a silent one.
-  The gate still asserts that every deny emits its audit event -- that
-  assertion is worth keeping as a regression check, just not on the premise
-  that it is guarding a fragile coupling.
-- **The audit sink is now a persistent, human-provisioned dependency** of the
-  live gate's audit assertions, in the same class as the Terraform state storage
-  account and the Entra app registrations. It bills continuously (a Log Analytics
-  workspace with no ingestion is nearly free, but it is not zero), and it is not
-  re-created by any apply. Its runbook is the only record of how it came to
-  exist.
-- **Two enforcement layers must be kept in step conceptually, not mechanically.**
-  The gateway map gates on `Orders.Read` for `get_order_status`, and
-  `AppRoleAuthorization.RequiredRole` is the same string in the backend. They are
-  two independent statements of the same requirement, deliberately not shared
-  through a common source, because sharing would make a single edit weaken both
-  layers at once and destroy the defense-in-depth property. The cost is that they
-  can disagree; the mitigation is that disagreement fails CLOSED in the direction
-  that matters (a caller denied at the gateway never reaches the backend, and a
-  caller admitted by a too-permissive gateway map still faces the backend check).
-  The operational consequence of that sameness, recorded here on 2026-08-07:
-  because both layers name `Orders.Read` for `get_order_status`, the gateway
-  ALWAYS denies first on the gateway path, so a caller under-entitled for this
-  tool is under-entitled at both layers and the backend check becomes
-  unreachable through APIM. Any test that intends to prove the BACKEND layer for
-  this tool must therefore call the backend hostname directly. The live gate
-  does exactly that, and keeps the two proofs separate: the backend layer is
-  proven by `scripts/gate/invoke-and-assert.ps1` step [3], which targets
-  `$BackendMcpUrl` rather than the gateway (commit `e6f8967`, shipped in PR #74,
-  which retargeted that step after it began failing on the gateway's `-32001`
-  protocol error); the gateway layer is proven by
-  `tests/integration/discovery-assertions.ps1` check [9]-d
-  (`Assert-ToolAuthorization`, the `UnderEntitledToken` branch), which sends the
-  same under-entitled token through APIM. Both layers stay independently proven,
-  each through the path that actually exercises it. The runbook consequence for
-  the negative-test client's Entra grants is recorded in
-  `docs/runbooks/entra-app-registrations.md`, section 3.
-- **Nothing here changes the shared-audience non-conformance.** Per-tool
-  authorization gates on `scp`/`roles` values within one audience, exactly as the
-  per-server check does. The audience-binding deviation and its owner (issue #42)
-  are unchanged by this decision, and this ADR must not be read as narrowing it.
+**C1. A gateway denial is a FOURTH error surface.** It extends the three-surface
+contract ADR-006 records under "Request outcomes: HTTP status vs MCP errors": a
+gateway-layer rejection that never reaches the backend, arriving as an HTTP 200
+JSON-RPC protocol error. A robust client already had to inspect HTTP status, the
+JSON-RPC `error` object, and `isError` independently; this adds a case to the
+second of those, not a fourth thing to inspect. The error-taxonomy documentation
+is extended by this ticket in `docs/mcp-request-flow.md`, with the overlap
+against issue #52's error-contract section deduplicated there rather than
+restated here.
+
+**C2. The map is a maintenance obligation on the passthrough path**, and its only
+defence is the gate. Anyone adding a tool to `src/McpTools` must add a map entry
+in the same change or CI fails. That is the design working, and it will read as
+friction the first time someone hits it.
+
+**C3. The audit sink is a persistent, human-provisioned dependency** of the live
+gate's audit assertions, in the same class as the Terraform state storage account
+and the Entra app registrations. It bills continuously (a Log Analytics workspace
+with no ingestion is nearly free, but it is not zero), and it is not re-created
+by any apply. Its runbook is the only record of how it came to exist.
+
+**C4. The `severity`/verbosity relationship is robust, not a silent-failure
+mode.** The only way this audit event drops is the diagnostic setting's
+Application Insights integration being disabled outright, which is a loud,
+visible configuration change, not a silent one. The gate still asserts that every
+deny emits its audit event; that assertion is worth keeping as a regression
+check, just not on the premise that it guards a fragile coupling. See Appendix B,
+correction 1.
+
+**C5. Two enforcement layers must be kept in step conceptually, not
+mechanically.** The gateway map gates on `Orders.Read` for `get_order_status`,
+and `AppRoleAuthorization.RequiredRole` is the same string in the backend. They
+are two independent statements of the same requirement, deliberately not shared
+through a common source, because sharing would make a single edit weaken both
+layers at once and destroy the defense-in-depth property. The cost is that they
+can disagree; the mitigation is that disagreement fails CLOSED in the direction
+that matters (a caller denied at the gateway never reaches the backend, and a
+caller admitted by a too-permissive gateway map still faces the backend check).
+
+The operational consequence of that sameness, recorded on 2026-08-07: because
+both layers name `Orders.Read` for `get_order_status`, the gateway ALWAYS denies
+first on the gateway path, so a caller under-entitled for this tool is
+under-entitled at BOTH layers and the backend check becomes unreachable through
+APIM. Any test that intends to prove the BACKEND layer for this tool must
+therefore call the backend hostname directly. The live gate does exactly that and
+keeps the two proofs separate:
+
+| Layer | Proven by | Path |
+| --- | --- | --- |
+| Backend (`AppRoleAuthorization.HasOrdersRead`, issue #45) | `scripts/gate/invoke-and-assert.ps1` step [3] | Functions host directly, `$BackendMcpUrl` |
+| Gateway (per-tool map, issue #18) | `tests/integration/discovery-assertions.ps1` check [9]-d, `Assert-ToolAuthorization`'s `UnderEntitledToken` branch | Through APIM |
+
+Step [3] was retargeted at the backend by commit `e6f8967` (shipped in PR #74)
+after it began failing on the gateway's `-32001` protocol error. The runbook
+consequence for the negative-test client's Entra grants is recorded in
+`docs/runbooks/entra-app-registrations.md`, section 3.
+
+**C6. Nothing here changes the shared-audience non-conformance.** Per-tool
+authorization gates on `scp`/`roles` values within one audience, exactly as the
+per-server check does. The audience-binding deviation and its owner (issue #42)
+are unchanged by this decision, and this ADR must not be read as narrowing it.
 
 ## Alternatives considered
 
@@ -598,7 +572,7 @@ and forces the escape-hatch choice.
   not as undesirable. It requires response-body access, which Microsoft Learn
   documents as breaking MCP streaming (COMPATIBILITY.md, 2026-07-27). The
   substitute where concealment is genuinely required is server partitioning, and
-  its real cost on the passthrough path is stated above rather than glossed.
+  its real cost on the passthrough path is stated in D4 rather than glossed.
 - **Default-allow for unmapped tools.** Rejected as the default. It removes the
   deployment-coupling friction described above, and pays for it with a silent
   authorization hole: a tool added to the backend is immediately invocable by
@@ -626,6 +600,141 @@ and forces the escape-hatch choice.
   Rejected on documented grounds, not preference: `<trace>`'s documented policy
   sections are `inbound`, `outbound`, and `backend`; `on-error` is not among them
   (COMPATIBILITY.md, 2026-08-06).
+- **Widening the Application Insights KQL timeout again.** Rejected. See
+  Appendix A; the timeout was widened twice (300s, then 600s) and exceeded a
+  third time, and no fixed timeout is provably safe against an undocumented,
+  unbounded latency characteristic.
+
+## Appendix A: audit-verification engineering log
+
+This appendix is the evidence behind "The gate-verification path is a second
+signal, not a replacement". It is kept in full because the numbers in it are
+measured, not estimated, and because the repo's rule is to measure and label
+rather than to widen a timeout and move on. Nothing here changes the decision;
+it is the record of how the decision was tested.
+
+### Rounds 1-9: the Application Insights KQL path, and why it failed
+
+The gate polled Application Insights with a bounded-timeout KQL query after each
+deny. That query was CORRECT. Every fix to it was proven correct by direct
+re-execution against real data, repeatedly (COMPATIBILITY.md, "Kusto `contains`
+operator on a `dynamic` column").
+
+The problem was never the query. Application Insights ingestion documents no
+latency SLA at all, and real measured latency ranged from **~286s to over 600s**
+across three independent rounds, non-deterministically. A widened timeout (300s,
+then 600s) bought headroom twice and was exceeded a third time. Widening it
+further would only have been picking a new number to eventually exceed again.
+
+### Round 10-11: the Event Hub bet, and what it actually rests on
+
+`<log-to-eventhub>` is NOT a documented low-latency delivery path. Stating it as
+one would be a claim this repo cannot support:
+
+- An `azureEventHub` logger defaults `isBuffered` to `true`.
+- Microsoft's "sophisticated buffer" language describes Event Hub decoupling APIM
+  from slow DOWNSTREAM consumers, not fast delivery TO the first consumer.
+- No numeric latency SLA is documented for `log-to-eventhub`, any more than for
+  Application Insights.
+- The one documented signal is qualitative: the observability overview's
+  feature-comparison table lists "Seconds" of data lag for Event Hub logging
+  against "Minutes" for Azure Monitor Logs.
+
+The `eventhub_logger` resource sets `isBuffered = false` explicitly, the
+documented direction for reducing buffering, but Microsoft does not state a
+timing effect for that flag beyond the binary buffered/not semantic.
+
+So this is an ENGINEERING BET that Event Hub's "Seconds" category will in
+practice clear a bounded gate wait more reliably than Application Insights'
+undocumented, empirically 286-620s ingestion did. The bet is falsifiable, and
+rounds 11-13 are what tested it. See Appendix B, correction 2, for the stronger
+claim an earlier draft made here and why it was withdrawn.
+
+### Round 11 (2026-08-07, gate run 31145487738): the bet held, with a caveat
+
+Both the unmapped-probe deny and the under-entitled deny were confirmed via Event
+Hub in **~16s**, against the 60s gate timeout. A wide margin, and roughly 18-40x
+faster than the Application Insights figures this redesign replaced. `isBuffered`
+was still at its default `true`.
+
+### Round 12 (2026-08-07, gate run 31147183034): the FIRST event missed entirely
+
+With `isBuffered = false` live for the first time, the unmapped-probe deny (the
+first audit event through that run's freshly created `eventhub_logger`) was
+**never observed within 60s**. A real gate failure, not a flake dismissed without
+evidence. The under-entitled deny, firing about a second later, was confirmed in
+**~5.5s**.
+
+Read together with round 11, whose own first event (~16s) was also the slower of
+its two, the pattern across both rounds is: first use of a freshly created
+`eventhub_logger` is the slow/at-risk case; a subsequent use moments later is
+fast every time.
+
+That reads as a cold-start effect on APIM's connection to a brand-new Event Hub,
+NOT as evidence that `isBuffered = false` is itself the regression. Each
+configuration has exactly one data point, confounded with being first-vs-second
+use within its own run. Per this ADR's own rule (measure and label, do not just
+widen the timeout), the fix is structural, not a bigger number: the live gate now
+fires one throwaway, non-gated warm-up deny before check 9's timed assertions
+run, moving the cold-start cost out of the checks that decide pass/fail
+(`tests/integration/discovery-assertions.ps1`).
+
+### Round 13 (2026-08-07, gate run 31148903377): the warm-up fix confirmed
+
+With the throwaway warm-up deny firing before check 9's timed assertions, the
+warm-up itself absorbed the cold-start cost (**~7.6s** to its own, non-gated
+audit confirmation), and BOTH real gating checks that followed were fast and
+consistent: unmapped-probe deny **~7.1s**, under-entitled deny **~6.1s**, against
+the 60s timeout, with `isBuffered = false` still in effect. This is check (c)
+specifically, the one that overran 60s entirely in round 12, now passing
+comfortably once it is no longer the first event through the logger.
+
+### The pattern across all three rounds
+
+| Round | First event through a fresh logger | Subsequent events | `isBuffered` |
+| --- | --- | --- | --- |
+| 11 | ~16s | ~16s | `true` (default) |
+| 12 | >60s (gate failure) | ~5.5s | `false` |
+| 13 | ~7.6s (warm-up, non-gated) | ~7.1s, ~6.1s | `false` |
+
+Three rounds in, the pattern holds without exception: whichever event is first
+through a freshly created `eventhub_logger` is the one at risk; every subsequent
+event has been fast, independent of `isBuffered`. See COMPATIBILITY.md, "APIM
+`log-to-eventhub` policy", for all three rounds' measurements and their caveats.
+
+## Appendix B: corrections to earlier drafts of this ADR
+
+These corrections are recorded rather than silently overwritten, because two of
+them were produced by independent re-verification refuting a confident claim this
+document had already made, and that is exactly the failure mode the repo's
+verification rules exist to catch. The body above states the CORRECTED position
+only; a reader who needs no history can ignore this appendix entirely.
+
+**Correction 1 (severity/verbosity).** An earlier draft described the
+`severity`/verbosity relationship as requiring an exact match, and called it "the
+single most fragile thing in the audit design". A later draft described denies as
+silently unaudited if verbosity is "raised above `error`". Both are wrong.
+Verbosity is ordered verbose < information < error, so `error` is already the
+strictest/highest tier the enum has, and a trace at `severity="error"` clears the
+gate at every configurable verbosity. "Raised above `error`" describes an
+impossible state. The relationship is robust precisely because `error` is the
+ceiling (COMPATIBILITY.md).
+
+**Correction 2 (Event Hub latency).** An earlier draft claimed Event Hub delivery
+has "no batching or ingestion indirection between the policy firing and a
+consumer reading it". Independent re-verification refuted that (COMPATIBILITY.md,
+"APIM `log-to-eventhub` policy"). The withdrawn claim asserted a documented
+property; what actually exists is one qualitative comparison table and an
+`isBuffered` flag with no documented timing effect. The body and Appendix A now
+present this as an engineering bet, which is what it is.
+
+**Correction 3 (interception order).** Before 2026-08-07 this ADR recorded that
+the two enforcement layers use the same `Orders.Read` string deliberately, but
+did not record the operational consequence: that the gateway therefore always
+denies first on the gateway path, making the backend layer unreachable through
+APIM for this tool. Issue #76 read the un-amended text and concluded, incorrectly,
+that the backend-layer proof had become dead code. The consequence is now stated
+in C5. No decision changed; the record was incomplete rather than wrong.
 
 ## References
 
@@ -659,4 +768,5 @@ and forces the escape-hatch choice.
   "APIM `gen_ai.tool.name` context variable" (2026-08-06), "MCP tools/call denial
   wire shape" (2026-08-06), "APIM cross-resource-group Application Insights
   logger" (2026-08-06), "APIM trace policy for custom audit telemetry"
-  (2026-08-06).
+  (2026-08-06), "Kusto `contains` operator on a `dynamic` column", "APIM
+  `log-to-eventhub` policy".
