@@ -293,6 +293,15 @@ concerns. Separate a final short section: "For Hari to check by hand", naming
 the one or two highest-leverage things a human should verify directly (a
 registry page, a doc paragraph, a design judgement).
 
+The review tier's tool may additionally render this same output as a scannable
+report page for Hari; the binding lives in the tool's command shim, not here.
+The rendering is presentation only: it carries exactly the verdict, findings,
+and claim results of the text output, ordered the same way, and may not soften,
+summarise away, or omit any of them. The text output remains the source of
+truth. Producing the report page in a temporary location outside the repository
+does not breach the read-only hard stop below; that stop governs repository
+files and GitHub.
+
 Hard stops:
 - Do not merge, approve on GitHub, or post to GitHub; the findings are for Hari.
 - Do not modify any file. This session is read-only; fixes happen in the
