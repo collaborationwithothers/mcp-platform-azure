@@ -26,7 +26,8 @@
        error the SDK throws rather than returns, not what this assertion
        checks), and require the deterministic tool-level 403 result. The
        gateway-layer denial for this same client is asserted separately in
-       discovery-assertions.ps1's per-tool under-entitled check.
+       tests/integration/discovery-assertions.ps1's per-tool under-entitled
+       check.
     4. Run the raw-HTTP discovery assertions (401 / WWW-Authenticate / PRM /
        wrong-audience / shadow mcp_extension key). Multi-server (issue 17): also
        server 2's per-server discovery (its own challenge and path-inserted PRM),
@@ -282,9 +283,10 @@ Write-Host ''
 #    backend directly regardless of path (verified 2026-07-16 by a direct
 #    backend probe returning 405, not 401; see mcp-server.xml). The
 #    gateway-layer denial for this exact client/tool/role is asserted
-#    separately, in discovery-assertions.ps1's per-tool under-entitled check
-#    ([9]-d, Assert-ToolAuthorization) -- so both layers stay independently
-#    proven, each through the path that actually exercises it.
+#    separately, in tests/integration/discovery-assertions.ps1's per-tool
+#    under-entitled check ([9]-d, Assert-ToolAuthorization) -- so both
+#    layers stay independently proven, each through the path that actually
+#    exercises it.
 # ---------------------------------------------------------------------------
 Write-Host "[3] App-role authorization negative assertion (backend, direct)"
 $env:MCP_SERVER_ENDPOINT = $BackendMcpUrl
