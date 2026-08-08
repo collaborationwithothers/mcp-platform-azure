@@ -30,7 +30,9 @@ public class GetServiceInfoTests
         Assert.Equal("streamable-http", serviceInfo.Transport);
         Assert.Equal(
             "The order data this server returns is SYNTHETIC demo data (ids "
-            + "CONTOSO-1001 to CONTOSO-1005) and is not sourced from any real system.",
+            + "CONTOSO-1001 to CONTOSO-1005) and is not sourced from any real system. "
+            + "The serverName and transport values in this response are fixed demo "
+            + "labels compiled into the build; they name no deployed Azure resource.",
             serviceInfo.DataDisclaimer);
     }
 

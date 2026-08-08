@@ -157,8 +157,8 @@ whichever map is configured still matches that server's real `tools/list`.
 from the `S2_TFVARS_JSON` GitHub Environment secret
 (`.github/workflows/ephemeral-env.yml`, the "Write composition tfvars" step),
 not from any file in this repository. A PR that adds a tool to the backend
-cannot also add that
-tool's key to this map, because the map is not code the PR can touch.
+cannot also add that tool's key to this map, because the map is not code the
+PR can touch.
 **Hari must update the `S2_TFVARS_JSON` secret** to add `get_service_info` to
 BOTH maps above. This is a manual step; no PR can perform it.
 

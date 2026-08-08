@@ -16,9 +16,17 @@ namespace McpTools.Tools;
 /// is no tool B to refuse. This tool IS tool B. It requires a DIFFERENT
 /// application role (<see cref="AppRoleAuthorization.ServiceInfoRole"/>) from
 /// get_order_status's <see cref="AppRoleAuthorization.RequiredRole"/>, so an
-/// Orders.Read holder calling get_service_info is refused, and a
-/// ServiceInfo.Read holder calling get_order_status is refused -- the
-/// cross-tool property issue 76 exists to prove.
+/// Orders.Read holder calling get_service_info is refused -- the cross-tool
+/// property issue 76 exists to prove.
+///
+/// The converse holds only for APP-CONTEXT callers, and the difference is worth
+/// knowing before anyone writes the live assertion. A ServiceInfo.Read holder
+/// calling get_order_status is refused only when it arrives app-context, which
+/// is the path GetOrderStatus role-checks. A DELEGATED caller reaching
+/// get_order_status is routed straight to the OBO exchange with no role check
+/// at all (GetOrderStatus.Run's Delegated branch), so it is not refused by role
+/// there. The cross-tool proof is therefore symmetric only within app-context;
+/// do not write a live assertion that assumes otherwise.
 ///
 /// The response is fixed service metadata compiled into the assembly (see the
 /// FROZEN constants below). It reads no configuration, calls no downstream
@@ -54,11 +62,23 @@ public sealed class GetServiceInfo
         + "configuration and calls nothing downstream, so every call returns the "
         + "same answer.";
 
+    // ServerNameValue is a FIXED DEMO LABEL. It deliberately does not match any
+    // deployed resource: the live servers are named orders-mcp and orders-mcp-2
+    // (docs/runbooks/live-test-tfvars-reference.md), and the MCP handshake name
+    // is whatever the Functions host reports. Not matching them is the point.
+    // This tool exists to prove an authorization boundary, and it must not
+    // become a route by which a real deployment's identity reaches this public
+    // repo's demo output. A caller who needs the real server identity reads it
+    // from the initialize handshake, not from here. DataDisclaimerValue says
+    // this in the payload itself, so the response is self-labelling and nobody
+    // has to find this comment to know the value is not a resource name.
     internal const string ServerNameValue = "contoso-orders-mcp";
     internal const string TransportValue = "streamable-http";
     internal const string DataDisclaimerValue =
         "The order data this server returns is SYNTHETIC demo data (ids "
-        + "CONTOSO-1001 to CONTOSO-1005) and is not sourced from any real system.";
+        + "CONTOSO-1001 to CONTOSO-1005) and is not sourced from any real system. "
+        + "The serverName and transport values in this response are fixed demo "
+        + "labels compiled into the build; they name no deployed Azure resource.";
 
     private readonly ILogger<GetServiceInfo> _logger;
 

@@ -133,7 +133,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <delegated to
   passthrough. Also confirms the delegated `scp` claim-type detection works live
   (the delegated branch fired).
 
-- **Note added 2026-08-07:** a second tool, `get_service_info`, landed later
+- **Note added 2026-08-08:** a second tool, `get_service_info`, landed later
   under issue #76 (issue #79 is the slice that implemented it). A fresh run
   against the current server therefore lists TWO tools, not one; the
   transcript above is unchanged and remains correct for the date it was
@@ -190,7 +190,7 @@ McpTestClient output:
 [McpTestClient] All session and tool assertions passed.
 ```
 
-**Note added 2026-08-07:** this run also predates `get_service_info`, so its
+**Note added 2026-08-08:** this run also predates `get_service_info`, so its
 `1 tool(s)` line is correct for 2026-07-22 and is left unchanged. See the note
 under Run 2026-07-19 above for what a fresh run lists today.
 

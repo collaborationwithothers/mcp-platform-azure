@@ -175,7 +175,8 @@ the application role 'ServiceInfo.Read'.`
 **A delegated caller is denied here, and this is a decision, not a structural
 impossibility.** `ServiceInfo.Read` is an application role: a grant made to a
 CLIENT APPLICATION, not to a user. An app-only (client-credentials) token
-always carries that grant in its `roles` claim and never carries `scp`. A
+carries the app roles it has actually been granted in its `roles` claim, and
+never carries `scp`. A
 delegated (user-context) token carries `scp`, and MAY also carry a `roles`
 claim, but when it does, that claim lists roles assigned to the SIGNED-IN USER
 on the resource API -- it does not carry the role grant made to the calling
