@@ -24,9 +24,9 @@ namespace McpTools.Tools;
 /// FROZEN constants below). It reads no configuration, calls no downstream
 /// system, and touches no clock, so every authorized call returns the same
 /// answer. This is a deliberate design constraint, not an oversight: a tool
-/// whose only job is proving an authorization boundary must not become a second
-/// place org-identifying data (a hostname, a resource id, a config value) could
-/// leak into this public repo's demo output.
+/// whose only job is proving an authorization boundary must not become another
+/// route by which org-identifying data (a hostname, a resource id, a config
+/// value) could reach this public repo's demo output.
 ///
 /// A DELEGATED caller (an scp principal) reaches this same check and is
 /// denied in this deployment. That is a decision, not an oversight. The

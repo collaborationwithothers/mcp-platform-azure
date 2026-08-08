@@ -118,18 +118,16 @@ public class GetServiceInfoTests
     }
 
     private static Dictionary<string, string> Delegated() =>
-        WithPrincipal(
-            [("scp", "user_impersonation"), ("azp", "interactive-client-app-id"), ("oid", "user-object-id")],
-            []);
+        WithPrincipal(("scp", "user_impersonation"), ("azp", "interactive-client-app-id"), ("oid", "user-object-id"));
 
     private static Dictionary<string, string> AppContext(string role) =>
-        WithPrincipal(
-            [("roles", role), ("azp", "test-client-app-id"), ("oid", "test-client-object-id")],
-            []);
+        WithPrincipal(("roles", role), ("azp", "test-client-app-id"), ("oid", "test-client-object-id"));
 
+    // No extra-headers parameter, unlike GetOrderStatusRunTests' equivalent:
+    // that tool reads an inbound bearer for its OBO exchange, this one reads
+    // only the principal. Nothing here would ever pass a second header.
     private static Dictionary<string, string> WithPrincipal(
-        (string Typ, string Val)[] claims,
-        (string Key, string Value)[] extraHeaders)
+        params (string Typ, string Val)[] claims)
     {
         var payload = new
         {
@@ -138,13 +136,8 @@ public class GetServiceInfoTests
         };
         var header = Convert.ToBase64String(
             Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload)));
-        var headers = new Dictionary<string, string> { [ClientPrincipal.HeaderName] = header };
-        foreach (var (key, value) in extraHeaders)
-        {
-            headers[key] = value;
-        }
 
-        return headers;
+        return new Dictionary<string, string> { [ClientPrincipal.HeaderName] = header };
     }
 
     private static ToolInvocationContext ContextWithHeaders(
