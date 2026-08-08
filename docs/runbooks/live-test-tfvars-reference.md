@@ -120,10 +120,12 @@ as of issue #18:
   "server_2_required_role": "Mcp.Orders2.Invoke",
 
   "tool_authorization_map": {
-    "get_order_status": { "role": "Orders.Read" }
+    "get_order_status": { "role": "Orders.Read" },
+    "get_service_info": { "role": "ServiceInfo.Read" }
   },
   "server_2_tool_authorization_map": {
-    "get_order_status": { "role": "Orders.Read" }
+    "get_order_status": { "role": "Orders.Read" },
+    "get_service_info": { "role": "ServiceInfo.Read" }
   },
 
   "registry_name": "apic-mcp-tracer",
@@ -142,12 +144,38 @@ above).
 `scope` and `unrestricted` are both optional per key and may be omitted
 entirely when only `role` applies, exactly as shown -- Terraform's
 `optional(...)` fills `scope = null`, `unrestricted = false`. Both servers
-carry the SAME map here because both forward to the same backend
-(`src/McpTools/Tools/GetOrderStatus.cs`, one tool, gated on `Orders.Read`,
-matching the issue-45 `AppRoleAuthorization` check). A server exposing a
-different tool set needs a different map; the live gate's per-server
-set-equality assertion (ADR-009) is what proves whichever map is configured
-still matches that server's real `tools/list`.
+carry the SAME map here because both still forward to the same backend. That
+backend (`src/McpTools/`) now exposes TWO tools, each gated on a different
+role: `get_order_status` on `Orders.Read`, and `get_service_info` (issue 79)
+on `ServiceInfo.Read`, both checked by the issue-45 `AppRoleAuthorization`
+mechanism. A server exposing a different tool set needs a different map; the
+live gate's per-server set-equality assertion (ADR-009) is what proves
+whichever map is configured still matches that server's real `tools/list`.
+
+**Deployment coupling: this JSON lives in a secret, not in this repo.**
+`tool_authorization_map` and `server_2_tool_authorization_map` are supplied
+from the `S2_TFVARS_JSON` GitHub Environment secret
+(`.github/workflows/ephemeral-env.yml`, around line 206), not from any file
+in this repository. A PR that adds a tool to the backend cannot also add that
+tool's key to this map, because the map is not code the PR can touch.
+**Hari must update the `S2_TFVARS_JSON` secret** to add `get_service_info` to
+BOTH maps above. This is a manual step; no PR can perform it.
+
+Both APIM servers forward to the same backend, so once `get_service_info`
+ships, BOTH servers' `tools/list` return it, whether or not the secret has
+been updated yet. The live gate's check [9]-a is set-equality in BOTH
+directions between `tools/list` and the map keys: a tool with no matching map
+key fails it, and a map key with no matching tool fails it too. Until the
+secret is updated, the gate will report drift.
+
+That drift window cannot be closed by reordering the rollout. Shipping the
+map key first (before the tool exists) fails set-equality the other way: a
+map key with no matching tool. The window exists in either order because the
+two halves -- the code and the secret -- deploy through separate paths with
+no shared transaction. It must NOT be engineered away by weakening the
+assertion. The assertion's strictness is its entire value; ADR-009 rejects a
+fixed expected-tool list for exactly this reason, because a loose check would
+stop proving that the deployed map matches the deployed tool set.
 
 ## Maintenance: adding a new required variable
 

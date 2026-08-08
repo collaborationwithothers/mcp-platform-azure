@@ -242,6 +242,26 @@ observability) extend without restructuring.
     -> { orderId: string, found: false, message: string }        // unknown id
   ```
 
+- **Amendment, 2026-08-07 (issue 79).** Two things changed since v1.0.0 shipped
+  with the single tool described above; both bullets above still record what
+  v1.0.0 was and are left as written.
+  - A second tool, `get_service_info`, was added after v1.0.0. One tool cannot
+    prove per-tool authorization works, because proving it means showing a
+    caller entitled to tool A is refused tool B on the same server.
+    `get_service_info` exists solely to make that provable: it requires the
+    application role `ServiceInfo.Read` (`get_order_status` requires
+    `Orders.Read`), takes no input, calls nothing downstream, and returns three
+    fixed strings compiled into the server. `get_order_status`'s own contract,
+    directly above, remains frozen and unchanged.
+  - The "self-contained / calls nothing downstream" bullet above describes the
+    tracer before the OBO (on-behalf-of) issue landed; OBO is the Entra token
+    exchange that lets the server call a downstream API as the calling user
+    instead of with its own identity. That issue (#10) has since landed, so
+    `get_order_status` now serves both delegated and app-only calls from the
+    downstream Orders API. The in-memory fixture described above is retained
+    only for contract tests that must not depend on a live downstream; see the
+    doc comment on `src/McpTools/Fixtures/SyntheticOrders.cs`.
+
 ### Gateway and authorization (S2)
 
 - APIM tier is Basic v2 in the public-demo profile. Confirmed on 2026-07-11 that

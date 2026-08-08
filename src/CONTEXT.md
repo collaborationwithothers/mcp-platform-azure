@@ -7,9 +7,12 @@ Glossary only. ASCII punctuation.
 ## Language
 
 **Tool**:
-A single callable capability the MCP server exposes to clients, for example
-get_order_status. Has a typed input and a typed result, including a typed
-not-found result.
+A single callable capability the MCP server exposes to clients. Has a typed
+input and a typed result, including a typed not-found result. Two exist:
+get_order_status, which takes an order id and reads the downstream Orders
+API, and get_service_info, which takes no input, calls nothing downstream,
+and returns fixed strings. They require DIFFERENT app roles (Orders.Read
+and ServiceInfo.Read), which is what makes per-tool authorization provable.
 _Avoid_: function, action, endpoint, command
 
 **MCP server**:
