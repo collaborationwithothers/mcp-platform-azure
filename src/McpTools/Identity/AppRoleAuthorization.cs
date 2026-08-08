@@ -33,11 +33,16 @@ public static class AppRoleAuthorization
     /// True when the caller carries the named application role.
     ///
     /// Role comparison is ORDINAL, so "serviceinfo.read" does not match
-    /// "ServiceInfo.Read". Entra issues role values with the casing configured on
-    /// the app registration, and an authorization check that quietly case-folds
-    /// would widen the set of accepted values beyond what was configured.
-    /// Claim-TYPE matching stays case-insensitive (see ClientPrincipal.ValuesFor)
-    /// because a claim type is a well-known identifier, not a granted value.
+    /// "ServiceInfo.Read". Microsoft Learn instructs that an app role's Value
+    /// "should exactly match the string referenced in the application's code",
+    /// but does NOT explicitly state that Entra performs no case-folding when it
+    /// emits the roles claim (verifier 2026-08-08: PARTIAL, see COMPATIBILITY.md).
+    /// Ordinal is the safe direction under that uncertainty: if the emitted
+    /// casing ever differed from the configured casing, a strict check fails
+    /// closed and denies, whereas a case-folding check would silently accept
+    /// values nobody configured. Claim-TYPE matching stays case-insensitive (see
+    /// ClientPrincipal.ValuesFor) because a claim type is a well-known
+    /// identifier, not a granted value.
     /// </summary>
     public static bool HasRole(ClientPrincipal principal, string role) =>
         principal.ValuesFor(RoleClaimTypes).Contains(role, StringComparer.Ordinal);
