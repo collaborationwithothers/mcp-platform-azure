@@ -12,8 +12,15 @@ public static class AppRoleAuthorization
 {
     /// <summary>
     /// The role get_order_status requires. Deliberately NOT renamed to something
-    /// tool-prefixed: GetOrderStatus renders this exact string into the 403
-    /// message a caller sees, so renaming it would change a public error message.
+    /// tool-prefixed, now that a second role sits beside it.
+    ///
+    /// To be precise about why, because the tempting justification is wrong:
+    /// renaming this IDENTIFIER would change no emitted text. GetOrderStatus
+    /// interpolates the constant's VALUE into its 403 message, so only editing
+    /// "Orders.Read" itself could alter what a caller sees. The real reasons are
+    /// that this is a public const with existing callers and tests, and that
+    /// issue 79 froze the name; a rename would be pure churn in a change whose
+    /// value is a diff small enough to audit for behavioural regressions.
     /// </summary>
     public const string RequiredRole = "Orders.Read";
 
