@@ -189,17 +189,30 @@ Why the shapes differ, precisely:
   error categories for `tools/call`: Protocol Errors, which are standard
   JSON-RPC 2.0 error objects, and Tool Execution Errors, which are
   `CallToolResult` with `isError: true`. The rule is a SHOULD, and it lives in
-  `schema/2025-06-18/schema.ts` rather than the prose page: errors that
-  "originate from the tool" SHOULD be reported inside the result object, so that
-  "the LLM would not be able to see that an error occurred and self-correct"
-  does not happen.
+  `schema/2025-06-18/schema.ts` rather than the prose page: any errors that
+  "originate from the tool" SHOULD be reported inside the result object with
+  `isError` set to true, "not as an MCP protocol-level error response.
+  Otherwise, the LLM would not be able to see that an error occurred and
+  self-correct."
 
   **This repo's decision, NOT a spec requirement.** Which category a per-tool
-  authorization denial belongs to is not something the spec settles. It is
-  silent on the question: its 401/403 mandate sits in the authorization section,
-  which is scoped to OAuth 2.1 token validation "at the transport level" and
-  governs the token, not the tool, while the tools page says only "implement
-  proper access controls" with no guidance on reporting channel. So the gateway
+  authorization denial belongs to is not something the spec settles.
+
+  Deal with the nearest counter-evidence rather than around it, because a
+  skeptical reader will find it: the authorization section DOES carry an error
+  table whose 403 row reads "Invalid scopes or insufficient permissions", and a
+  per-tool denial is arguably insufficient permissions. That table is read here
+  as governing the HTTP status of OAuth 2.1 TOKEN validation, not the JSON-RPC
+  reporting channel of a tool-level decision, for two reasons: the section
+  scopes itself to authorization "at the transport level", and its neighbouring
+  rows ("Authorization required or token invalid", "Malformed authorization
+  request") are all token-lifecycle cases evaluated before any MCP method is
+  dispatched. On the tool side the spec says only "implement proper access
+  controls", with no guidance on reporting channel at all. That reading is a
+  judgement, not a quotation, and someone could reasonably land the other side
+  of it.
+
+  So the gateway
   emitting a Protocol Error here is a design choice, argued on its merits:
   nothing "originated from the tool" when the denial happens wholly inside
   `<inbound>` and the tool never runs. HTTP 401/403 ahead of any JSON-RPC
