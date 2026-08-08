@@ -111,6 +111,29 @@ public sealed class GetServiceInfo
         // BuiltInAuthGuard asserts Easy Auth is enabled, and enabled Easy Auth
         // strips client-supplied X-MS-* headers before injecting its own
         // (docs/security.md, "trust chain").
+        // WHERE THE THROW MESSAGES BELOW ACTUALLY GO: server logs only, never
+        // the caller. Verified against the pinned stack's source, 2026-08-08
+        // (COMPATIBILITY.md, "MCP tool method: thrown exception wire shape").
+        // The MCP SDK catches any exception that is not McpProtocolException or
+        // OperationCanceledException and replaces it with a CallToolResult whose
+        // text is the bare string "An error occurred invoking '<tool>'." An
+        // InvalidOperationException's Message is DISCARDED; only McpException
+        // subtypes keep theirs.
+        //
+        // That is the outcome we want here, so it is left as is rather than
+        // "fixed": these three cases are fail-closed authentication rejections,
+        // and a caller who did not traverse the authenticated path should not be
+        // told which check rejected them. The detail an operator needs still
+        // reaches the logs through the SDK's own error logging. The messages are
+        // written for that reader, not for the wire.
+        //
+        // The consequence to know before changing anything here: a throw and the
+        // 403 CallToolResult below are INDISTINGUISHABLE to a client. Both are
+        // HTTP 200, both carry isError = true. Only the text differs. Do not
+        // write a test or a gate assertion that expects a JSON-RPC protocol
+        // error from this method; a tool method cannot emit one except by
+        // throwing McpProtocolException, which the SDK documents as being for
+        // protocol concerns and explicitly not for application-level errors.
         var resolution = IdentityModeResolver.ResolveWithPrincipal(headers);
         return resolution.Mode switch
         {
