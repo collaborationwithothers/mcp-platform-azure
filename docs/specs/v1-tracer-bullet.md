@@ -242,6 +242,32 @@ observability) extend without restructuring.
     -> { orderId: string, found: false, message: string }        // unknown id
   ```
 
+- **Amendment, agreed 2026-08-07, landed 2026-08-08 (issue 79).** Two bullets
+  above no longer describe the server as it runs today. Both are left exactly as
+  written, and this note records what changed and when. The two cases differ, so
+  read them separately.
+  - **A second tool was added AFTER v1.0.0.** `get_service_info` did not exist at
+    the tag. One tool cannot prove per-tool authorization works, because proving
+    it means showing a caller entitled to tool A is refused tool B on the same
+    server. `get_service_info` exists solely to make that provable: it requires
+    the application role `ServiceInfo.Read` (`get_order_status` requires
+    `Orders.Read`), takes no input, calls nothing downstream, and returns three
+    fixed strings compiled into the server. `get_order_status`'s own contract,
+    directly above, remains frozen and unchanged.
+  - **The "self-contained / calls nothing downstream" bullet was ALREADY
+    superseded when v1.0.0 was tagged.** This is not a later change, and an
+    earlier draft of this amendment got it wrong. OBO (on-behalf-of, the Entra
+    token exchange that lets the server call a downstream API as the calling
+    user) landed in commit `13d1be8` on 2026-07-18; `v1.0.0` was tagged
+    `7909b43` on 2026-07-22, so OBO shipped INSIDE v1.0.0. The bullet therefore
+    records the tracer as originally SPECIFIED, not as v1.0.0 actually shipped.
+    Since #10, `get_order_status` serves both delegated and app-only calls from
+    the downstream Orders API, and the in-memory fixture is retained only for
+    contract tests that must not depend on a live downstream; see the doc
+    comment on `src/McpTools/Fixtures/SyntheticOrders.cs`. The bullet stays as
+    written because this document records the design as specified; this note is
+    where the as-shipped truth lives.
+
 ### Gateway and authorization (S2)
 
 - APIM tier is Basic v2 in the public-demo profile. Confirmed on 2026-07-11 that

@@ -176,18 +176,64 @@ Why the shapes differ, precisely:
   is also why the challenge carries `error="insufficient_scope"` and no
   `resource_metadata`: there is nothing to discover.
 - The per-tool denial is a JSON-RPC-layer rejection. It is NOT an HTTP-layer
-  rejection at all. The MCP specification (2025-06-18) defines exactly two error
-  categories for `tools/call`: Protocol Errors, which are standard JSON-RPC 2.0
-  error objects, and Tool Execution Errors, which are `CallToolResult` with
-  `isError: true` and are reserved for failures during actual tool execution. A
-  gateway-side authorization denial is access control, not a business-logic
-  failure during execution, so it is a Protocol Error: HTTP 200, an error object
-  with the request `id` echoed, delivered over the normal request/response
-  channel. HTTP 401/403 ahead of any JSON-RPC envelope is reserved for
-  transport and session violations, which this is not. See COMPATIBILITY.md,
-  "MCP tools/call denial wire shape", verified 2026-08-06 against the MCP spec
-  directly rather than against Microsoft Learn, since this is a protocol
-  contract and not an Azure one.
+  rejection at all: HTTP 200, an error object with the request `id` echoed,
+  delivered over the normal request/response channel.
+
+  Two things are being claimed there, and only one of them comes from the spec.
+  Keeping them apart matters, because an earlier revision of this passage ran
+  them together and a reader could not tell which was which (corrected
+  2026-08-08; the same correction was applied to COMPATIBILITY.md's
+  "MCP tools/call denial wire shape" row).
+
+  **From the spec.** The MCP specification (2025-06-18) defines exactly two
+  error categories for `tools/call`: Protocol Errors, which are standard
+  JSON-RPC 2.0 error objects, and Tool Execution Errors, which are
+  `CallToolResult` with `isError: true`. The rule is a SHOULD, and it lives in
+  `schema/2025-06-18/schema.ts` rather than the prose page: any errors that
+  "originate from the tool" SHOULD be reported inside the result object with
+  `isError` set to true, "not as an MCP protocol-level error response.
+  Otherwise, the LLM would not be able to see that an error occurred and
+  self-correct."
+
+  **This repo's decision, NOT a spec requirement.** Which category a per-tool
+  authorization denial belongs to is not something the spec settles.
+
+  Deal with the nearest counter-evidence rather than around it, because a
+  skeptical reader will find it: the authorization section DOES carry an error
+  table whose 403 row reads "Invalid scopes or insufficient permissions", and a
+  per-tool denial is arguably insufficient permissions. That table is read here
+  as governing the HTTP status of OAuth 2.1 TOKEN validation, not the JSON-RPC
+  reporting channel of a tool-level decision, for two reasons: the section
+  scopes itself to authorization "at the transport level", and its neighbouring
+  rows ("Authorization required or token invalid", "Malformed authorization
+  request") are all token-lifecycle cases evaluated before any MCP method is
+  dispatched. On the tool side the spec says only "implement proper access
+  controls", with no guidance on reporting channel at all. That reading is a
+  judgement, not a quotation, and someone could reasonably land the other side
+  of it.
+
+  So the gateway
+  emitting a Protocol Error here is a design choice, argued on its merits:
+  nothing "originated from the tool" when the denial happens wholly inside
+  `<inbound>` and the tool never runs. HTTP 401/403 ahead of any JSON-RPC
+  envelope is reserved in this repo for transport and session violations, which
+  this is not.
+
+  The corollary is worth stating plainly, because the backend does the opposite
+  and that is not a contradiction: the MCP server's own role check returns
+  `isError: true`, and it is EQUALLY spec-compliant. It has no alternative in
+  any case, since a tool method cannot emit a Protocol Error (COMPATIBILITY.md,
+  "MCP tool method: thrown exception wire shape"). The gateway can, because it
+  refuses before any tool runs.
+
+  One more precision: the spec names no HTTP status for a well-formed
+  `tools/call` that the server answered, since its transport section enumerates
+  only 202, 400, 404 and 405. "HTTP 200" here is an inference from the absence
+  of any rule requiring a 4xx, plus live observation, not a quoted mandate.
+
+  See COMPATIBILITY.md, "MCP tools/call denial wire shape", verified against the
+  MCP spec directly rather than against Microsoft Learn, since this is a
+  protocol contract and not an Azure one.
 
 The consequence worth internalising is that "which tier" and "how far did it get"
 are independent questions. A JSON-RPC error object on the wire no longer implies

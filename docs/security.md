@@ -158,6 +158,54 @@ The downstream access path depends on the caller identity mode.
 client (delegated -> OBO downstream, authorized app-context -> app-only
 downstream, missing role/principal -> rejected).
 
+### get_service_info authorization (issue 79)
+
+`get_service_info` exists to make per-tool authorization provable. With a
+single tool there is no way to show that a caller entitled to one tool is
+refused a different tool on the same server; proving that needs a second tool
+with a different entitlement. `get_service_info` takes no input, calls nothing
+downstream, and returns three fixed strings compiled into the server.
+
+The tool requires the application role `ServiceInfo.Read` (distinct from
+`get_order_status`'s `Orders.Read`), checked at the MCP tool boundary by the
+same mechanism, `McpTools.Identity.AppRoleAuthorization`. A missing role
+returns the deterministic tool error `403 Forbidden: get_service_info requires
+the application role 'ServiceInfo.Read'.`
+
+**A delegated caller is denied here, and this is a decision, not a structural
+impossibility.** `ServiceInfo.Read` is an application role: a grant made to a
+CLIENT APPLICATION, not to a user. An app-only (client-credentials) token
+carries the app roles it has actually been granted in its `roles` claim, and
+never carries `scp`. A
+delegated (user-context) token carries `scp`, and MAY also carry a `roles`
+claim, but when it does, that claim lists roles assigned to the SIGNED-IN USER
+(or to a group that user belongs to; Graph's `allowedMemberTypes` uses one
+`User` value covering both, with no separate group value)
+on the resource API -- it does not carry the role grant made to the calling
+application (Microsoft Learn's Entra ID troubleshooting guidance on
+delegated-permission access tokens). This deployment does not assign app
+roles to users, so no delegated caller can hold `ServiceInfo.Read` here, and
+the check fails for every delegated call today. The denial is therefore
+configurational, not structural: a delegated caller WOULD pass this check if
+the signed-in user had themselves been assigned `ServiceInfo.Read` on this
+API, because that is a separate grant that does surface in the `roles` claim.
+
+Be precise about how far away that counterfactual is, because "configurational"
+should not be read as "one setting away". This repo defines its app roles with
+**Allowed member types = Applications** only
+(`docs/runbooks/entra-app-registrations.md`). Microsoft Graph's `appRole` model
+treats `allowedMemberTypes` `["User"]` as covering users AND groups, and
+`["Application"]` as covering other applications only. An Applications-only role
+therefore **cannot be assigned to a user at all**. Reaching the counterfactual
+takes two deliberate changes, not one: widen the role's `allowedMemberTypes` to
+include `User`, and then assign it. So the denial is configurational in the
+sense that configuration could change it, but it is not one toggle away, and no
+accidental assignment can produce it.
+
+Because the tool calls nothing downstream, there is no OBO exchange and no
+downstream token acquisition anywhere on this path: authorization begins and
+ends at the MCP tool boundary.
+
 ### Header trust chain (issue 10)
 
 The server does **not** perform full in-code JWT signature validation. It

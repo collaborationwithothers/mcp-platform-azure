@@ -133,6 +133,16 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <delegated to
   passthrough. Also confirms the delegated `scp` claim-type detection works live
   (the delegated branch fired).
 
+- **Note added 2026-08-08:** a second tool, `get_service_info`, landed later
+  under issue #76 (issue #79 is the slice that implemented it). A fresh run
+  against the current server therefore lists TWO tools, not one; the
+  transcript above is unchanged and remains correct for the date it was
+  captured (2026-07-19), before that tool existed. A delegated caller like the
+  one in this transcript is denied `get_service_info`. That tool requires the
+  application role `ServiceInfo.Read`, and the app-role grant made to the
+  client application does not appear in a delegated token. That denial is
+  expected behaviour, not a regression.
+
 - **Open / honest notes:**
   - The exact `X-MS-CLIENT-PRINCIPAL` claim-type STRING form (short `scp` vs a
     mapped schema URI) was NOT directly observed from server logs; it is
@@ -179,6 +189,10 @@ McpTestClient output:
 [McpTestClient] unknown id OK: typed not-found (found:false) for CONTOSO-9999.
 [McpTestClient] All session and tool assertions passed.
 ```
+
+**Note added 2026-08-08:** this run also predates `get_service_info`, so its
+`1 tool(s)` line is correct for 2026-07-22 and is left unchanged. See the note
+under Run 2026-07-19 above for what a fresh run lists today.
 
 **Negative arm (same non-admin, unassigned).** With the user removed from the
 downstream app, the delegated call FAILED -- `get_order_status` returned an MCP
