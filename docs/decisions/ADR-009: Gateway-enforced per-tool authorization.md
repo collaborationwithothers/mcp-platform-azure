@@ -761,18 +761,43 @@ inferred from the single-tool checks.
 
 **What remains unproven, and why this gate cannot close it.** The
 `tool_authorization_map`'s policy fragment supports three claim shapes per
-tool: `role`, `scope`, and `unrestricted` (D2 above). Every tool mapped in this
-repo so far, including `get_service_info`, uses `role`. The `scope` and
-`unrestricted` branches remain completely unexercised by any live run. `scope`
-is not merely undone; it is unprovable by THIS gate as constructed. The gate's
-tokens are all client-credentials tokens, and client-credentials tokens carry
-no `scp` claim at all (ADR-006, "OBO exchange" and the delegated-token
-discussion). A `scp` claim requires a delegated, user-context token, which no
-non-interactive CI mechanism can acquire. Proving the `scope` branch needs
-either an interactive token source or a different test harness, not a new
-Entra client. `unrestricted` needs only a third tool mapped that way; issue #82
-tracks adding one, and issue #83 tracks how the `scope` branch's evidence gap
-gets closed. Both issues are open and out of scope for #80.
+tool: `role`, `scope`, and `unrestricted` (D2 above). Checks (b) through (g)
+all exercise `role`. Issue #82 added a third tool, `get_access_guidance`,
+mapped `unrestricted`, and gate check (h) asserts that the under-entitled
+client of `docs/runbooks/entra-app-registrations.md` section 3 calling that
+tool gets a real result back rather than a `-32001`. That check has not yet run
+against a live environment; when it does, the run link belongs here. That
+leaves `scope` as the only shape no gate check covers at all, and `scope` is
+not merely undone; it is
+unprovable by THIS gate as constructed. The gate's tokens are all
+client-credentials tokens, and client-credentials tokens carry no `scp` claim
+at all (ADR-006, "OBO exchange" and the delegated-token discussion). A `scp`
+claim requires a delegated, user-context token, which no non-interactive CI
+mechanism can acquire. Proving the `scope` branch needs either an interactive
+token source or a different test harness, not a new Entra client. Issue #83
+tracks how that evidence gap gets closed; it is open and out of scope here.
+
+**What `unrestricted` relaxes, stated exactly, because the word invites a
+larger reading than the branch deserves.** It drops the per-TOOL entitlement
+check, and nothing else. A caller still needs a valid token for the server's
+audience, which `validate-azure-ad-token` checks before any per-tool logic
+runs. The per-SERVER entitlement check still applies one layer earlier: on
+server 1 that is `Orders.Invoke.All`, or the matching scope under the same
+OR semantics, and a caller holding neither is refused before the map is read at
+all. The backend's Easy Auth still validates the token independently and
+injects the client principal. And the tool itself still resolves that principal
+and fail-closed rejects a caller it cannot identify
+(`src/McpTools/Tools/GetAccessGuidance.cs`). Unrestricted is not
+unauthenticated; it is one check fewer, at one layer.
+
+That per-server check is also why check (h) runs on server 1 only, and why the
+absence of a server 2 result is deliberate rather than an oversight. The
+under-entitled client holds `Orders.Invoke.All` and nothing for server 2, so at
+server 2 its token is refused at the per-server check one layer before the
+per-tool map is consulted. A success assertion there could never pass, and
+running it `WarnOnly` would print a permanent warning that says nothing. If a
+future client is granted both servers' entitlements, the same check covers
+server 2 unchanged.
 
 **Audit events were deliberately not extended to checks (e) and (g).** The
 audit-event mechanism itself is already proven, twice, by checks (c) and (d)

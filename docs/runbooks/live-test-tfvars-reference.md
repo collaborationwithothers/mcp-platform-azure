@@ -121,11 +121,13 @@ as of issue #18:
 
   "tool_authorization_map": {
     "get_order_status": { "role": "Orders.Read" },
-    "get_service_info": { "role": "ServiceInfo.Read" }
+    "get_service_info": { "role": "ServiceInfo.Read" },
+    "get_access_guidance": { "unrestricted": true }
   },
   "server_2_tool_authorization_map": {
     "get_order_status": { "role": "Orders.Read" },
-    "get_service_info": { "role": "ServiceInfo.Read" }
+    "get_service_info": { "role": "ServiceInfo.Read" },
+    "get_access_guidance": { "unrestricted": true }
   },
 
   "registry_name": "apic-mcp-tracer",
@@ -158,14 +160,26 @@ corrected to the real, confirmed values.
 `tool_authorization_map` / `server_2_tool_authorization_map` (issue 18):
 `scope` and `unrestricted` are both optional per key and may be omitted
 entirely when only `role` applies, exactly as shown -- Terraform's
-`optional(...)` fills `scope = null`, `unrestricted = false`. Both servers
-carry the SAME map here because both still forward to the same backend. That
-backend (`src/McpTools/`) now exposes TWO tools, each gated on a different
-role: `get_order_status` on `Orders.Read`, and `get_service_info` (issue 79)
-on `ServiceInfo.Read`, both checked by the issue-45 `AppRoleAuthorization`
-mechanism. A server exposing a different tool set needs a different map; the
-live gate's per-server set-equality assertion (ADR-009) is what proves
-whichever map is configured still matches that server's real `tools/list`.
+`optional(...)` fills `scope = null`, `unrestricted = false`. The same holds in
+the other direction: an `unrestricted` entry omits `role` entirely and
+`optional(...)` fills `role = null`, so the `get_access_guidance` entry above is
+complete rather than truncated. Both servers carry the SAME map here because
+both still forward to the same backend. That backend (`src/McpTools/`) now
+exposes THREE tools. Two are gated on a role each: `get_order_status` on
+`Orders.Read`, and `get_service_info` (issue 79) on `ServiceInfo.Read`, both
+checked by the issue-45 `AppRoleAuthorization` mechanism. The third,
+`get_access_guidance` (issue 82), is gated on nothing by design. It is the only
+tool mapped `unrestricted`, and it is mapped that way so something executes that
+branch of the policy fragment. A server exposing a different tool set needs a
+different map; the live gate's per-server set-equality assertion (ADR-009) is
+what proves whichever map is configured still matches that server's real
+`tools/list`.
+
+Both maps must carry the `get_access_guidance` key even though the live gate's
+check (h) only calls that tool at server 1. Both servers front the same backend,
+so each server's check (a) runs against the same `tools/list`. A key present in
+only one map leaves the other server with a tool that has no map entry, which
+fails that server's set-equality assertion.
 
 **Deployment coupling: this JSON lives in a secret, not in this repo.**
 `tool_authorization_map` and `server_2_tool_authorization_map` are supplied
@@ -175,7 +189,9 @@ not from any file in this repository. A PR that adds a tool to the backend
 cannot also add that tool's key to this map, because the map is not code the
 PR can touch.
 **Hari must update the `S2_TFVARS_JSON` secret** to add `get_service_info` to
-BOTH maps above. This is a manual step; no PR can perform it.
+BOTH maps above. This is a manual step; no PR can perform it. The same is true
+of `get_access_guidance` (issue 82), with one difference: that entry names no
+app role, so it has no Entra half to follow. Adding the key is the whole step.
 
 The secret update is necessary but NOT sufficient to make the tool callable.
 The app role it names has to exist and be granted as well: `ServiceInfo.Read`

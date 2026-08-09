@@ -206,6 +206,52 @@ Because the tool calls nothing downstream, there is no OBO exchange and no
 downstream token acquisition anywhere on this path: authorization begins and
 ends at the MCP tool boundary.
 
+### get_access_guidance authorization (issue 82)
+
+`get_access_guidance` is the one tool on this server that applies no per-tool
+entitlement check, and that absence is the point of the tool rather than a gap
+in it. Two things needed it. A caller who holds nothing yet still has to be
+able to find out which entitlements this server's tools require and how to ask
+for one, and that answer has to be readable BEFORE you hold any entitlement.
+And the gateway's `tool_authorization_map` classifies every tool as needing a
+scope, needing a role, or `unrestricted` (ADR-009, D2), yet no deployed tool
+used `unrestricted`, so nothing executed that branch and a break in it would
+have gone unnoticed.
+
+**`unrestricted` relaxes the per-tool check and nothing else.** The caller
+still needs a valid token for this server's audience. The gateway's per-server
+entitlement check still applies one layer earlier (`Orders.Invoke.All` on
+server 1, or the matching scope under the same OR semantics). Easy Auth still
+validates the token at the Function App and injects `X-MS-CLIENT-PRINCIPAL`.
+The tool then resolves that principal with
+`IdentityModeResolver.ResolveWithPrincipal` and fail-closed rejects
+`MissingPrincipal` and `MalformedPrincipal`, exactly as the other two tools do.
+Open is not unauthenticated.
+
+The response is compiled-in constants: no environment reads, no configuration
+reads, no host name, no resource id, no clock. That is the same constraint
+`get_service_info` carries, for the same reason. A tool whose job is proving an
+authorization boundary must not become another route by which a real
+deployment's identity reaches this public repository's demo output. The role
+names it emits are this repository's own public demo role names and identify no
+tenant.
+
+**Read the `requiredEntitlements` list as a description of the BACKEND, not as
+a copy of the gateway map.** The two use different vocabularies deliberately.
+The gateway map has three words for a tool: scope, role, unrestricted. The
+backend has a mechanism the gateway has no word for. On `get_order_status`'s
+delegated path no application-role check runs at the MCP layer at all; the
+caller's own authority travels to the downstream Orders API through the OBO
+exchange, and Entra's assignment-required gate on that API decides at
+token-exchange time. That is why the delegated row for `get_order_status` names
+`downstreamAssignmentRequired` and carries no role. See "Trusted-subsystem
+trade-off and backstop asymmetry" below for how that gate was established and
+for the caveat that Global Administrators bypass it. Because one tool can be
+authorized two different ways depending on the caller's identity mode, each row
+carries an `appliesTo` and a `mechanism`, and the list is total over tool TIMES
+identity mode rather than over tools. `ToolEntitlementParityTests` fails the
+build if a tool ships without both of its rows.
+
 ### Header trust chain (issue 10)
 
 The server does **not** perform full in-code JWT signature validation. It

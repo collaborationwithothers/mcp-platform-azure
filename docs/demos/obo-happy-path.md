@@ -133,15 +133,19 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <delegated to
   passthrough. Also confirms the delegated `scp` claim-type detection works live
   (the delegated branch fired).
 
-- **Note added 2026-08-08:** a second tool, `get_service_info`, landed later
-  under issue #76 (issue #79 is the slice that implemented it). A fresh run
-  against the current server therefore lists TWO tools, not one; the
+- **Note added 2026-08-08, count updated 2026-08-09:** two tools landed after
+  this transcript was captured. `get_service_info` came first, under issue #76
+  (issue #79 is the slice that implemented it), and `get_access_guidance` under
+  issue #82. A fresh run
+  against the current server therefore lists THREE tools, not one; the
   transcript above is unchanged and remains correct for the date it was
-  captured (2026-07-19), before that tool existed. A delegated caller like the
+  captured (2026-07-19), before either tool existed. A delegated caller like the
   one in this transcript is denied `get_service_info`. That tool requires the
   application role `ServiceInfo.Read`, and the app-role grant made to the
   client application does not appear in a delegated token. That denial is
-  expected behaviour, not a regression.
+  expected behaviour, not a regression. `get_access_guidance` applies no
+  per-tool entitlement check in either identity mode, so a delegated caller is
+  not denied it.
 
 - **Open / honest notes:**
   - The exact `X-MS-CLIENT-PRINCIPAL` claim-type STRING form (short `scp` vs a

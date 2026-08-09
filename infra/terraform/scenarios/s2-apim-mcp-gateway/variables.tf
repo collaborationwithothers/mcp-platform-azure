@@ -134,11 +134,14 @@ variable "server_2_required_role" {
 
 # Per-tool authorization (issue 18). Same unprefixed/server_2_* convention as
 # required_scope/required_role above. Each map is the hand-maintained
-# passthrough provenance for that server's tool surface (currently one tool,
-# get_order_status -- src/McpTools/Tools/GetOrderStatus.cs -- gated on the
-# Orders.Read app role, matching the issue-45 MCP-layer check it sits in front
-# of). The live gate's per-server set-equality assertion is what proves this
-# map has not drifted from the deployed server's tools/list; ADR-009.
+# passthrough provenance for that server's tool surface. Three tools today, all
+# under src/McpTools/Tools/: get_order_status gated on the Orders.Read app role,
+# get_service_info (issue 79) on ServiceInfo.Read -- both matching the issue-45
+# MCP-layer checks they sit in front of -- and get_access_guidance (issue 82)
+# mapped unrestricted = true, which applies no per-tool check at all and is the
+# only tool exercising that branch of the policy fragment. The live gate's
+# per-server set-equality assertion is what proves this map has not drifted from
+# the deployed server's tools/list; ADR-009.
 variable "tool_authorization_map" {
   type = map(object({
     scope        = optional(string)
