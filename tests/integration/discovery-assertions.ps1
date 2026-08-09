@@ -684,7 +684,9 @@ function Assert-ToolAuthorization {
         } elseif ($null -ne (Get-JsonRpcError $serviceCallResult)) {
             & $assertFail "tools/call '$ServiceToolName' with the service-tool token returned an unexpected JSON-RPC error (code $(Get-JsonRpcErrorCode $serviceCallResult)): $(Get-JsonRpcErrorMessage $serviceCallResult). Expected a successful result, not any error."
         } elseif ($null -eq (Get-SafeProperty $serviceCallResult 'result')) {
-            & $assertFail "tools/call '$ServiceToolName' with the service-tool token returned neither a result nor an error (unexpected response shape)."
+            $bodyPreview = ($serviceCallResult | ConvertTo-Json -Depth 8 -Compress)
+            if ($bodyPreview.Length -gt 500) { $bodyPreview = $bodyPreview.Substring(0, 500) + '...(truncated)' }
+            & $assertFail "tools/call '$ServiceToolName' with the service-tool token returned neither a result nor an error (unexpected response shape). Parsed body: $bodyPreview"
         } else {
             Pass "${Label}: tools/call '$ServiceToolName' succeeded with the service-tool token (per-tool check passed, result returned)."
         }
@@ -705,7 +707,9 @@ function Assert-ToolAuthorization {
         if (Test-LegacyHttpDenial $serviceDenyResult) {
             & $assertFail "tools/call '$MappedToolName' with the service-tool token was rejected before reaching the per-tool gate: '$(Get-JsonRpcError $serviceDenyResult)'; this token is not entitled at the per-server layer."
         } elseif (-not (Test-ToolAuthDenial $serviceDenyResult)) {
-            & $assertFail "tools/call '$MappedToolName' with the service-tool token was NOT denied with -32001; entitlement for one tool must not grant another tool on the same server."
+            $bodyPreview = ($serviceDenyResult | ConvertTo-Json -Depth 8 -Compress)
+            if ($bodyPreview.Length -gt 500) { $bodyPreview = $bodyPreview.Substring(0, 500) + '...(truncated)' }
+            & $assertFail "tools/call '$MappedToolName' with the service-tool token was NOT denied with -32001; entitlement for one tool must not grant another tool on the same server. Parsed body: $bodyPreview"
         } else {
             Pass "${Label}: tools/call '$MappedToolName' with the service-tool token denied with -32001 (cross-tool differentiation, direction 2)."
         }
