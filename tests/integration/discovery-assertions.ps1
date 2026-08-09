@@ -117,6 +117,12 @@ param(
     # A synthetic tool name guaranteed absent from any map; used for the
     # unmapped-probe-denied assertion (default-deny branch).
     [string]$UnmappedProbeToolName = 'issue18_unmapped_probe_tool',
+    # Issue 82: the tool mapped unrestricted = true in both servers' maps. Check
+    # (h) calls it with the under-entitled token to prove the policy fragment's
+    # unrestricted branch actually admits a caller. A parameter for the same
+    # reason MappedToolName is: a future change of which tool is the open one
+    # should be a call-site change, not a script edit.
+    [string]$OpenToolName = 'get_access_guidance',
     # A second, distinct synthetic tool name used ONLY to warm the Event Hub
     # logger's connection before the timed per-tool audit-event checks run
     # (see the warm-up block ahead of check 9's loop). Kept distinct from
@@ -491,6 +497,8 @@ function Test-ToolAuthDenial($parsedBody) {
 # and the service-tool caller is denied the mapped tool (g). Generic: same
 # code path for every server instance (issue-18 acceptance criterion
 # "expressed as a loop over the server instances").
+# ... and (h, issue 82, server 1 only) the unrestricted branch: the
+# under-entitled caller SUCCEEDS on the deliberately open tool.
 # WarnOnly converts Fail calls to ::warning:: (used for server 2 where token
 # entitlement is out-of-band and results may be inconclusive).
 function Assert-ToolAuthorization {
@@ -504,6 +512,7 @@ function Assert-ToolAuthorization {
         [string]$UnderEntitledToken = '',
         [string]$ServiceToolToken = '',
         [string]$ServiceToolName = 'get_service_info',
+        [string]$OpenToolName = 'get_access_guidance',
         [string]$EventHubNamespaceFqdn = '',
         [string]$EventHubName = '',
         [switch]$WarnOnly
@@ -716,6 +725,57 @@ function Assert-ToolAuthorization {
         Write-Host ''
     } else {
         Write-Host "::warning::[$Label] cross-tool differentiation checks (e)/(f)/(g) skipped: no ServiceToolToken supplied."
+    }
+
+    # (h) The unrestricted branch (issue 82). tool_authorization_map classifies
+    # every tool as requiring a scope, requiring a role, or unrestricted
+    # (ADR-009, D2). Checks (b) through (g) all exercise the ROLE branch;
+    # before this check nothing had ever executed the unrestricted branch, so a
+    # break in it would have gone unnoticed while the repo claimed the map was
+    # total and every branch deliberate.
+    #
+    # SERVER 1 ONLY, and the guard is deliberate rather than incidental. The
+    # under-entitled client (entra-app-registrations.md section 3) holds
+    # Orders.Invoke.All and nothing for server 2, so at server 2 its token is
+    # rejected at the PER-SERVER check one layer before the per-tool map is
+    # consulted. A success assertion there could never pass; running it
+    # warn-only would print a permanent, meaningless warning on every run. If a
+    # future client is granted both servers' entitlements, drop the -not
+    # $WarnOnly guard and this check covers server 2 for free.
+    #
+    # No Assert-AuditEventEmitted call: an ALLOW emits no deny event, so there
+    # is nothing to read back.
+    if (-not [string]::IsNullOrEmpty($UnderEntitledToken) -and -not $WarnOnly) {
+        Write-Host "[$Label-h] $ServerUrl tools/call '$OpenToolName' with the under-entitled token SUCCEEDS (unrestricted branch)"
+        $openCallResult = Invoke-JsonRpc -Uri $ServerUrl -Token $UnderEntitledToken -Method 'tools/call' -Id 7 `
+            -ParamsJson "{`"name`":`"$OpenToolName`",`"arguments`":{}}"
+        $openCallError = Get-JsonRpcError $openCallResult
+        $openCallResultBody = Get-SafeProperty $openCallResult 'result'
+        if ($null -eq $openCallResult) {
+            & $assertFail "tools/call '$OpenToolName' with the under-entitled token: response was not valid JSON."
+        } elseif (Test-LegacyHttpDenial $openCallResult) {
+            & $assertFail "tools/call '$OpenToolName' with the under-entitled token was rejected before reaching the per-tool gate: '$(Get-JsonRpcError $openCallResult)'; this token is not entitled at the per-server layer, so the unrestricted branch was never reached."
+        } elseif ($null -ne $openCallError) {
+            & $assertFail "tools/call '$OpenToolName' with the under-entitled token returned a JSON-RPC error (code $(Get-JsonRpcErrorCode $openCallResult)): $(Get-JsonRpcErrorMessage $openCallResult). A tool mapped unrestricted = true must admit any caller that clears the per-server check; a -32001 here means the unrestricted branch did not allow."
+        } elseif ($null -eq $openCallResultBody) {
+            $bodyPreview = ($openCallResult | ConvertTo-Json -Depth 8 -Compress)
+            if ($bodyPreview.Length -gt 500) { $bodyPreview = $bodyPreview.Substring(0, 500) + '...(truncated)' }
+            & $assertFail "tools/call '$OpenToolName' with the under-entitled token returned neither a result nor an error (unexpected response shape). Parsed body: $bodyPreview"
+        } elseif ($true -eq (Get-SafeProperty $openCallResultBody 'isError')) {
+            # Not redundant with the error check above, and (b)/(f) do not have
+            # this condition. A tool method cannot emit a JSON-RPC error; a
+            # fail-closed throw becomes a 200 + result + isError = true carrying
+            # the SDK's generic "An error occurred invoking '<tool>'."
+            # (COMPATIBILITY.md, "MCP tool method: thrown exception wire shape").
+            # Without this branch, the gateway allowing the call and the BACKEND
+            # then refusing the caller would both read as a pass.
+            $errorPreview = ($openCallResultBody | ConvertTo-Json -Depth 8 -Compress)
+            if ($errorPreview.Length -gt 500) { $errorPreview = $errorPreview.Substring(0, 500) + '...(truncated)' }
+            & $assertFail "tools/call '$OpenToolName' with the under-entitled token passed the gateway but the TOOL returned isError = true; the unrestricted branch allowed, the backend then refused. Result: $errorPreview"
+        } else {
+            Pass "${Label}: tools/call '$OpenToolName' succeeded with the under-entitled token (unrestricted branch allowed, real result returned, isError not set)."
+        }
+        Write-Host ''
     }
 }
 
@@ -1218,6 +1278,7 @@ if ($perToolServers.Count -gt 0) {
             -UnderEntitledToken $UnderEntitledToken `
             -ServiceToolToken $ServiceToolToken `
             -ServiceToolName $ServiceToolName `
+            -OpenToolName $OpenToolName `
             -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
             -EventHubName $EventHubName `
             -WarnOnly:$srv.WarnOnly
