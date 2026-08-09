@@ -79,14 +79,21 @@ updates:
     # declares hashicorp/azurerm >= 4.0, < 5.0. That is the ONLY pinned AVM
     # module with an azurerm constraint. avm-res-web-site is azapi-based and
     # has none, at any version; do not cite it here (an earlier COMPATIBILITY
-    # row did, and was wrong). Lift this ignore only after that one module
-    # accepts AzureRM 5 AND the major is reviewed against the provider's 5.0
-    # upgrade guide as one change, because these modules also call azurerm
-    # resources directly (service_plan, storage_account, storage_container,
-    # user_assigned_identity, role_assignment, eventhub_namespace, eventhub,
-    # monitor_diagnostic_setting). The cue to revisit is a Dependabot bump PR
-    # for avm-res-apimanagement-service: AVM module bumps are not ignored, so
-    # that PR is the only automated signal that this ignore may be liftable.
+    # row did, and was wrong).
+    #
+    # Lift this ignore only when BOTH conditions hold, as one change:
+    #   1. avm-res-apimanagement-service publishes a release whose azurerm
+    #      constraint accepts 5.x.
+    #   2. This repo's own azurerm resources are validated against the AzureRM
+    #      5.0 upgrade guide. The two modules declare nine azurerm resources
+    #      across eight types (service_plan, storage_account,
+    #      storage_container, user_assigned_identity, role_assignment,
+    #      eventhub_namespace, eventhub, monitor_diagnostic_setting), none of
+    #      them from an AVM module, so condition 1 says nothing about them.
+    # Condition 1 announces itself: AVM module bumps are not ignored, so a
+    # Dependabot bump PR for avm-res-apimanagement-service is the signal.
+    # Condition 2 does not, and is the larger job. Treat that bump PR as
+    # permission to start, not permission to finish. Tracked as issue 96.
     #
     # Use a `versions` range here, never `update-types:
     # version-update:semver-major`. An update-type condition needs a concrete
