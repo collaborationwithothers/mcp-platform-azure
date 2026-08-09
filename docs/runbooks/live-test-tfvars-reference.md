@@ -109,13 +109,13 @@ as of issue #18:
     "audience": "api://<server-app-client-id>",
     "allowed_client_application_ids": ["<test-client-app-id>"]
   },
-  "prm_scopes": ["api://<server-app-client-id>/user_impersonation"],
+  "prm_scopes": ["api://<server-app-client-id>/Orders.Invoke"],
   "required_scope": "Orders.Invoke",
   "required_role": "Orders.Invoke.All",
 
   "server_2_name": "orders-mcp-2",
   "server_2_path": "orders2",
-  "server_2_prm_scopes": ["api://<server-app-client-id>/user_impersonation"],
+  "server_2_prm_scopes": ["api://<server-app-client-id>/Catalog.Invoke"],
   "server_2_required_scope": "Catalog.Invoke",
   "server_2_required_role": "Catalog.Invoke.All",
 
@@ -140,20 +140,20 @@ as of issue #18:
 above).
 `deployment_profile` and `registry_deployment` are optional and omitted here.
 
-**Correction (2026-08-09, issue #80):** `required_scope`/`required_role` and
-`server_2_required_scope`/`server_2_required_role` previously showed
-`mcp.orders.invoke`/`Mcp.Orders.Invoke` and
-`mcp.orders2.invoke`/`Mcp.Orders2.Invoke`. None of those four strings exist on
-the live server app registration; direct review of its App roles and Expose
-an API blades (2026-08-09) shows the real values are `Orders.Invoke` /
-`Orders.Invoke.All` (server 1) and `Catalog.Invoke` / `Catalog.Invoke.All`
-(server 2), now corrected above. `prm_scopes` / `server_2_prm_scopes` were not
-independently re-verified against this same evidence and are left unchanged
-here; per `entra-app-registrations.md` section 1a each should carry that
-server's OWN scope URI (e.g. `api://<server-app-client-id>/Catalog.Invoke` for
-server 2), not `user_impersonation` as shown -- worth a direct check against
-the live `S2_TFVARS_JSON` secret before trusting this file's `prm_scopes`
-values.
+**Correction (2026-08-09, issue #80):** this file previously showed
+`required_scope`/`required_role` as `mcp.orders.invoke`/`Mcp.Orders.Invoke`,
+`server_2_required_scope`/`server_2_required_role` as
+`mcp.orders2.invoke`/`Mcp.Orders2.Invoke`, and both `prm_scopes` and
+`server_2_prm_scopes` as `[".../user_impersonation"]`. None of those match
+reality. Direct review of the live server app registration's App roles and
+Expose an API blades (2026-08-09) confirmed the real role/scope names are
+`Orders.Invoke` / `Orders.Invoke.All` (server 1) and `Catalog.Invoke` /
+`Catalog.Invoke.All` (server 2); Hari then confirmed the live
+`S2_TFVARS_JSON` secret's actual `prm_scopes` and `server_2_prm_scopes`
+values directly, which matched `entra-app-registrations.md` section 1a's
+convention (each server's PRM carries only its own scope URI) rather than the
+stale `user_impersonation` this file showed. All four fields above are now
+corrected to the real, confirmed values.
 
 `tool_authorization_map` / `server_2_tool_authorization_map` (issue 18):
 `scope` and `unrestricted` are both optional per key and may be omitted
