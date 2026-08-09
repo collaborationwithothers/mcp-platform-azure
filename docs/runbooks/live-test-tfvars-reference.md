@@ -159,11 +159,23 @@ corrected to the real, confirmed values.
 
 **Correction (2026-08-09, issue #82):** this file previously showed
 `server_name` as `orders-mcp`, `server_2_name` as `orders-mcp-2`, and
-`server_2_path` as `orders2`. None of those match reality either. Hari read the
-live `S2_TFVARS_JSON` secret directly on 2026-08-09; the real values are
-`orders` (server 1's name and path) and `catalog` (server 2's name and path).
-Server 2's name and path now match its scope family, `Catalog.Invoke`, which the
-previous `orders2` did not.
+`server_2_path` as `orders2`. None of those match reality either. The corrected
+values are `orders` (server 1's name and path) and `catalog` (server 2's name
+and path). Server 2's name and path now match its scope family,
+`Catalog.Invoke`, which the previous `orders2` did not.
+
+**The two corrected fields do not rest on equally strong evidence, and the
+difference is worth stating rather than smoothing over.** The PATHS are
+independently confirmed: gate run
+[31314241913](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31314241913)
+printed the live server URLs as `.../orders/runtime/webhooks/mcp` and
+`.../catalog/runtime/webhooks/mcp`, so anyone can re-derive them from a run log.
+The NAMES are not. `server_name` and `server_2_name` appear in no gate output,
+no Terraform output this repo asserts on, and no CI check; the sole basis is
+Hari reading the live `S2_TFVARS_JSON` secret on 2026-08-09. Treat them as
+correct-on-report rather than verified, and re-check them the same way if they
+ever matter. That asymmetry is also the reason this drift survived two issues:
+nothing in the repository can see a server name.
 
 Why this one is worth recording rather than quietly fixing: `server_2_path` is
 the URL segment clients actually connect to, so a reader following this file

@@ -54,6 +54,35 @@ namespace McpTools.Tools;
 /// every combination. ToolEntitlementParityTests enforces that totality at
 /// build time; nothing else would.
 ///
+/// WHY THE SUMMARY CARRIES CAVEATS THE LIST DOES NOT. Governance review of
+/// issue 82 found the original summary stating the downstream assignment gate
+/// as settled fact and omitting the Global Administrator bypass, while this
+/// comment carried both qualifications. That inversion was backwards: the
+/// summary is the part that travels over the wire to a caller whose only other
+/// context is docsUrl, so it is the LAST place a qualification may be dropped,
+/// not the first. Independent verification against Microsoft Learn on
+/// 2026-08-09 graded it: the assignment-required gate is VERIFIED for OAuth 2.0
+/// access-token requests generally, the Global Administrator bypass is VERIFIED
+/// and is the only role Learn names, and the on-behalf-of token exchange
+/// specifically is UNVERIFIABLE from Learn. The canonical OBO protocol page
+/// does not mention assignment-required or AADSTS50105 at all, and the
+/// AADSTS50105 troubleshooting article is scoped to SAML federated sign-in. The
+/// summary now says exactly that, and names the 2026-07-22 live test as the
+/// basis. See docs/security.md, "Trusted-subsystem trade-off and backstop
+/// asymmetry".
+///
+/// WHY THE SUMMARY NAMES THE PER-SERVER ROLES BUT THE LIST DOES NOT. Same
+/// review found the response omitted the entitlement a caller holding nothing
+/// is most likely missing: the gateway's per-SERVER check, which fires before
+/// any per-tool logic. Hari's call was to name it. It is named in the summary
+/// PROSE and deliberately not added to requiredEntitlements, because a
+/// structured field reads as authoritative in a way prose does not, and these
+/// two values cannot be guarded. They live in a deployment secret with no
+/// repo-side drift guard available: the same secret's server names were wrong
+/// in this repo across two issues before anyone noticed. The summary therefore
+/// names them AND declares the gateway map authoritative on disagreement, which
+/// is the strongest honest form available for a value this code cannot check.
+///
 /// WHAT THE LIST DELIBERATELY DOES NOT SAY. It does not say that no user can
 /// satisfy ServiceInfo.Read in this deployment, which is true today only because
 /// the role is declared with Allowed member types = Applications only. That is a
@@ -98,19 +127,36 @@ public sealed class GetAccessGuidance
     internal const string DocsUrlValue = "https://github.com/collaborationwithothers/mcp-platform-azure";
 
     internal const string SummaryValue =
-        "Every tool on this server is authorized independently, so holding the "
-        + "entitlement for one tool does not grant another. requiredEntitlements "
-        + "lists every tool on this server and, for each caller identity mode, the "
-        + "mechanism that authorizes it. An application-context caller (client "
-        + "credentials) is authorized by the named Entra application role. A "
-        + "delegated (user-context) caller is authorized per tool: get_service_info "
-        + "applies the same application-role check, while get_order_status carries "
-        + "the caller's own authority to the downstream Orders API, where Entra's "
-        + "assignment-required gate on that API decides at token-exchange time. "
-        + "This tool itself is unrestricted by design so that a caller holding "
-        + "nothing can still read this; unrestricted relaxes the per-tool check and "
-        + "nothing else, and a valid token plus this server's own entitlement are "
-        + "still required. To request an entitlement, see docsUrl.";
+        "Two layers authorize a call and they fail in a fixed order. FIRST the "
+        + "gateway checks a per-SERVER entitlement, before it considers which tool "
+        + "you asked for, so a caller that fails it never reaches the tool layer at "
+        + "all. That is the entitlement a caller holding nothing is most likely "
+        + "missing. As deployed it is the application role Orders.Invoke.All or "
+        + "Catalog.Invoke.All, depending on which of this deployment's servers you "
+        + "connected to, or the matching delegated scope: either satisfies the "
+        + "check. Those two names are deployment configuration rather than a "
+        + "property of this software, and this response is compiled in, so if they "
+        + "ever disagree with the gateway's own authorization map the map is "
+        + "authoritative. SECOND, each tool is authorized independently, so holding "
+        + "the entitlement for one tool does not grant another. "
+        + "requiredEntitlements lists every tool and, for each caller identity "
+        + "mode, the mechanism that authorizes it. An application-context caller "
+        + "(client credentials) is authorized by the named Entra application role. "
+        + "A delegated (user-context) caller is authorized per tool: "
+        + "get_service_info applies the same application-role check, while "
+        + "get_order_status carries the caller's own authority to the downstream "
+        + "Orders API, where that API's assignment-required setting governs whether "
+        + "a token is issued at all. Two limits on that last statement, because it "
+        + "is the least certain thing here. Microsoft documents the "
+        + "assignment-required gate for OAuth 2.0 access-token requests generally "
+        + "and does not document it for the on-behalf-of token exchange "
+        + "specifically; this deployment established that behaviour by its own live "
+        + "test on 2026-07-22 rather than from documentation. And Global "
+        + "Administrators bypass the gate, so it does not constrain them. This tool "
+        + "itself is unrestricted by design so that a caller holding nothing can "
+        + "still read this. Unrestricted relaxes the per-tool check and nothing "
+        + "else: a valid token for this server, and the per-server entitlement "
+        + "above, are both still required. To request an entitlement, see docsUrl.";
 
     internal const string DataDisclaimerValue =
         "This response is fixed guidance compiled into the server build. It reads no "

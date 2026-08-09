@@ -777,6 +777,18 @@ function Assert-ToolAuthorization {
             Pass "${Label}: tools/call '$OpenToolName' succeeded with the under-entitled token (unrestricted branch allowed, real result returned, isError not set)."
         }
         Write-Host ''
+    } elseif (-not $WarnOnly) {
+        # Say so out loud when (h) does not run on the server where it is
+        # supposed to be gating. Checks (e)/(f)/(g) warn when their token is
+        # absent; (d) does not, and (h) followed (d)'s quieter pattern until the
+        # issue-82 governance review pointed out that the two cases are no longer
+        # comparable. ADR-009, live-test-gate.md and docs/security.md now all
+        # describe the unrestricted branch as exercised, and check (h) is the
+        # only thing that exercises it. If UnderEntitledToken ever goes missing,
+        # a silent skip would leave those three documents asserting a proof that
+        # stopped happening, with a green run to back them up.
+        Write-Host "::warning::[$Label-h] SKIPPED: UnderEntitledToken is empty, so the unrestricted-branch check did not run. This is NOT evidence the branch works; ADR-009 and docs/security.md describe it as exercised on the strength of this check alone."
+        Write-Host ''
     }
 }
 

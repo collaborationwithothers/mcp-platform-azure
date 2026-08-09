@@ -187,6 +187,42 @@ public class GetAccessGuidanceTests
     }
 
     [Fact]
+    public void Summary_KeepsTheQualificationsOnTheLeastCertainClaimItMakes()
+    {
+        // Governance review of issue 82 found the summary asserting the
+        // downstream assignment gate as settled fact while the class doc comment
+        // carried the qualifications. The summary is the part that reaches a
+        // caller who cannot read the comment, so it is the last place a
+        // qualification may be dropped. This test exists so a future edit that
+        // tightens the prose cannot quietly drop them again.
+        //
+        // Verified against Microsoft Learn 2026-08-09: the gate is VERIFIED for
+        // OAuth 2.0 access-token requests generally, the Global Administrator
+        // bypass is VERIFIED and is the only role Learn names, and the
+        // on-behalf-of exchange specifically is UNVERIFIABLE from Learn.
+        Assert.Contains("does not document it for the on-behalf-of token exchange",
+            GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
+        Assert.Contains("2026-07-22", GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
+        Assert.Contains("Global Administrators bypass the gate",
+            GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Summary_NamesThePerServerEntitlementAndDefersToTheGatewayMap()
+    {
+        // The entitlement a caller holding nothing is most likely missing is the
+        // gateway's per-SERVER check, not any per-tool role. Hari's call on the
+        // issue-82 review was to name it in prose. These two values come from a
+        // deployment secret that this code cannot read and no test can guard, so
+        // the deference sentence is not decoration: it is what keeps the claim
+        // honest when the deployment changes and this constant does not.
+        Assert.Contains("Orders.Invoke.All", GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
+        Assert.Contains("Catalog.Invoke.All", GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
+        Assert.Contains("the map is\nauthoritative".Replace("\n", " "),
+            GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ToolName_And_Description_MatchTheFrozenContract()
     {
         Assert.Equal("get_access_guidance", GetAccessGuidance.ToolName);

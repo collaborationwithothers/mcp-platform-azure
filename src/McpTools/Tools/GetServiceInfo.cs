@@ -71,7 +71,13 @@ public sealed class GetServiceInfo
     // deployed resource: the live servers are named orders and catalog
     // (docs/runbooks/live-test-tfvars-reference.md; this comment said orders-mcp
     // and orders-mcp-2 until issue 82, which was wrong, and the runbook records
-    // the 2026-08-09 correction), and the MCP handshake name
+    // the 2026-08-09 correction). Those two names are correct-on-report, not
+    // verified: they come from a direct read of the live tfvars secret, and no
+    // gate output, Terraform assertion, or CI check in this repo can see a
+    // server NAME. The matching PATHS are verifiable, from the server URLs in
+    // any gate run log. The claim this comment is actually making survives
+    // either way, because ServerNameValue matches none of the four candidates.
+    // The MCP handshake name
     // is whatever the Functions host reports. Not matching them is the point.
     // This tool exists to prove an authorization boundary, and it must not
     // become a route by which a real deployment's identity reaches this public
