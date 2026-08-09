@@ -78,10 +78,21 @@ updates:
     # AzureRM 5 is incompatible with both latest pinned AVM modules as of
     # 2026-08-04. Remove this ignore only after both AVM provider constraints
     # accept AzureRM 5 and the major upgrade is validated as one change.
+    #
+    # Use a `versions` range here, never `update-types:
+    # version-update:semver-major`. An update-type condition needs a concrete
+    # current version to work out what "major" means, and for a `~> 4.80`
+    # constraint Dependabot finds one only by reading .terraform.lock.hcl. The
+    # scenarios have a lock file; the two wrapper modules do not, and should
+    # not (a lock file belongs to a root configuration, not to a consumed
+    # module). There the current version is nil, the condition yields no
+    # ignored ranges, and the rule does nothing at all -- which is how PRs 72
+    # and 91 were opened. A `versions` range applies with or without a lock
+    # file. See the 2026-08-09 change log entry in COMPATIBILITY.md.
     ignore:
       - dependency-name: "hashicorp/azurerm"
-        update-types:
-          - "version-update:semver-major"
+        versions:
+          - ">= 5.0.0"
 
   # GitHub Actions: pinned action versions in .github/workflows. Directory "/"
   # is the documented value; Dependabot scans .github/workflows from there.

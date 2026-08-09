@@ -99,7 +99,7 @@ One row per pin.
 | Azure/login | v3 (major tag; v3.0.0 observed) | .github/workflows/ephemeral-env.yml | Runs the workflow's existing Azure authentication steps. Microsoft Learn still shows v2 in its OIDC samples; upstream v3 retains the documented client-id, tenant-id, and subscription-id inputs and moves the action runtime to Node.js 24. v3 and v3.0.0 resolved to the same commit at verification. | 2026-08-02 | [v3.0.0 release](https://github.com/Azure/login/releases/tag/v3.0.0)<br>[OIDC inputs](https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect) |
 | actions/upload-artifact | v7 (major tag; v7.0.1 observed) | .github/workflows/ephemeral-env.yml | Uploads the gated workflow's discovery evidence. v7 and v7.0.1 resolved to the same commit at verification. | 2026-08-02 | https://github.com/actions/upload-artifact/releases/tag/v7.0.1 |
 | terraform required_version | >= 1.15.8, < 2.0.0 | infra/terraform/modules/mcp-function-host/versions.tf | Matches the spec's Terraform and state pin | 2026-07-11 | https://checkpoint-api.hashicorp.com/v1/check/terraform |
-| azurerm provider | ~> 4.80 | infra/terraform/modules/mcp-function-host/versions.tf, infra/terraform/modules/apim-gateway/versions.tf | Matches the spec's Terraform and state pin. AzureRM 5.0.1 is not currently resolvable: the latest avm-res-web-site (0.22.0) requires azurerm >= 4.0.0, < 5.0.0, and the latest avm-res-apimanagement-service (0.9.0) dependency graph also caps azurerm below 5. Dependabot major updates are ignored until both AVM modules publish AzureRM 5-compatible releases; re-check both module constraints before removing the ignore. | 2026-08-04 (Terraform Registry MCP) | [azurerm 4.80.0](https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0)<br>[avm-res-web-site 0.22.0](https://registry.terraform.io/modules/Azure/avm-res-web-site/azurerm/0.22.0)<br>[avm-res-apimanagement-service 0.9.0](https://registry.terraform.io/modules/Azure/avm-res-apimanagement-service/azurerm/0.9.0) |
+| azurerm provider | ~> 4.80 | infra/terraform/modules/mcp-function-host/versions.tf, infra/terraform/modules/apim-gateway/versions.tf | Matches the spec's Terraform and state pin. AzureRM 5.0.1 is not currently resolvable: the latest avm-res-web-site (0.22.0) requires azurerm >= 4.0.0, < 5.0.0, and the latest avm-res-apimanagement-service (0.9.0) dependency graph also caps azurerm below 5. Dependabot ignores azurerm >= 5.0.0 until both AVM modules publish AzureRM 5-compatible releases; re-check both module constraints before removing the ignore. The ignore is a `versions` range, not an `update-types: version-update:semver-major` condition: these two module directories carry no .terraform.lock.hcl, so Dependabot resolves no current version for the `~> 4.80` constraint and an update-type condition yields no ignored ranges at all. The original 2026-08-04 rule used update-types and was a no-op here, which is how PRs 72 and 91 were opened; see the 2026-08-09 change log entry. | 2026-08-04 (Terraform Registry MCP); 2026-08-09 (ignore rule corrected) | [azurerm 4.80.0](https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0)<br>[avm-res-web-site 0.22.0](https://registry.terraform.io/modules/Azure/avm-res-web-site/azurerm/0.22.0)<br>[avm-res-apimanagement-service 0.9.0](https://registry.terraform.io/modules/Azure/avm-res-apimanagement-service/azurerm/0.9.0) |
 | azapi provider | ~> 2.10 | infra/terraform/modules/mcp-function-host/versions.tf | avm-res-web-site 0.22.0 depends on azapi ~> 2.9; pinned to the spec's floor | 2026-07-12 | https://registry.terraform.io/providers/azure/azapi/2.10.0 |
 | avm-res-web-site | 0.22.0 (exact) | infra/terraform/modules/mcp-function-host/main.tf | Issue-1 AVM capability check (below): expresses both Flex Consumption and Entra built-in auth on this version, no fallback needed | 2026-07-12 | https://registry.terraform.io/modules/Azure/avm-res-web-site/azurerm/0.22.0 |
 | azurerm_service_plan sku_name | FC1 (os_type = Linux) | infra/terraform/modules/mcp-function-host/main.tf | avm-res-web-site requires an externally-provisioned service plan; native azurerm support for FC1 shipped in provider v3.111.0, well before ~> 4.80 | 2026-07-12 | https://registry.terraform.io/providers/hashicorp/azurerm/4.80.0/docs/resources/service_plan |
@@ -508,4 +508,28 @@ Full detail and doc citations: infra/terraform/modules/apim-gateway/README.md.
   pinned AVM releases still constrain azurerm below 5.0, producing an
   unsatisfiable provider graph. The 4.80 constraints were retained and
   Dependabot was configured to ignore azurerm major updates until both AVM
-  modules publish compatible releases.
+  modules publish compatible releases. That configuration never took effect;
+  see the 2026-08-09 entry below.
+- 2026-08-09: The azurerm ignore rule added on 2026-08-04 was a no-op, and
+  Dependabot re-proposed azurerm 5.0.1 in PRs 72 and 91. The rule used
+  `update-types: version-update:semver-major`. Dependabot can only evaluate an
+  update-type condition when it can resolve the dependency's current version,
+  and for a `~> 4.80` constraint it resolves that version from
+  .terraform.lock.hcl. The two scenarios have a lock file and were correctly
+  skipped. The two wrapper modules under infra/terraform/modules have none, so
+  the current version was nil, the condition produced no ignored ranges, and
+  the rule did nothing there. The PRs show the same split: both touched only
+  the two module directories and never the scenarios, although all four
+  declare the same `~> 4.80` constraint. Fixed by replacing the condition with
+  `versions: [">= 5.0.0"]`, which Dependabot applies whether or not a current
+  version resolves, and which still lets 4.x minor and patch bumps through.
+  Verified by reading dependabot-core:
+  terraform/lib/dependabot/terraform/file_parser.rb (determine_version_for
+  falls back to the lock file for any constraint not starting with a digit)
+  and common/lib/dependabot/config/ignore_condition.rb (versions_by_type
+  returns an empty list when the version is nil, while the `versions` array is
+  appended unconditionally). NOT verified by a live run: confirm that the next
+  scheduled terraform run opens no azurerm 5 PR before treating this as
+  proven. The AVM constraint that motivates the ignore is unchanged;
+  avm-res-web-site is still 0.22.0 and avm-res-apimanagement-service still
+  0.9.0 as of this date.
