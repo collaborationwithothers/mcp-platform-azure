@@ -48,8 +48,11 @@ from the server app: the negative test
 having different Application ID URIs, so a token minted for one is rejected
 as the wrong audience on the other.
 
-1. **App registrations > New registration.** Single tenant. No redirect URI
-   (a web API, not an interactive client).
+1. **App registrations > New registration.** Name
+   `mcp-tracer-downstream-orders-api` (see
+   [entra-app-registrations.md](entra-app-registrations.md), "Display names",
+   for the naming convention and the full list of app registrations). Single
+   tenant. No redirect URI (a web API, not an interactive client).
 2. **Expose an API > Add** next to Application ID URI. Accept the default
    `api://<downstream-application-client-id>`. This is the value
    `downstream_entra_auth.allowed_audiences` must carry, and the prefix of

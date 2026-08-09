@@ -20,13 +20,42 @@ Steps below reference the Microsoft Entra admin center
 (https://entra.microsoft.com); verified against Microsoft Learn on
 2026-07-12 (citations per step).
 
+## Display names (2026-08-09)
+
+Every app registration below gets a fixed display name: `mcp-tracer-` plus a
+suffix derived from the secret name it corresponds to. The point is to make
+the Entra admin center's app-registration list self-explanatory during
+troubleshooting -- no translation needed between "which secret" and "which
+row in the portal". Each section's step 1 below states its display name; this
+table is the single-page lookup.
+
+| Section | Purpose | Corresponding secret(s) | Display name |
+|---|---|---|---|
+| 1 | Server resource app | `entra_auth.server_app_client_id` | `mcp-tracer-server` |
+| 2 | Positive test client (entitled) | `TEST_CLIENT_SECRET` | `mcp-tracer-test-client` |
+| 3 | Negative-test client (no `Orders.Read`) | `TEST_CLIENT_WITHOUT_ROLE_ID`/`_SECRET` | `mcp-tracer-test-client-without-role` |
+| 3a | Cross-server negative-test client | `TEST_CLIENT_SERVER1_ONLY_ID`/`_SECRET` | `mcp-tracer-test-client-server1-only` |
+| 3b | Cross-tool differentiation client | `TEST_CLIENT_MCP_SERVICE_TOOL_ID`/`_SECRET` | `mcp-tracer-test-client-service-tool` |
+| 4 | Interactive demo client | manual, pasted into host | `mcp-tracer-vscode-client` |
+| ([obo-app-registrations.md](obo-app-registrations.md) section 1) | Downstream Orders API identity | `downstream_app`/`downstream_entra_auth` | `mcp-tracer-downstream-orders-api` |
+
+**Existing registrations predate this convention and need a manual rename.**
+The server resource app (section 1) is currently named `mscp-server-app`;
+rename it to `mcp-tracer-server` in the Entra admin center (Branding &
+properties > Name). The other pre-existing registrations (sections 2, 3, 3a)
+were never given a documented name at all; check their current display names
+against this table and rename any that do not match. This runbook cannot
+verify or perform the rename itself -- it needs directory-write privilege the
+same as every other step here.
+
 ## 1. Server resource app (the MCP server's identity)
 
 This is the app the Functions host (`entra_auth.server_app_client_id`) and
 the APIM gateway (`entra_validation.audience`) both validate tokens against.
 
-1. **App registrations > New registration.** Single tenant. No redirect URI
-   needed (it is a web API, not an interactive client). ([Register an
+1. **App registrations > New registration.** Name `mcp-tracer-server`. Single
+   tenant. No redirect URI needed (it is a web API, not an interactive
+   client). ([Register an
    application](https://learn.microsoft.com/entra/identity-platform/quickstart-register-app#register-an-application))
 2. **Expose an API > Add** next to Application ID URI. Accept the default
    `api://<application-client-id>` (or a verified-domain URI). This is the
@@ -128,7 +157,8 @@ authenticate as, via client credentials. Kept separate from any interactive
 user identity because the SDK's interactive auth-code flow cannot run in CI
 (docs/specs/v1-tracer-bullet.md, Testing Decisions).
 
-1. **App registrations > New registration.** Single tenant. No redirect URI.
+1. **App registrations > New registration.** Name `mcp-tracer-test-client`.
+   Single tenant. No redirect URI.
 2. **Certificates & secrets > Client secrets > New client secret.** Record
    the secret value immediately (it is shown once). Store it only as the
    GitHub Environment secret **`TEST_CLIENT_SECRET`** on `live-test` (the name
@@ -168,7 +198,8 @@ have `Orders.Read` so the backend McpTools check is the thing that rejects it. I
 it lacked `Orders.Invoke.All`, the gateway would 403 it first and the test would
 no longer prove the backend layer (see the migration note above).
 
-1. **App registrations > New registration.** Single tenant. No redirect URI.
+1. **App registrations > New registration.** Name
+   `mcp-tracer-test-client-without-role`. Single tenant. No redirect URI.
 2. **Certificates & secrets > Client secrets > New client secret.** Store the
    client id as the GitHub Environment secret
    **`TEST_CLIENT_WITHOUT_ROLE_ID`** and the secret value as
@@ -239,7 +270,8 @@ cross-server case: section 3 proves a valid-audience token carrying no role is
 rejected; this proves a valid-audience token carrying one server's entitlement
 is rejected at the other server.
 
-1. **App registrations > New registration.** Single tenant. No redirect URI.
+1. **App registrations > New registration.** Name
+   `mcp-tracer-test-client-server1-only`. Single tenant. No redirect URI.
 2. **Certificates & secrets > Client secrets > New client secret.** Store the
    client id as the GitHub Environment secret **`TEST_CLIENT_SERVER1_ONLY_ID`**
    and the secret value as **`TEST_CLIENT_SERVER1_ONLY_SECRET`** on `live-test`;
@@ -281,7 +313,8 @@ one tool does not carry over to the other. Section 3 proves the inverse
 direction (a caller entitled for `get_order_status` is denied
 `get_service_info`); together they close the matrix in both directions.
 
-1. **App registrations > New registration.** Single tenant. No redirect URI.
+1. **App registrations > New registration.** Name
+   `mcp-tracer-test-client-service-tool`. Single tenant. No redirect URI.
 2. **Certificates & secrets > Client secrets > New client secret.** Store the
    client id as the GitHub Environment secret
    **`TEST_CLIENT_MCP_SERVICE_TOOL_ID`** and the secret value as
@@ -338,8 +371,8 @@ application permission, not a delegated one). Entra does not support Dynamic
 Client Registration, so this client is pre-registered here and its id is supplied
 to the interactive host manually (ADR-006).
 
-1. **App registrations > New registration.** Single tenant. Name e.g.
-   `mcp-tracer-vscode-client`.
+1. **App registrations > New registration.** Name `mcp-tracer-vscode-client`.
+   Single tenant.
 2. **Authentication > Add a platform > Mobile and desktop applications**, and add
    the redirect URIs the interactive host asks for. VS Code's MCP client uses a
    loopback URI plus the hosted redirect, e.g. `http://127.0.0.1:33418` and
