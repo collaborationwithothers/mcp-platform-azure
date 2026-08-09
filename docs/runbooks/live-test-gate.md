@@ -412,4 +412,7 @@ that list and whose token the gate already acquires. One inference follows, and
 it is an inference rather than a result: issue 45's step [3] drives that same
 client's token directly at the backend and gets the backend's own tool-level
 403, which means the client already clears the backend's Easy Auth, so check
-(h)'s backend leg is expected to work. Only the live run settles it.
+(h)'s backend leg is expected to work. The 2026-08-09 run
+([31314241913](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31314241913))
+settled it: check (h) passed, so no new Entra object was needed and the
+inference held.

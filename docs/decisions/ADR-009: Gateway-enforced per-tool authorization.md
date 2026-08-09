@@ -767,8 +767,13 @@ fires for a tool name with no map entry at all rather than for any claim shape.
 Issue #82 added a third tool, `get_access_guidance`,
 mapped `unrestricted`, and gate check (h) asserts that the under-entitled
 client of `docs/runbooks/entra-app-registrations.md` section 3 calling that
-tool gets a real result back rather than a `-32001`. That check has not yet run
-against a live environment; when it does, the run link belongs here. That
+tool gets a real result back rather than a `-32001`. That check ran green on
+2026-08-09 (run
+[31314241913](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31314241913),
+commit `27e30c4`): check (a) reported the map and `tools/list` equal at three
+tools, and check (h) reported `get_access_guidance` succeeding with the
+under-entitled token, with a real result and `isError` not set. The
+`unrestricted` branch is therefore exercised rather than merely rendered. That
 leaves `scope` as the only shape no gate check covers at all, and `scope` is
 not merely undone; it is
 unprovable by THIS gate as constructed. The gate's tokens are all
