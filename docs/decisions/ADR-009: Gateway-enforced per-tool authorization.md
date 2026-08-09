@@ -736,6 +736,53 @@ APIM for this tool. Issue #76 read the un-amended text and concluded, incorrectl
 that the backend-layer proof had become dead code. The consequence is now stated
 in C5. No decision changed; the record was incomplete rather than wrong.
 
+## Close-out: cross-tool differentiation (issue #80)
+
+Issue #76 identified a real gap in this ADR's live proof: every gate check
+through round 13 exercised only ONE tool (`get_order_status`), so none of them
+could show that per-tool authorization actually differentiates between tools.
+A caller either had the one checked role or did not; nothing distinguished
+"denied because wrong tool" from "denied because no role at all". Issue #79
+added a second tool (`get_service_info`, role `ServiceInfo.Read`) so a
+cross-tool proof became possible; issue #80 wrote it.
+
+**What is now proven, both directions, on both server instances.** A caller
+entitled to `get_order_status` (`Orders.Read`) and NOT to `get_service_info`
+(`ServiceInfo.Read`) is denied `get_service_info` (check (e)). A caller
+entitled to `get_service_info` and NOT to `get_order_status` succeeds on
+`get_service_info` (check (f), a positive result assertion, not merely the
+absence of a `-32001`) and is denied `get_order_status` (check (g)). All three
+run on server 1 as gating checks and on server 2 as `WarnOnly`, the same
+split (b) through (d) already used, because server 2's caller entitlement
+remains out-of-band to this gate (ADR-006, "Multi-server composition"). This
+closes #76's stated gap: entitlement for one tool on a server does not carry
+over to another tool on the SAME server, shown by direct assertion rather than
+inferred from the single-tool checks.
+
+**What remains unproven, and why this gate cannot close it.** The
+`tool_authorization_map`'s policy fragment supports three claim shapes per
+tool: `role`, `scope`, and `unrestricted` (D2 above). Every tool mapped in this
+repo so far, including `get_service_info`, uses `role`. The `scope` and
+`unrestricted` branches remain completely unexercised by any live run. `scope`
+is not merely undone; it is unprovable by THIS gate as constructed. The gate's
+tokens are all client-credentials tokens, and client-credentials tokens carry
+no `scp` claim at all (ADR-006, "OBO exchange" and the delegated-token
+discussion). A `scp` claim requires a delegated, user-context token, which no
+non-interactive CI mechanism can acquire. Proving the `scope` branch needs
+either an interactive token source or a different test harness, not a new
+Entra client. `unrestricted` needs only a third tool mapped that way; issue #82
+tracks adding one, and issue #83 tracks how the `scope` branch's evidence gap
+gets closed. Both issues are open and out of scope for #80.
+
+**Audit events were deliberately not extended to checks (e) and (g).** The
+audit-event mechanism itself is already proven, twice, by checks (c) and (d)
+(Appendix A). Each additional Event Hub read adds a bounded 60s wait to the
+gate, and rounds 11 and 12 (Appendix A) showed Event Hub delivery timing is the
+single most fragile part of this gate, once even failing the run outright.
+Issue #80 judged two more reads, proving nothing the existing two do not
+already prove, not worth that risk. Check (f), the one new SUCCESS case, has
+no deny to audit in the first place.
+
 ## References
 
 - MCP specification 2025-06-18, tool error handling:

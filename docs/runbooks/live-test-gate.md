@@ -329,3 +329,38 @@ The issue 18 per-tool deny audit path is unchanged. The existing call and both
 destroy stages must remain green. A successful apply proves Azure accepted the
 diagnostic configuration. It does not measure ingestion or cost; perform that
 separately using `docs/cost.md` after deployment.
+
+## Cross-tool authorization differentiation (issue 80)
+
+Before the first issue 80 live run, three prerequisites beyond the standard
+apply-call-destroy setup must be in place; none of them can be done by an
+agent:
+
+1. The server app registration (section 1 of
+   [entra-app-registrations.md](entra-app-registrations.md)) must carry the
+   application app role `ServiceInfo.Read`.
+2. The cross-tool differentiation client
+   ([entra-app-registrations.md](entra-app-registrations.md) section 3b)
+   must exist, hold `Orders.Invoke.All`, `Catalog.Invoke.All`, and
+   `ServiceInfo.Read` (and NOT `Orders.Read`), and be added to
+   `entra_validation.allowed_client_application_ids`. Its id and secret must be
+   stored as the `live-test` GitHub Environment secrets
+   `TEST_CLIENT_MCP_SERVICE_TOOL_ID` and `TEST_CLIENT_MCP_SERVICE_TOOL_SECRET`.
+3. `get_service_info` must be added to BOTH `tool_authorization_map` and
+   `server_2_tool_authorization_map` in the `S2_TFVARS_JSON` GitHub
+   Environment secret, mapped to `{"role": "ServiceInfo.Read"}` (see
+   [live-test-tfvars-reference.md](live-test-tfvars-reference.md)). Until this
+   is done, check [9]-a (the tools/list-vs-map set-equality assertion) fails
+   for every stamp, because the backend has exposed `get_service_info` since
+   issue #79 regardless of whether the map has caught up.
+
+With all three in place, check [9] gains three new assertions, (e)/(f)/(g), in
+`tests/integration/discovery-assertions.ps1`'s `Assert-ToolAuthorization`: (e)
+the positive test client (section 2) is denied `get_service_info`; (f) the
+cross-tool differentiation client succeeds on `get_service_info`; (g) that same
+client is denied `get_order_status`. On server 1 these three checks are
+gating; on server 2 they are `WarnOnly`, matching (a) through (d). If any of
+the three prerequisites above is missing, the two new gate secrets
+(`TEST_CLIENT_MCP_SERVICE_TOOL_ID`/`_SECRET`) resolve empty and checks
+(e)/(f)/(g) are skipped with a `::warning::` rather than failed -- this proves
+nothing was set up, not that per-tool authorization is broken.

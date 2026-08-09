@@ -54,17 +54,20 @@
        path -- see docs/decisions/ADR-006, "OBO exchange: the inbound-token
        gap" and "Testing strategy: the user-context token problem" for why
        that is validated manually, not here.
-    7. Per-tool authorization (issue 18): threads $mcpToken (step 1, the
-       entitled caller) and $missingRoleToken (step 1, the under-entitled
-       caller) into the discovery-assertions.ps1 script as -EntitledToken and
-       -UnderEntitledToken respectively, alongside the Terraform-output
-       -ToolAuthorizationMapKeys, -Server2ToolAuthorizationMapKeys,
-       -SharedObservabilityWorkspaceId, -EventHubNamespaceFqdn, and
-       -EventHubName strings.
+    7. Per-tool authorization (issue 18, extended by issue 80): threads
+       $mcpToken (step 1, the entitled caller), $missingRoleToken (step 1, the
+       under-entitled caller), and $serviceToolToken (step 1, the cross-tool
+       differentiation caller -- entitled to get_service_info, not to
+       get_order_status) into the discovery-assertions.ps1 script as
+       -EntitledToken, -UnderEntitledToken, and -ServiceToolToken
+       respectively, alongside the Terraform-output -ToolAuthorizationMapKeys,
+       -Server2ToolAuthorizationMapKeys, -SharedObservabilityWorkspaceId,
+       -EventHubNamespaceFqdn, and -EventHubName strings.
        The discovery script runs the set-equality, mapped-callable,
-       unmapped-probe-denied, and under-entitled-denied assertions for each
-       configured server, and (from within each deny check) asserts that
-       deny emitted its audit event via a bounded-wait read of the ephemeral
+       unmapped-probe-denied, under-entitled-denied, and (issue 80)
+       cross-tool-differentiation assertions for each configured server, and
+       (from within each deny check that calls it) asserts that deny emitted
+       its audit event via a bounded-wait read of the ephemeral
        audit Event Hub (EventHubNamespaceFqdn/EventHubName) -- NOT the KQL
        query against SharedObservabilityWorkspaceId, which live-gate rounds 7-9 proved has
        no bounded real-world latency (ingestion landed anywhere from ~286s to
@@ -125,6 +128,12 @@ param(
     [string]$McpServer2Url = '',
     [string]$Server1OnlyClientId = '',
     [string]$Server1OnlyClientSecret = '',
+    # Issue 80: the cross-tool differentiation client, entitled to
+    # get_service_info (ServiceInfo.Read) and NOT to get_order_status
+    # (Orders.Read) -- entra-app-registrations.md section 3b. Optional: if
+    # empty, discovery-assertions.ps1's checks (e)/(f)/(g) are skipped.
+    [string]$ServiceToolClientId = '',
+    [string]$ServiceToolClientSecret = '',
     # Resource name of the synced MCP server (s2 var server_name); the token the
     # authenticated registry poll asserts is present in the servers list.
     [Parameter(Mandatory)][string]$ServerName,
@@ -245,6 +254,19 @@ if (-not [string]::IsNullOrEmpty($Server1OnlyClientId) -and -not [string]::IsNul
 else {
     Write-Host "  server-1-only client not configured; the cross-server isolation negative will be skipped."
 }
+# Issue 80: token for the cross-tool differentiation client (entitled to
+# get_service_info, not to get_order_status). Optional.
+$serviceToolToken = ''
+if (-not [string]::IsNullOrEmpty($ServiceToolClientId) -and -not [string]::IsNullOrEmpty($ServiceToolClientSecret)) {
+    $serviceToolToken = Get-ClientCredentialToken `
+        -Scope "$Audience/.default" `
+        -TokenClientId $ServiceToolClientId `
+        -TokenClientSecret $ServiceToolClientSecret
+    Write-Host "  server-audience token acquired for the service-tool client (cross-tool differentiation)."
+}
+else {
+    Write-Host "  service-tool client not configured; the cross-tool differentiation checks will be skipped."
+}
 Write-Host ''
 
 # ---------------------------------------------------------------------------
@@ -320,6 +342,7 @@ Write-Host "[4] Raw-HTTP discovery assertions"
     -Server2ToolAuthorizationMapKeys $Server2ToolAuthorizationMapKeys `
     -EntitledToken $mcpToken `
     -UnderEntitledToken $missingRoleToken `
+    -ServiceToolToken $serviceToolToken `
     -SharedObservabilityWorkspaceId $SharedObservabilityWorkspaceId `
     -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
     -EventHubName $EventHubName

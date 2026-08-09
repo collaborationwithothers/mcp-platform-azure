@@ -422,6 +422,12 @@ jobs:
           # the cross-server negative (docs/runbooks/entra-app-registrations.md).
           TEST_CLIENT_SERVER1_ONLY_ID: ${{ secrets.TEST_CLIENT_SERVER1_ONLY_ID }}
           TEST_CLIENT_SERVER1_ONLY_SECRET: ${{ secrets.TEST_CLIENT_SERVER1_ONLY_SECRET }}
+          # Issue 80: cross-tool differentiation client (entitled to
+          # get_service_info, not to get_order_status). Optional: if these
+          # secrets are unset the gate skips checks (e)/(f)/(g)
+          # (docs/runbooks/entra-app-registrations.md).
+          TEST_CLIENT_MCP_SERVICE_TOOL_ID: ${{ secrets.TEST_CLIENT_MCP_SERVICE_TOOL_ID }}
+          TEST_CLIENT_MCP_SERVICE_TOOL_SECRET: ${{ secrets.TEST_CLIENT_MCP_SERVICE_TOOL_SECRET }}
         run: |
           set -euo pipefail
           s1_dir=infra/terraform/scenarios/s1-entra-mcp-server
@@ -523,6 +529,8 @@ jobs:
             -McpServer2Url "$mcp_server_2_url" \
             -Server1OnlyClientId "${TEST_CLIENT_SERVER1_ONLY_ID:-}" \
             -Server1OnlyClientSecret "${TEST_CLIENT_SERVER1_ONLY_SECRET:-}" \
+            -ServiceToolClientId "${TEST_CLIENT_MCP_SERVICE_TOOL_ID:-}" \
+            -ServiceToolClientSecret "${TEST_CLIENT_MCP_SERVICE_TOOL_SECRET:-}" \
             -ToolAuthorizationMapKeys "$tool_authorization_map_keys" \
             -Server2ToolAuthorizationMapKeys "$server_2_tool_authorization_map_keys" \
             -SharedObservabilityWorkspaceId "$shared_observability_workspace_id" \
