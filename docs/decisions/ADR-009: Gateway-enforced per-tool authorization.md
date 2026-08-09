@@ -761,8 +761,10 @@ inferred from the single-tool checks.
 
 **What remains unproven, and why this gate cannot close it.** The
 `tool_authorization_map`'s policy fragment supports three claim shapes per
-tool: `role`, `scope`, and `unrestricted` (D2 above). Checks (b) through (g)
-all exercise `role`. Issue #82 added a third tool, `get_access_guidance`,
+tool: `role`, `scope`, and `unrestricted` (D2 above). Checks (b), (d), (e),
+(f), and (g) exercise `role`; (c) exercises the map's default-deny path, which
+fires for a tool name with no map entry at all rather than for any claim shape.
+Issue #82 added a third tool, `get_access_guidance`,
 mapped `unrestricted`, and gate check (h) asserts that the under-entitled
 client of `docs/runbooks/entra-app-registrations.md` section 3 calling that
 tool gets a real result back rather than a `-32001`. That check has not yet run

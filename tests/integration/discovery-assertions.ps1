@@ -729,7 +729,8 @@ function Assert-ToolAuthorization {
 
     # (h) The unrestricted branch (issue 82). tool_authorization_map classifies
     # every tool as requiring a scope, requiring a role, or unrestricted
-    # (ADR-009, D2). Checks (b) through (g) all exercise the ROLE branch;
+    # (ADR-009, D2). Checks (b), (d), (e), (f) and (g) exercise the ROLE
+    # branch, and (c) exercises default-deny for a name absent from the map;
     # before this check nothing had ever executed the unrestricted branch, so a
     # break in it would have gone unnoticed while the repo claimed the map was
     # total and every branch deliberate.

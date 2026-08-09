@@ -44,6 +44,7 @@ public class GetAccessGuidanceTests
     [Theory]
     [InlineData("Orders.Read")]
     [InlineData("ServiceInfo.Read")]
+    [InlineData("Orders.Invoke.All")]
     [InlineData("Some.Unrelated.Role")]
     public void Run_AppContext_WithAnyRole_ReturnsTheSameGuidance(string role)
     {
@@ -199,9 +200,16 @@ public class GetAccessGuidanceTests
     private static Dictionary<string, string> AppContext(string role) =>
         WithPrincipal(("roles", role), ("azp", "test-client-app-id"), ("oid", "test-client-object-id"));
 
-    // The section-3 client's shape at the backend: a valid application identity
-    // carrying no backend role at all. Its gateway role (Orders.Invoke.All) is
-    // an APIM-layer grant and does not appear in the backend principal.
+    // A valid application identity carrying no roles claim at all: the floor
+    // case, weaker than any real caller this deployment produces. It is NOT the
+    // section-3 client's shape. That client is granted Orders.Invoke.All as an
+    // application permission on the same server resource app that exposes
+    // Orders.Read (entra-app-registrations.md section 3, step 3), and
+    // mcp-server.xml forwards the caller's Authorization header to the backend
+    // unchanged, so its Easy Auth principal does carry roles: Orders.Invoke.All.
+    // That shape is covered by the Orders.Invoke.All case on
+    // Run_AppContext_WithAnyRole_ReturnsTheSameGuidance; this helper covers the
+    // no-roles principal underneath it.
     private static Dictionary<string, string> AppContextWithoutRoles() =>
         WithPrincipal(("azp", "under-entitled-client-app-id"), ("oid", "under-entitled-client-object-id"));
 

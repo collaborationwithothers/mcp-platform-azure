@@ -392,7 +392,8 @@ With the fourth prerequisite in place, check [9] gains one more assertion, (h):
 the under-entitled client of
 [entra-app-registrations.md](entra-app-registrations.md) **section 3** (not 3b)
 calls `get_access_guidance` and must get a real result rather than a `-32001`.
-Checks (b) through (g) all exercise the map's `role` branch; (h) is the only
+Checks (b), (d), (e), (f), and (g) exercise the map's `role` branch, and (c)
+exercises its default-deny path for a name absent from the map; (h) is the only
 check that reaches the `unrestricted` branch.
 
 Unlike (e)/(f)/(g), check (h) runs on server 1 only. The under-entitled client
