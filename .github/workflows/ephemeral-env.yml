@@ -146,7 +146,7 @@ jobs:
       # explicit toolchain setup steps in this workflow, not left to whatever
       # Python happens to be preinstalled on the runner image.
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
