@@ -102,7 +102,7 @@ as of issue #18:
   "publisher_name": "MCP Platform Azure",
   "publisher_email": "<publisher-email>",
 
-  "server_name": "orders-mcp",
+  "server_name": "orders",
   "server_path": "orders",
   "entra_validation": {
     "tenant_id": "<tenant-guid>",
@@ -113,8 +113,8 @@ as of issue #18:
   "required_scope": "Orders.Invoke",
   "required_role": "Orders.Invoke.All",
 
-  "server_2_name": "orders-mcp-2",
-  "server_2_path": "orders2",
+  "server_2_name": "catalog",
+  "server_2_path": "catalog",
   "server_2_prm_scopes": ["api://<server-app-client-id>/Catalog.Invoke"],
   "server_2_required_scope": "Catalog.Invoke",
   "server_2_required_role": "Catalog.Invoke.All",
@@ -156,6 +156,21 @@ values directly, which matched `entra-app-registrations.md` section 1a's
 convention (each server's PRM carries only its own scope URI) rather than the
 stale `user_impersonation` this file showed. All four fields above are now
 corrected to the real, confirmed values.
+
+**Correction (2026-08-09, issue #82):** this file previously showed
+`server_name` as `orders-mcp`, `server_2_name` as `orders-mcp-2`, and
+`server_2_path` as `orders2`. None of those match reality either. Hari read the
+live `S2_TFVARS_JSON` secret directly on 2026-08-09; the real values are
+`orders` (server 1's name and path) and `catalog` (server 2's name and path).
+Server 2's name and path now match its scope family, `Catalog.Invoke`, which the
+previous `orders2` did not.
+
+Why this one is worth recording rather than quietly fixing: `server_2_path` is
+the URL segment clients actually connect to, so a reader following this file
+would have built the wrong server 2 URL. Nothing in the gate depends on the
+value in this file, because the gate reads the Terraform outputs rather than
+this document, which is exactly why the drift survived two issues without
+failing anything.
 
 `tool_authorization_map` / `server_2_tool_authorization_map` (issue 18):
 `scope` and `unrestricted` are both optional per key and may be omitted
