@@ -110,14 +110,14 @@ as of issue #18:
     "allowed_client_application_ids": ["<test-client-app-id>"]
   },
   "prm_scopes": ["api://<server-app-client-id>/user_impersonation"],
-  "required_scope": "mcp.orders.invoke",
-  "required_role": "Mcp.Orders.Invoke",
+  "required_scope": "Orders.Invoke",
+  "required_role": "Orders.Invoke.All",
 
   "server_2_name": "orders-mcp-2",
   "server_2_path": "orders2",
   "server_2_prm_scopes": ["api://<server-app-client-id>/user_impersonation"],
-  "server_2_required_scope": "mcp.orders2.invoke",
-  "server_2_required_role": "Mcp.Orders2.Invoke",
+  "server_2_required_scope": "Catalog.Invoke",
+  "server_2_required_role": "Catalog.Invoke.All",
 
   "tool_authorization_map": {
     "get_order_status": { "role": "Orders.Read" },
@@ -139,6 +139,21 @@ as of issue #18:
 `shared_observability_application_insights_id` are NOT in this file (see table
 above).
 `deployment_profile` and `registry_deployment` are optional and omitted here.
+
+**Correction (2026-08-09, issue #80):** `required_scope`/`required_role` and
+`server_2_required_scope`/`server_2_required_role` previously showed
+`mcp.orders.invoke`/`Mcp.Orders.Invoke` and
+`mcp.orders2.invoke`/`Mcp.Orders2.Invoke`. None of those four strings exist on
+the live server app registration; direct review of its App roles and Expose
+an API blades (2026-08-09) shows the real values are `Orders.Invoke` /
+`Orders.Invoke.All` (server 1) and `Catalog.Invoke` / `Catalog.Invoke.All`
+(server 2), now corrected above. `prm_scopes` / `server_2_prm_scopes` were not
+independently re-verified against this same evidence and are left unchanged
+here; per `entra-app-registrations.md` section 1a each should carry that
+server's OWN scope URI (e.g. `api://<server-app-client-id>/Catalog.Invoke` for
+server 2), not `user_impersonation` as shown -- worth a direct check against
+the live `S2_TFVARS_JSON` secret before trusting this file's `prm_scopes`
+values.
 
 `tool_authorization_map` / `server_2_tool_authorization_map` (issue 18):
 `scope` and `unrestricted` are both optional per key and may be omitted

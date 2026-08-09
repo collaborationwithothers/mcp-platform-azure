@@ -101,6 +101,15 @@ param(
     # client missing Orders.Read; now asserted at the gateway per-tool layer
     # (one layer earlier than the backend check in step 3).
     [string]$UnderEntitledToken = '',
+    # Issue 80: token for the cross-tool differentiation client, entitled to
+    # get_service_info (ServiceInfo.Read) and NOT to get_order_status
+    # (Orders.Read) -- see entra-app-registrations.md section 3b. Optional:
+    # when empty, checks (e)/(f)/(g) are skipped with a warning, exactly like
+    # UnderEntitledToken above.
+    [string]$ServiceToolToken = '',
+    # The tool name ServiceToolToken is entitled to call. A parameter for the
+    # same reason MappedToolName is, below.
+    [string]$ServiceToolName = 'get_service_info',
     # The mapped tool name for allow/deny assertions. Defaults to
     # get_order_status (server 1's only tool today). A parameter so a future
     # second mapped tool requires only a call-site change, not a script edit.
@@ -474,10 +483,14 @@ function Test-ToolAuthDenial($parsedBody) {
 }
 
 # Per-tool authorization (issue 18): set-equality between tools/list and the
-# map keys (both directions), mapped-tool callable, unmapped probe denied, and
+# map keys (both directions), mapped-tool callable, unmapped probe denied,
 # (if UnderEntitledToken supplied) mapped-tool denied for the under-entitled
-# caller. Generic: same code path for every server instance (issue-18
-# acceptance criterion "expressed as a loop over the server instances").
+# caller, and (if ServiceToolToken supplied, issue 80) the cross-tool
+# differentiation proof in both directions: the entitled caller is denied the
+# service tool (e), the service-tool caller succeeds on the service tool (f),
+# and the service-tool caller is denied the mapped tool (g). Generic: same
+# code path for every server instance (issue-18 acceptance criterion
+# "expressed as a loop over the server instances").
 # WarnOnly converts Fail calls to ::warning:: (used for server 2 where token
 # entitlement is out-of-band and results may be inconclusive).
 function Assert-ToolAuthorization {
@@ -489,6 +502,8 @@ function Assert-ToolAuthorization {
         [string]$MappedToolName,
         [string]$UnmappedProbeToolName,
         [string]$UnderEntitledToken = '',
+        [string]$ServiceToolToken = '',
+        [string]$ServiceToolName = 'get_service_info',
         [string]$EventHubNamespaceFqdn = '',
         [string]$EventHubName = '',
         [switch]$WarnOnly
@@ -618,6 +633,85 @@ function Assert-ToolAuthorization {
             Assert-AuditEventEmitted -ServerLabel "$Label-d" -EventHubNamespaceFqdn $EventHubNamespaceFqdn -EventHubName $EventHubName -ToolName $MappedToolName -SinceUtc $underEntitledCallTimeUtc -WarnOnly:$WarnOnly
         }
         Write-Host ''
+    }
+
+    # (e)/(f)/(g) Cross-tool differentiation (issue 80, closing #76): the thing
+    # per-tool authorization actually promises is that a caller entitled for
+    # one tool on a server is not thereby entitled for another tool on the
+    # SAME server. (b)/(d) above only ever exercise $MappedToolName; they
+    # cannot show that, because a single tool has no "other tool" to be wrongly
+    # let through to. ServiceToolToken is entitled to ServiceToolName
+    # (get_service_info, role ServiceInfo.Read) and NOT to MappedToolName
+    # (get_order_status, role Orders.Read) -- see entra-app-registrations.md
+    # section 3b. All three checks run only when ServiceToolToken is supplied;
+    # the secret is out-of-band, exactly like UnderEntitledToken.
+    #
+    # Deliberately NOT calling Assert-AuditEventEmitted from (e) or (g): the
+    # audit-event mechanism is already proven by (c) and (d), and each call
+    # adds a bounded 60s wait. Live-gate rounds 11 and 12 (ADR-009, Appendix A)
+    # showed Event Hub delivery timing is the most fragile part of this gate;
+    # re-proving the same mechanism on two more denies adds risk for no new
+    # information.
+    if (-not [string]::IsNullOrEmpty($ServiceToolToken)) {
+        # (e) The entitled caller (Token, entitled to MappedToolName) must be
+        # denied the service tool. This assumes the positive test client was
+        # never granted ServiceInfo.Read (entra-app-registrations.md section
+        # 2); if it ever is, this check inverts and fails.
+        Write-Host "[$Label-e] $ServerUrl tools/call '$ServiceToolName' with the entitled (get_order_status) token IS denied (-32001)"
+        $entitledDenyResult = Invoke-JsonRpc -Uri $ServerUrl -Token $Token -Method 'tools/call' -Id 4 `
+            -ParamsJson "{`"name`":`"$ServiceToolName`",`"arguments`":{}}"
+        if (-not (Test-ToolAuthDenial $entitledDenyResult)) {
+            & $assertFail "tools/call '$ServiceToolName' with the entitled (get_order_status) token was NOT denied with -32001; entitlement for one tool must not grant another tool on the same server."
+        } else {
+            Pass "${Label}: tools/call '$ServiceToolName' with the entitled (get_order_status) token denied with -32001 (cross-tool differentiation, direction 1)."
+        }
+        Write-Host ''
+
+        # (f) The service-tool caller must SUCCEED on the service tool. A
+        # POSITIVE assertion (a real result came back), not merely "not a
+        # -32001" -- see check (b)'s comment on why the weaker form is unsafe.
+        # Test-LegacyHttpDenial guard so a per-server rejection (server 2's
+        # entitlement is out-of-band and may be missing) is reported as
+        # "not entitled at the per-server layer", not misread as a per-tool
+        # failure.
+        Write-Host "[$Label-f] $ServerUrl tools/call '$ServiceToolName' with the service-tool token succeeds"
+        $serviceCallResult = Invoke-JsonRpc -Uri $ServerUrl -Token $ServiceToolToken -Method 'tools/call' -Id 5 `
+            -ParamsJson "{`"name`":`"$ServiceToolName`",`"arguments`":{}}"
+        if ($null -eq $serviceCallResult) {
+            & $assertFail "tools/call '$ServiceToolName' with the service-tool token: response was not valid JSON."
+        } elseif (Test-LegacyHttpDenial $serviceCallResult) {
+            & $assertFail "tools/call '$ServiceToolName' with the service-tool token was rejected before reaching the per-tool gate: '$(Get-JsonRpcError $serviceCallResult)'; this token is not entitled at the per-server layer."
+        } elseif ($null -ne (Get-JsonRpcError $serviceCallResult)) {
+            & $assertFail "tools/call '$ServiceToolName' with the service-tool token returned an unexpected JSON-RPC error (code $(Get-JsonRpcErrorCode $serviceCallResult)): $(Get-JsonRpcErrorMessage $serviceCallResult). Expected a successful result, not any error."
+        } elseif ($null -eq (Get-SafeProperty $serviceCallResult 'result')) {
+            & $assertFail "tools/call '$ServiceToolName' with the service-tool token returned neither a result nor an error (unexpected response shape)."
+        } else {
+            Pass "${Label}: tools/call '$ServiceToolName' succeeded with the service-tool token (per-tool check passed, result returned)."
+        }
+        Write-Host ''
+
+        # (g) The service-tool caller must be denied the mapped tool -- the
+        # other direction of the same proof as (e). get_order_status declares
+        # orderId isRequired: true, so pass a real orderId, not empty
+        # arguments: an empty arguments object fails backend param validation
+        # with -32602 BEFORE the per-tool gate resolves (see check (b)'s
+        # comment), which would misread a param-validation failure as this
+        # check's result. The gate fires in inbound and denies first, but a
+        # real orderId removes the ambiguity entirely. Same
+        # Test-LegacyHttpDenial guard as (f), for the same reason.
+        Write-Host "[$Label-g] $ServerUrl tools/call '$MappedToolName' with the service-tool token IS denied (-32001)"
+        $serviceDenyResult = Invoke-JsonRpc -Uri $ServerUrl -Token $ServiceToolToken -Method 'tools/call' -Id 6 `
+            -ParamsJson "{`"name`":`"$MappedToolName`",`"arguments`":{`"orderId`":`"CONTOSO-1001`"}}"
+        if (Test-LegacyHttpDenial $serviceDenyResult) {
+            & $assertFail "tools/call '$MappedToolName' with the service-tool token was rejected before reaching the per-tool gate: '$(Get-JsonRpcError $serviceDenyResult)'; this token is not entitled at the per-server layer."
+        } elseif (-not (Test-ToolAuthDenial $serviceDenyResult)) {
+            & $assertFail "tools/call '$MappedToolName' with the service-tool token was NOT denied with -32001; entitlement for one tool must not grant another tool on the same server."
+        } else {
+            Pass "${Label}: tools/call '$MappedToolName' with the service-tool token denied with -32001 (cross-tool differentiation, direction 2)."
+        }
+        Write-Host ''
+    } else {
+        Write-Host "::warning::[$Label] cross-tool differentiation checks (e)/(f)/(g) skipped: no ServiceToolToken supplied."
     }
 }
 
@@ -1118,6 +1212,8 @@ if ($perToolServers.Count -gt 0) {
             -MappedToolName $MappedToolName `
             -UnmappedProbeToolName $UnmappedProbeToolName `
             -UnderEntitledToken $UnderEntitledToken `
+            -ServiceToolToken $ServiceToolToken `
+            -ServiceToolName $ServiceToolName `
             -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
             -EventHubName $EventHubName `
             -WarnOnly:$srv.WarnOnly
