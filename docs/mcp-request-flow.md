@@ -165,12 +165,6 @@ Application Insights before returning a JSON-RPC Protocol Error (HTTP 200,
 code -32001, request id echoed) without ever invoking the backend Function
 App.](diagrams/per-tool-deny-path.drawio.svg)
 
-> **Diagram export pending.** The `.drawio` source above carries the issue-88
-> id-validity guard (step 4b); the embedded `.drawio.svg` does not yet, because
-> under this repo's Diagrams rule the export is a human step performed after
-> layout is corrected by hand. Until that export lands, the rendered image shows
-> the pre-issue-88 path. This PR is not complete without it.
-
 The three tiers above classify a response by its wire shape. That is the right
 axis for a client, which sees only the wire, but it is the wrong axis for an
 operator, who also needs to know how far the request travelled. There is a
