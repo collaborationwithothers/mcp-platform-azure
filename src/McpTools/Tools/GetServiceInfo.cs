@@ -11,9 +11,10 @@ namespace McpTools.Tools;
 /// The second synthetic tool exposed by the tracer: get_service_info (issue 79).
 ///
 /// Its entire purpose is to prove per-tool authorization, not to serve useful
-/// data. get_order_status is the only other tool on this server, and one tool
-/// cannot demonstrate that a caller entitled to tool A is refused tool B: there
-/// is no tool B to refuse. This tool IS tool B. It requires a DIFFERENT
+/// data. get_order_status is the other role-gated tool on this server. One
+/// role-gated tool cannot demonstrate that a caller entitled to tool A is
+/// refused tool B: there is no tool B to refuse. This tool is tool B. It
+/// requires a DIFFERENT
 /// application role (<see cref="AppRoleAuthorization.ServiceInfoRole"/>) from
 /// get_order_status's <see cref="AppRoleAuthorization.RequiredRole"/>, so an
 /// Orders.Read holder calling get_service_info is refused -- the cross-tool
