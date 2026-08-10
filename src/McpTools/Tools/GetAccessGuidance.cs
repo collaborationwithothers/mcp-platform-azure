@@ -136,7 +136,7 @@ public sealed class GetAccessGuidance
         + "connected to, or the matching delegated scope: either satisfies the "
         + "check. Those two names are deployment configuration rather than a "
         + "property of this software, and this response is compiled in, so if they "
-        + "ever disagree with the gateway's own authorization map the map is "
+        + "ever disagree with the gateway's own authorization map, the map is "
         + "authoritative. SECOND, each tool is authorized independently, so holding "
         + "the entitlement for one tool does not grant another. "
         + "requiredEntitlements lists every tool and, for each caller identity "
@@ -158,13 +158,25 @@ public sealed class GetAccessGuidance
         + "else: a valid token for this server, and the per-server entitlement "
         + "above, are both still required. To request an entitlement, see docsUrl.";
 
+    // The scope sentence covers BOTH places this response emits a role name, and
+    // says plainly that they do not carry the same guarantee. Issue 82's second
+    // governance review found this sentence still scoped to "the role names
+    // below", meaning requiredEntitlements, after the summary started naming two
+    // more. The content moved and the disclaimer did not, which is the failure
+    // this disclaimer exists to prevent in the first place.
     internal const string DataDisclaimerValue =
         "This response is fixed guidance compiled into the server build. It reads no "
-        + "configuration and names no deployed Azure resource, tenant, or principal; "
-        + "the role names below are this public repository's demo role names. The "
-        + "order data this server's get_order_status tool returns is SYNTHETIC demo "
-        + "data (ids CONTOSO-1001 to CONTOSO-1005) and is not sourced from any real "
-        + "system.";
+        + "configuration and names no deployed Azure resource, tenant, or principal. "
+        + "Every role name it emits is one of this public repository's demo role "
+        + "names, but the two kinds do not carry the same guarantee. The per-tool "
+        + "role names in requiredEntitlements come from the same constants this "
+        + "server checks at runtime, so they cannot name a role no code enforces. "
+        + "The two per-server role names in the summary are deployment "
+        + "configuration this server never reads, so nothing in the build can "
+        + "detect it if they go stale; the gateway's authorization map is "
+        + "authoritative for those. The order data this server's get_order_status "
+        + "tool returns is SYNTHETIC demo data (ids CONTOSO-1001 to CONTOSO-1005) "
+        + "and is not sourced from any real system.";
 
     // Total over tool TIMES identity mode. Adding a tool without adding both of
     // its rows fails ToolEntitlementParityTests at build time, which is the only

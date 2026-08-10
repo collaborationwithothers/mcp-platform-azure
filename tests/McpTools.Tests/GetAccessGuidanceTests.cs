@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using McpTools.Identity;
 using McpTools.Tools;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
@@ -218,8 +219,48 @@ public class GetAccessGuidanceTests
         // honest when the deployment changes and this constant does not.
         Assert.Contains("Orders.Invoke.All", GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
         Assert.Contains("Catalog.Invoke.All", GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
-        Assert.Contains("the map is\nauthoritative".Replace("\n", " "),
-            GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
+        Assert.Contains("the map is authoritative", GetAccessGuidance.SummaryValue, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryRoleNameEmitted_IsEitherRuntimeBackedOrDeclaredUnguarded()
+    {
+        // The drift guard for the gap the second governance review found. Every
+        // role name in requiredEntitlements is taken from AppRoleAuthorization,
+        // so it cannot name a role no code checks. The two per-server names in
+        // the summary are bare literals sourced from a deployment secret this
+        // code cannot read, and no repo-side guard for their VALUES is possible.
+        //
+        // What IS guardable is the boundary. A third unguarded role name added
+        // to the emitted text fails here until someone adds it to this set,
+        // which forces the DataDisclaimerValue scope sentence to be revisited at
+        // the same time. Content moving while the disclaimer stayed put is
+        // exactly what went wrong before.
+        var runtimeBacked = new[] { AppRoleAuthorization.RequiredRole, AppRoleAuthorization.ServiceInfoRole };
+        var declaredUnguarded = new[] { "Orders.Invoke.All", "Catalog.Invoke.All" };
+        var known = runtimeBacked.Concat(declaredUnguarded).ToHashSet(StringComparer.Ordinal);
+
+        var emitted = GetAccessGuidance.SummaryValue
+            + " " + GetAccessGuidance.DataDisclaimerValue
+            + " " + string.Join(" ", GetAccessGuidance.RequiredEntitlementsValue
+                .Select(entry => entry.RequiredRole)
+                .Where(role => role is not null));
+
+        // Role-shaped: two or more dot-separated capitalised words, e.g.
+        // Orders.Read or Catalog.Invoke.All. Deliberately not anchored to the
+        // known values, or it could only ever find what it already expects.
+        var found = Regex.Matches(emitted, @"\b[A-Z][A-Za-z]+(?:\.[A-Z][A-Za-z]+)+\b")
+            .Select(match => match.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var unaccounted = found.Except(known, StringComparer.Ordinal).ToList();
+        Assert.True(
+            unaccounted.Count == 0,
+            $"role name(s) emitted by get_access_guidance that this test does not account for: "
+            + $"{string.Join(", ", unaccounted)}. If a name is checked at runtime, source it from "
+            + "AppRoleAuthorization. If it is deployment configuration this server cannot read, add "
+            + "it to declaredUnguarded AND make sure DataDisclaimerValue's scope sentence still "
+            + "covers it.");
     }
 
     [Fact]
