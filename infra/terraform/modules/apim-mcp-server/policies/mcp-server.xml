@@ -133,91 +133,45 @@
           return body?["params"]?["name"]?.ToString() ?? "";
         }" />
         <!--
-          Id-validity guard (issue 88), runs BEFORE the authorization decision
-          below, for every tools/call regardless of what that decision would
-          have been: MCP 2025-06-18 Base Protocol > Requests requires "a
-          string or integer ID" and, unlike base JSON-RPC, says the ID "MUST
-          NOT be null" (verified directly against
-          https://modelcontextprotocol.io/specification/2025-06-18/basic/index,
-          2026-08-10). Live-gate evidence the same day (gate-evidence/
-          null-id-deny-path-evidence.md, run 31381168415) showed the -32001
-          per-tool deny response further down this same tools/call branch
-          (search: "Deny wire shape") echoes body["id"] verbatim, and
-          BOTH a missing id and an explicit "id": null produced HTTP 200 with
-          "id":null on the wire, a real violation, not a theoretical one.
-          Placed here, ahead of the map lookup, rather than only inside the
-          deny branch: an invalid id is a REQUEST validity problem, not an
-          authorization outcome, so it must not depend on whether the caller
-          would otherwise have been allowed or denied.
-          Wire shape: HTTP 400 with a JSON-RPC error object that OMITS the id
-          key entirely (not id:null). The spec backing differs between the two
-          cases this guard catches, and the difference is stated rather than
-          smoothed over, because presenting a design inference as a spec
-          consequence is a mistake this file's COMPATIBILITY.md rows have
-          already had to correct once (see the "MCP tools/call denial wire
-          shape" row's PRECISION CORRECTION, 2026-08-08).
-          Case A, NO id field at all: QUOTED. A body carrying a method and no
-          id is, by the spec's own typology, a NOTIFICATION ("Notifications
-          MUST NOT include an ID", Base Protocol > Notifications). The
-          Streamable HTTP transport's step 4 governs exactly that input ("If
-          the input is a JSON-RPC response or notification"), and says: "If
-          the server cannot accept the input, it MUST return an HTTP error
-          status code (e.g., 400 Bad Request). The HTTP response body MAY
-          comprise a JSON-RPC error response that has no id." So 400 plus a
-          no-id error body is the sanctioned response here, verbatim.
-          Case B, an explicit "id": null: INFERENCE, by analogy to case A.
-          Such a message is neither a valid request (the ID "MUST NOT be
-          null") nor a valid notification (it carries an id key), so transport
-          step 4 does not cleanly reach it, and step 5, which governs
-          requests, says only that the server returns text/event-stream or
-          application/json. Answering it the same way as case A is this
-          repo's deliberate choice for a message the spec leaves unaddressed,
-          not a rule the spec imposes.
-          Omitting id (not inventing one) matches the ticket's own steer:
-          fabricating an id would break the client's own request/response
-          correlation. Error code -32600
-          "Invalid Request" is the standard JSON-RPC 2.0 code for exactly this
-          case ("The JSON sent is not a valid Request object.", verified
-          against https://www.jsonrpc.org/specification, 2026-08-10),
-          deliberately NOT -32001 (this repo's per-tool authorization code,
-          unchanged below) or -32602 (the SDK's "Unknown tool" shape,
-          COMPATIBILITY.md): this is neither an authorization denial nor a
-          missing tool, it is a malformed request the gateway never got far
-          enough to authorize.
-          Malformed JSON (the ticket's third case) never reaches here at all:
-          it fails at the unconditional mcpRequestBody set-variable above,
-          which runs for every method, not only tools/call, and surfaces as
-          APIM's generic policy-expression-failure 500 with no JSON-RPC
-          envelope, confirmed by the same live-gate evidence. Out of scope for
-          issue 88 (which is about the -32001 response's id field
-          specifically). If a spec-conformant response for THAT case is ever
-          wanted, the code is -32700 "Parse error" ("Invalid JSON was received
-          by the server", jsonrpc.org), NOT the -32600 used here: do not reach
-          for this guard's code by analogy.
-          NO audit event here, deliberately, and the reasoning is recorded so
-          the choice reads as a decision rather than an oversight. The trace
-          and log-to-eventhub pair below fire on the per-tool DENY, which is
-          an authorization decision about an identified caller and tool.
-          ADR-009's "every deny is audited" is therefore untouched: this is a
-          request-validity rejection reached before any authorization decision
-          exists to record.
-          The obvious objection is that pre-fix an id-less tools/call DID emit
-          both audit signals, so something once visible is now not. Look at
-          what was actually visible, though. This check does not read the tool
-          name at all (see the condition below) and its body is a fixed
-          string, so EVERY id-less tools/call gets byte-identical bytes back
-          whatever tool it names. Pre-fix the response varied by tool (deny
-          for unmapped or unentitled, forwarded for entitled), which is what
-          made an id-less probe an enumeration oracle worth auditing. That
-          oracle is now closed, not hidden: an id-less request reveals nothing
-          about which tools exist or which the caller may call. Enumeration
-          requires a well-formed id, and those requests reach the
-          authorization check and emit its audit event exactly as before.
-          Auditing a constant response would add volume to the trail without
-          adding signal, and would dilute the deny events, which ARE
-          security-relevant. Reachability also bounds this: the guard sits
-          after validate-azure-ad-token and after the per-server entitlement
-          check, so only an authenticated, entitled caller ever reaches it.
+          Id-validity guard (issue 88). Rejects any tools/call whose id is
+          missing, null, or not a string/integer, with HTTP 400 and a JSON-RPC
+          -32600 error whose id key is OMITTED entirely. MCP 2025-06-18
+          requires "a string or integer ID" and, unlike base JSON-RPC, says it
+          "MUST NOT be null"; the -32001 deny further down this branch
+          (search: "Deny wire shape") echoes body["id"] verbatim, so before
+          this guard a missing or null id came back as "id":null on the wire.
+          Live-proven, not theoretical.
+          THREE decisions here, each with a reason a future reader will want:
+          1. PLACEMENT, ahead of the authorization map lookup rather than
+             inside the deny branch. An invalid id is a REQUEST validity
+             problem, not an authorization outcome, so the answer must not
+             depend on whether the caller would have been allowed. The live
+             gate's check (i) probe 3 is what proves this: it sends an id-less
+             call for a tool the caller IS entitled to and still expects 400.
+          2. OMITTING the id rather than echoing null or inventing one.
+             Fabricating an id would break the caller's own request/response
+             correlation.
+          3. CODE -32600 "Invalid Request", not -32001 (this repo's per-tool
+             authorization code, unchanged below) and not -32602 (the SDK's
+             "Unknown tool" shape): this is neither an authorization denial
+             nor a missing tool.
+          The spec backing is NOT uniform across the two shapes this catches:
+          a body with a method and no id is a NOTIFICATION, which the
+          transport's step 4 governs directly (quoted), while an explicit
+          "id": null is neither a valid request nor a valid notification, so
+          answering it identically is this repo's inference. That distinction,
+          the verbatim quotes, and the verifying run numbers live in
+          COMPATIBILITY.md, "MCP request id MUST NOT be null...", and are
+          deliberately not restated here.
+          Two things this guard does NOT do. It never reaches malformed JSON,
+          which dies earlier at the unconditional mcpRequestBody set-variable
+          above and surfaces as APIM's generic 500; a spec-conformant response
+          for that case would be -32700 "Parse error", NOT this guard's code.
+          And it emits no audit event: ADR-009's "every deny is audited" is
+          untouched because nothing was denied, and since this check ignores
+          the tool name and returns a fixed body, every id-less tools/call
+          gets identical bytes, so there is no enumeration signal left to
+          record. Full argument in docs/mcp-request-flow.md.
         -->
         <choose>
           <when condition="@{

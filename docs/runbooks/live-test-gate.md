@@ -455,8 +455,15 @@ incidental detail:
    and captured only so the next reader does not have to rediscover it.
 
 All four write verbatim status, headers, and body to
-`gate-evidence/null-id-deny-path-evidence.md`, uploaded as the
+`gate-evidence/id-validity-guard-evidence.md`, uploaded as the
 `prm-discovery-evidence` artifact.
+
+Naming note for anyone reading older artifacts: this file was called
+`null-id-deny-path-evidence.md` in runs 31381168415, 31387242227 and
+31394245206. It was renamed once the fix landed, because after it there is no
+null-id deny path to hold evidence about. The contents and the artifact name
+are unchanged, so an older run's artifact holds the same thing under the older
+filename.
 
 Unlike the `-32001` deny, this rejection emits NO audit event, so there is
 nothing to read back from the Event Hub and check (i) makes no

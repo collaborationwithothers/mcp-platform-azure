@@ -91,7 +91,7 @@
        fourth probe, malformed JSON, is recorded but never asserted (out of
        scope; it fails earlier, at the policy's unconditional body parse, so
        it never reaches the tools/call gate). Verbatim status/headers/body for
-       all four land in EvidenceDir/null-id-deny-path-evidence.md regardless
+       all four land in EvidenceDir/id-validity-guard-evidence.md regardless
        of pass/fail. See discovery-assertions.ps1's Assert-ToolAuthorization
        and COMPATIBILITY.md, "MCP request id MUST NOT be null...".
 
