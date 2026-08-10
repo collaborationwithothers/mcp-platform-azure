@@ -774,15 +774,16 @@ commit `27e30c4`): check (a) reported the map and `tools/list` equal at three
 tools, and check (h) reported `get_access_guidance` succeeding with the
 under-entitled token, with a real result and `isError` not set. The
 `unrestricted` branch is therefore exercised rather than merely rendered. That
-leaves `scope` as the only shape no gate check covers at all, and `scope` is
-not merely undone; it is
+leaves `scope` as the only shape no LIVE GATE check covers, and it is
 unprovable by THIS gate as constructed. The gate's tokens are all
 client-credentials tokens, and client-credentials tokens carry no `scp` claim
 at all (ADR-006, "OBO exchange" and the delegated-token discussion). A `scp`
 claim requires a delegated, user-context token, which no non-interactive CI
 mechanism can acquire. Proving the `scope` branch needs either an interactive
-token source or a different test harness, not a new Entra client. Issue #83
-tracks how that evidence gap gets closed; it is open and out of scope here.
+token source or a different test harness, not a new Entra client. See
+"Close-out: the delegated scope branch (issue #83)" below for how that gap is
+actually closed -- by two different mechanisms, neither of which is the live
+gate.
 
 **What `unrestricted` relaxes, stated exactly, because the word invites a
 larger reading than the branch deserves.** It drops the per-TOOL entitlement
@@ -814,6 +815,130 @@ single most fragile part of this gate, once even failing the run outright.
 Issue #80 judged two more reads, proving nothing the existing two do not
 already prove, not worth that risk. Check (f), the one new SUCCESS case, has
 no deny to audit in the first place.
+
+## Close-out: the delegated scope branch (issue #83)
+
+### Widening `get_order_status`
+
+`get_order_status`'s `tool_authorization_map` entry now carries a delegated
+scope, `Orders.Read.AsUser`, alongside its existing role, `Orders.Read`,
+OR-checked exactly as the per-server entitlement check already is. This is a
+real widening, confirmed by Hari on issue #83 before implementation, not a
+side effect of wanting a testable code path: a delegated (human-signed-in)
+caller who holds the scope can now call `get_order_status` without holding the
+`Orders.Read` role, which is more access than existed before this change.
+
+The alternative considered and rejected was reusing `Orders.Invoke`, the
+scope the per-server check already demands. It costs no new Entra object, but
+it makes the per-tool check re-ask a question the per-server check already
+answered: every delegated caller who reaches the tool check at all would pass
+it. That proves the code path executes and never that it can refuse, and a
+future tool copying the same pattern would make per-tool authorization on the
+delegated path decorative rather than real. `Orders.Read.AsUser` keeps a
+genuine negative case constructible: a caller holding `Orders.Invoke` alone is
+still refused.
+
+**Naming departure, and why it is not merely a convention preference.** This
+repo's convention elsewhere is a delegated scope `X.Y` paired with an
+application role `X.Y.All` (`docs/runbooks/entra-app-registrations.md`
+section 1a). `Orders.Read.AsUser` does not follow it, because it cannot.
+
+Not documented: governance review (2026-08-10) ran two independent search
+passes against Microsoft Learn and found no basis for the claim that Entra
+rejects a scope value duplicating an app role value on the same application --
+the Graph `permissionScope.value` and `appRole.value` docs state only length
+and character-set constraints, no portal how-to for either blade documents a
+cross-collection check, and no AADSTS or Graph error code for this case
+exists on Learn. `entra-app-registrations.md` section 1a asserts a BROADER
+form of the same idea, uncited, predating this ticket: case-INSENSITIVE
+comparison, and scope-versus-scope collisions in addition to scope-versus-role.
+That broader form remains unverified; nothing below closes it, and this ADR
+does not lean on it as corroboration.
+
+LIVE-OBSERVED, 2026-08-10, but NARROWER than section 1a's claim (Hari,
+`mcp-tracer-server`'s Expose an API blade, Add a scope): attempting to add a
+scope literally named `Orders.Read` on the same application that already
+carries the app role `Orders.Read` (`AppRoleAuthorization.RequiredRole`) was
+refused, with the error "Failed to update undefined application property.
+Error detail: It contains duplicate value. Please Provide unique value." This
+tests exactly one instance -- exact-case, scope-versus-role -- and no other.
+It does not test case-insensitive comparison (the observed pair was an exact
+match, not e.g. `orders.read` against `Orders.Read`) and does not test
+scope-versus-scope. Both of those remain exactly as unverified as they were
+before this ticket; see the added note in `entra-app-registrations.md`
+section 1a. What this instance IS -- a dated, observed fact against the
+actual application this ticket's server uses, not an inference from
+documentation -- has the same evidentiary standing as every other
+`LIVE UPDATE`/`CAPTURED` row in COMPATIBILITY.md, where docs are silent and a
+direct observation is what this repo has instead. See COMPATIBILITY.md for
+the dated row.
+
+The convention-clean alternative -- renaming the role to `Orders.Read.All`
+and the scope to `Orders.Read` -- was rejected for this ticket regardless of
+the collision question's answer: it reaches into the C# constant, the live
+app registration, the negative-test client grants (section 3), and gate
+checks (e) through (g), all to fix a naming inconsistency this ADR would
+rather just name than pay to remove.
+
+### What now closes the evidence gap, and what still does not
+
+Two separate mechanisms close this, and neither is the live gate, which
+remains structurally unable to acquire a delegated token (ADR-006).
+
+1. **Rendering, PR-blocking, automated.** A `terraform test` fixture
+   (`infra/terraform/modules/apim-mcp-server/tests/policy-rendering/`) calls
+   `templatefile()` on the real `mcp-server.xml` with a fixture map covering
+   all four claim shapes -- role only, scope only, scope and role together,
+   unrestricted -- and asserts the generated switch-case expression for each.
+   It runs as a step in the required `terraform-checks` CI job. This proves
+   the `scope` shape renders correctly; it proves nothing about a real caller,
+   because it has no provider, no backend, and no token of any kind.
+2. **Execution, human-run, evidenced.** `docs/demos/obo-happy-path.md`
+   extends the existing OBO device-code procedure into a matched pair: a
+   client holding `Orders.Invoke` and `Orders.Read.AsUser` succeeds on
+   `get_order_status` (the scope branch actually admits a caller); a second
+   client holding `Orders.Invoke` only is refused with the same `-32001` a
+   role-only caller without `Orders.Read` would get. A single client cannot
+   produce both tokens -- Entra returns every scope a client is consented for
+   on a resource, regardless of what a given token request names (verified
+   against Microsoft Learn, 2026-08-10) -- so this needs two client app
+   registrations
+   (`docs/runbooks/entra-app-registrations.md` sections 4 and 4a), not two
+   requests from one.
+
+Whether mechanism 2 has actually been run, and when, is authoritative only in
+that file's own "Captured evidence" section, by date. This ADR does not
+restate it, to avoid the same drift already corrected once in
+`docs/runbooks/live-test-tfvars-reference.md`: a claim recorded in two places
+only has to go stale in one of them.
+
+### The layer asymmetry this widening makes load-bearing
+
+For an app-only caller, per-tool entitlement is checked twice: once at the
+gateway (`tool_authorization_map`), once again in the backend
+(`AppRoleAuthorization`, issue #45). For a delegated caller it is checked
+once. `GetOrderStatus.Run` calls `AppRoleAuthorization.HasOrdersRead` only on
+its `AppContext` branch; the `Delegated` branch goes straight to the OBO
+exchange with no per-tool check of its own
+(`src/McpTools/Tools/GetOrderStatus.cs`). Before this widening that asymmetry
+was inert -- a delegated caller could never reach the tool at all, so the
+backend's missing second check never mattered. After it, the gateway's
+`tool_authorization_map` is the ONLY thing standing between a delegated
+caller and this tool, for every future scope anyone adds to this or any other
+row.
+
+The downstream "Assignment required" gate (issue 53) is a real second control
+on the delegated path -- live-evidenced in `docs/demos/obo-happy-path.md`,
+"Run 2026-07-22" -- but it is not a substitute for a per-tool check and must
+not be read as one. It gates whether the OBO exchange succeeds for THIS USER
+against the DOWNSTREAM APPLICATION, not whether this user may call THIS TOOL.
+A `tool_authorization_map` misconfiguration -- the wrong scope, or a scope on
+a tool that should not have one -- would not be caught by it.
+
+Adding a matching per-tool `scp` check to the backend, mirroring
+`AppRoleAuthorization`'s existing per-tool role check, would close this
+symmetrically. It is explicitly out of scope for issue #83, which decides
+what evidence is gathered, not how authorization works. Tracked as issue #98.
 
 ## References
 

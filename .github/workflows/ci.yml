@@ -81,6 +81,34 @@ jobs:
             terraform -chdir="${d}" validate
           done
 
+      - name: terraform test
+        shell: bash
+        run: |
+          # Discover every directory holding a .tftest.hcl file, independent
+          # of has_tf above: a fixture module can hold ONLY tests/outputs and
+          # no resources (issue 83's policy_rendering.tftest.hcl is the first
+          # one), so its own presence is the right gate, not a generic .tf
+          # scan. Each such directory is a self-contained root module (its
+          # own init), so this never needs the real modules' providers or
+          # Azure credentials -- see the header comment on each fixture's
+          # main.tf for why. Excludes .terraform/: the PRIOR step in this same
+          # job already ran `terraform init` for every real module, which
+          # downloads AVM modules locally into .terraform/modules/ -- some of
+          # which vendor their OWN .tftest.hcl test suites (observed:
+          # mcp-function-host's avm_interfaces dependency). Those need real
+          # provider credentials this job does not have and are not ours to
+          # run; only .tftest.hcl files actually committed to this repo count.
+          dirs="$(find infra -type f -name '*.tftest.hcl' -not -path '*/.terraform/*' -exec dirname {} \; | sort -u)"
+          if [ -z "$dirs" ]; then
+            echo "SKIPPED: no .tftest.hcl files under infra/."
+            exit 0
+          fi
+          for d in $dirs; do
+            echo "== ${d} =="
+            terraform -chdir="${d}" init -backend=false -input=false
+            terraform -chdir="${d}" test
+          done
+
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v6
         with:

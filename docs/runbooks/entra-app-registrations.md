@@ -37,6 +37,7 @@ table is the single-page lookup.
 | 3a | Cross-server negative-test client | `TEST_CLIENT_SERVER1_ONLY_ID`/`_SECRET` | `mcp-tracer-test-client-server1-only` |
 | 3b | Cross-tool differentiation client | `TEST_CLIENT_MCP_SERVICE_TOOL_ID`/`_SECRET` | `mcp-tracer-test-client-service-tool` |
 | 4 | Interactive demo client | manual, pasted into host | `mcp-tracer-vscode-client` |
+| 4a | Delegated negative-test client (issue #83) | manual, pasted into host | `mcp-tracer-test-client-delegated-without-scope` |
 | ([obo-app-registrations.md](obo-app-registrations.md) section 1) | Downstream Orders API identity | `downstream_app`/`downstream_entra_auth` | `mcp-tracer-downstream-orders-api` |
 
 **Existing registrations predate this convention and need a manual rename.**
@@ -101,6 +102,24 @@ steps 3 and 4; these are additional entries, not replacements for
 > convention that keeps them distinct: a delegated scope `X.Y` and an application
 > role `X.Y.All`. `required_scope` and `required_role` are separate tfvars and
 > are never required to match, so this costs nothing.
+
+**What is actually verified of the claim above, and what is not (added
+2026-08-10, issue #83).** The blockquote predates this ticket and is uncited.
+Issue #83 tested one narrow instance of it directly: a scope named
+`Orders.Read` was refused on an application that already carried an app role
+also named `Orders.Read` -- exact-case, scope-versus-role, live-observed,
+dated (COMPATIBILITY.md, "Entra app registration: a scope value cannot
+duplicate an existing app role value"). The exact error text observed was
+"Failed to update undefined application property. Error detail: It contains
+duplicate value. Please Provide unique value.", not quite the paraphrase
+above. That observation does NOT verify the blockquote's broader form: the
+"compared case-insensitively"/"ignoring case" claim (untested -- the observed
+case was an exact match, not `orders.read` against `Orders.Read`) and the
+extension to scope-versus-scope collisions (untested -- only scope-versus-role
+was tried) both remain unverified, uncited assertions. Governance review
+(2026-08-10) separately confirmed neither is documented on Microsoft Learn.
+Treat the blockquote's example (`orders.invoke` colliding with `Orders.Invoke`)
+as plausible, not established.
 
 1. **Expose an API > Add a scope** for server 1. The scope's short name is the
    value the token carries in `scp`; choose a clear per-server name, e.g.
@@ -410,6 +429,76 @@ to the interactive host manually (ADR-006).
    rejected at the gateway until its id is present and the gate is re-applied. The
    id is what you paste into the interactive host's manual client-registration
    prompt.
+
+**Addition (issue #83): a per-tool delegated scope for `get_order_status`.**
+`tool_authorization_map`'s `get_order_status` entry now also carries a delegated
+scope, `Orders.Read.AsUser`, alongside its existing `Orders.Read` role (ADR-009,
+"Widening `get_order_status`"). This client is the intended **positive-arm**
+holder: on **Expose an API**, add a scope named `Orders.Read.AsUser` on the
+server app (same blade as `Orders.Invoke`; note the naming trap below), then on
+this client's **API permissions**, add it as a fourth delegated permission
+alongside `user_impersonation`, `Orders.Invoke`, and `Catalog.Invoke`, and grant
+admin consent. A token from this client, carrying both `Orders.Invoke` (clears
+the per-server check) and `Orders.Read.AsUser` (clears the per-tool check),
+should now succeed on `get_order_status` via the delegated branch.
+
+**Naming trap, live-confirmed 2026-08-10.** The new scope's value cannot be
+`Orders.Read`: attempting to add a scope literally named `Orders.Read` on this
+same application, which already carries the app role `Orders.Read` (section 2
+above; `AppRoleAuthorization.RequiredRole`), was refused by Entra with "Failed
+to update undefined application property. Error detail: It contains duplicate
+value. Please Provide unique value." (Expose an API blade, Add a scope). Not
+documented on Microsoft Learn (governance review, 2026-08-10, UNVERIFIABLE via
+two independent search passes) but directly observed against this
+application, which this repo treats as sufficient evidence on its own terms --
+see COMPATIBILITY.md. `Orders.Read.AsUser` therefore inverts this runbook's
+usual `X.Y` scope / `X.Y.All` role convention, confirmed necessary rather than
+merely deliberate. The convention-clean fix would be renaming the role
+instead, which ADR-009 records as rejected for this ticket (too much surface
+for what it buys here).
+
+## 4a. Delegated negative-test client (holds Orders.Invoke only, issue #83)
+
+A second public client, deliberately **not** given `Orders.Read.AsUser`, so the
+issue-83 evidence is a matched pair rather than a single "it worked" anecdote: a
+token from THIS client clears the per-server check (it holds `Orders.Invoke`)
+and is refused `get_order_status` at the per-tool check; a token from section
+4's client, holding both scopes, is accepted. Two tokens, one difference, one
+outcome each.
+
+A second app registration is required here, not a second delegated permission
+on section 4's client. Verified against Microsoft Learn
+(`resources-and-scopes`, "Consent lifetime"; `scopes-oidc`, "the `.default`
+scope"; docs-verifier, 2026-08-10): once a client holds consent for two
+delegated scopes on the same resource, Entra returns BOTH in `scp` on every
+token for that resource, regardless of what the `scope=` request parameter
+names. So a single client cannot produce a token that omits a scope it has
+been consented for -- the only way to get an `Orders.Invoke`-only token is a
+client that has never been granted `Orders.Read.AsUser` at all.
+
+1. **App registrations > New registration.** Name
+   `mcp-tracer-test-client-delegated-without-scope`. Single tenant.
+2. **Authentication > Add a platform > Mobile and desktop applications**, add a
+   loopback redirect URI (e.g. `http://localhost`; this client only ever runs
+   the raw device-code flow below, never a browser redirect, but Entra
+   requires a public-client platform to be present to allow public client
+   flows). Set **Allow public client flows = Yes**.
+3. **API permissions > Add a permission > My APIs**, select the server resource
+   app from section 1, choose **Delegated permissions**, select ONLY server 1's
+   delegated scope `Orders.Invoke` (`required_scope`). **Add permissions**, then
+   **Grant admin consent for `<tenant>`**. Do NOT add `Orders.Read.AsUser`, and
+   do not add `user_impersonation` or `Catalog.Invoke` either -- this client's
+   entire purpose is holding the minimum needed to clear the per-server check
+   and nothing more, so its absence at the per-tool check is unambiguous.
+4. Record the **Application (client) ID** and add it to
+   `entra_validation.allowed_client_application_ids` (the `S2_TFVARS_JSON`
+   live-test secret), same reason as section 4 step 4: without it, the token is
+   rejected at the gateway's client-id check before the per-server check this
+   client exists to clear ever runs.
+
+No GitHub Environment secret is created for this client, the same as section
+4: it is never invoked by the automated gate, only by a human running the
+device-code procedure in `docs/demos/obo-happy-path.md`.
 
 ## Values this runbook produces, and where they are consumed
 

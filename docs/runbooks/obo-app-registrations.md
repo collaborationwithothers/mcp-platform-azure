@@ -206,6 +206,23 @@ automated gate. The resolver already matches both forms, so it is robust either
 way, but the delegated form is a live-observed fact this manual run is the only
 thing that closes. Capture the observed claim form in the evidence below.
 
+**Addition (issue #83): the same manual demo also closes ADR-009's residual
+`scope` branch gap.** Separately from the identity-mode resolver above, the
+gateway's `tool_authorization_map` policy fragment (issue 18) can gate a tool
+on a delegated scope, a role, both, or neither -- and until issue #83, no tool
+row named a scope, so the `scope` shape had never rendered into a live check
+at all, let alone been exercised by a real caller. `get_order_status` now
+carries `Orders.Read.AsUser` alongside its existing `Orders.Read` role. This is
+a SEPARATE gate from the identity-mode resolver's `scp`/`roles` detection
+above: the resolver runs in the backend, after the gateway has already decided
+whether to forward the call. So this demo now proves TWO things, at two
+different layers, with the same delegated token: the resolver still correctly
+detects the delegated branch (unchanged by issue 83), and the gateway's new
+`scope` check correctly discriminates BEFORE that backend logic ever runs. The
+second half needs a caller who is refused, not only one who succeeds -- see
+step 3a below and `docs/runbooks/entra-app-registrations.md` section 4a for
+why that needs a second client, not a second scope on this one.
+
 ### Manual demo procedure (device-code flow)
 
 Use the **device-code flow** with a dedicated **sandbox test user** (a
@@ -214,10 +231,14 @@ the demo scope). Device code is chosen over a full auth-code redirect because it
 needs no registered reply URL and runs from a terminal, while still being a
 genuine interactive user sign-in (MFA/Conditional Access apply normally).
 
-1. Ensure the demo client app registration has the delegated
-   `api://<server-app>/user_impersonation` scope and a
+1. Ensure the demo client app registration (`entra-app-registrations.md`
+   section 4) has the delegated `api://<server-app>/Orders.Invoke` scope --
+   NOT `user_impersonation`; the per-server gateway check wants
+   `required_scope`'s actual value, and `user_impersonation` satisfies nothing
+   it checks (corrected 2026-08-09, issue #80) -- plus, since issue #83,
+   `api://<server-app>/Orders.Read.AsUser` for step 3 to succeed. Ensure a
    `allowPublicClient`/native platform so device code is permitted; sign the
-   sandbox user in once to consent (or admin-consent the scope). **Since issue
+   sandbox user in once to consent (or admin-consent the scopes). **Since issue
    53 (assignment-required on the downstream app):** the sandbox user must ALSO
    be assigned to the downstream enterprise application (section 1 step 7),
    directly or via a group, or the OBO exchange for that user is refused with
@@ -225,13 +246,28 @@ genuine interactive user sign-in (MFA/Conditional Access apply normally).
    delegated happy path.
 2. Acquire a delegated token as the sandbox user, e.g.
    `az login --use-device-code --allow-no-subscriptions` then
-   `az account get-access-token --scope api://<server-app>/user_impersonation`
+   `az account get-access-token --scope api://<server-app>/Orders.Invoke`
    (or an equivalent MSAL device-code call). Confirm it is a **user** token:
    the decoded token has an `scp` claim and a user `oid`/`preferred_username`,
    not a `roles` claim.
 3. Call `get_order_status` through the gateway with that token (McpTestClient or
-   the MCP Inspector). Because the token carries `scp`, the server takes the
-   **delegated** branch and sources the result from the downstream via OBO.
+   the MCP Inspector). Because the token carries `scp` containing both
+   `Orders.Invoke` (clears the gateway's per-server check) and
+   `Orders.Read.AsUser` (clears the gateway's per-tool check, issue #83), the
+   call reaches the backend, which takes the **delegated** branch and sources
+   the result from the downstream via OBO.
+3a. **Negative arm (issue #83).** Repeat step 2 with
+    `entra-app-registrations.md` section 4a's client instead of section 4's --
+    it holds `Orders.Invoke` only, never consented to `Orders.Read.AsUser`
+    (a single client cannot hold both and still produce a token that omits
+    one; Entra returns every consented scope for a resource regardless of what
+    `scope=` names, verified against Microsoft Learn, 2026-08-10; section 4a
+    explains why). Repeat step 3 with that token. Expected result: a JSON-RPC
+    error, `code: -32001`, `message` starting `insufficient_scope: the caller
+    is not authorized to call tool 'get_order_status'.` The call never reaches
+    OBO or the downstream -- the gateway's per-tool check denies it first.
+    Paired with step 3's success, this is the matched pair ADR-009 needs: same
+    per-server entitlement, different per-tool entitlement, different outcome.
 
 ### Evidence to capture (label each as evidence, never fabricate)
 
@@ -246,6 +282,10 @@ genuine interactive user sign-in (MFA/Conditional Access apply normally).
   the inbound server-audience token. Pair this with the automated negative test
   result (app-context passthrough rejected) so the delegated-passthrough-also-
   rejected claim in docs/security.md is backed by captured evidence.
+- **(Issue #83) Step 3a's exact response body**, the `-32001` JSON-RPC error,
+  proving the per-tool `scope` check refuses a caller who cleared the
+  per-server check but lacks the tool-specific scope -- this is what makes the
+  `scope` branch a proven discrimination, not merely a proven execution.
 - The date, the tenant, the sandbox user (by role, not by any secret), and the
   tool/version used. Record the run in `docs/demos`.
 
