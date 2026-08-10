@@ -1,138 +1,138 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="app.diagrams.net" agent="claude-code" version="24.7.17" type="device">
+<mxfile host="drawio-mcp" modified="2026-08-10T15:39:32.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
   <diagram name="mcp-request-outcomes" id="mcp-outcomes">
-    <mxGraphModel dx="1400" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1282" background="#FFFFFF" math="0" shadow="0">
+    <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1282" background="#FFFFFF" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="title" value="MCP request outcomes: HTTP status vs MCP errors" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=20;fontColor=#000000;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry x="40" y="20" width="900" height="30" as="geometry" />
+        <mxCell id="title" value="MCP request outcomes: HTTP status vs MCP errors" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=20;fontColor=#000000;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="20.0" width="900.0" height="30.0" />
         </mxCell>
-        <mxCell id="subtitle" value="As deployed at tag v1.0.0 | transport 401 vs HTTP 200 (JSON-RPC error / tool isError)" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontSize=13;fontColor=#666666;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry x="40" y="52" width="900" height="20" as="geometry" />
+        <mxCell id="subtitle" value="As deployed at tag v1.0.0 | transport 401 vs HTTP 200 (JSON-RPC error / tool isError)" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontSize=13;fontColor=#666666;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="52.0" width="900.0" height="20.0" />
         </mxCell>
-        <mxCell id="q-mcptier" value="" style="rounded=1;fillColor=#fff6e6;strokeColor=#e8b566;dashed=1;opacity=50;" vertex="1" parent="1">
-          <mxGeometry x="40" y="475" width="1420" height="555" as="geometry" />
+        <mxCell id="q-mcptier" style="rounded=1;fillColor=#fff6e6;strokeColor=#e8b566;dashed=1;opacity=50;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="475.0" width="1420.0" height="555.0" />
         </mxCell>
-        <mxCell id="q-caller-head" value="MCP client&#10;caller" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/general/Browser.svg;" vertex="1" parent="1">
-          <mxGeometry x="175" y="96" width="50" height="50" as="geometry" />
+        <mxCell id="q-caller-head" value="MCP client&#10;caller" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/general/Browser.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="175.0" y="96.0" width="50.0" height="50.0" />
         </mxCell>
-        <mxCell id="q-caller-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="199" y="214" width="2" height="808" as="geometry" />
+        <mxCell id="q-caller-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="199.0" y="214.0" width="2.0" height="808.0" />
         </mxCell>
-        <mxCell id="q-apim-head" value="API Management&#10;validate-azure-ad-token" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/app_services/API_Management_Services.svg;" vertex="1" parent="1">
-          <mxGeometry x="425" y="96" width="50" height="50" as="geometry" />
+        <mxCell id="q-apim-head" value="API Management&#10;validate-azure-ad-token" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/app_services/API_Management_Services.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="425.0" y="96.0" width="50.0" height="50.0" />
         </mxCell>
-        <mxCell id="q-apim-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="449" y="214" width="2" height="808" as="geometry" />
+        <mxCell id="q-apim-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="449.0" y="214.0" width="2.0" height="808.0" />
         </mxCell>
-        <mxCell id="q-function-head" value="MCP Function App&#10;Easy Auth V2 + MCP handler" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/compute/Function_Apps.svg;" vertex="1" parent="1">
-          <mxGeometry x="675" y="96" width="50" height="50" as="geometry" />
+        <mxCell id="q-function-head" value="MCP Function App&#10;Easy Auth V2 + MCP handler" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/compute/Function_Apps.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="675.0" y="96.0" width="50.0" height="50.0" />
         </mxCell>
-        <mxCell id="q-function-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="699" y="214" width="2" height="808" as="geometry" />
+        <mxCell id="q-function-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="699.0" y="214.0" width="2.0" height="808.0" />
         </mxCell>
-        <mxCell id="q-tool-head" value="get_order_status&#10;MCP tool" style="rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#000000;fontSize=11;verticalAlign=middle;" vertex="1" parent="1">
-          <mxGeometry x="866" y="90" width="168" height="62" as="geometry" />
+        <mxCell id="q-tool-head" value="get_order_status&#10;MCP tool" style="rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#000000;fontSize=11;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="866.0" y="90.0" width="168.0" height="62.0" />
         </mxCell>
-        <mxCell id="q-tool-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="949" y="214" width="2" height="808" as="geometry" />
+        <mxCell id="q-tool-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="949.0" y="214.0" width="2.0" height="808.0" />
         </mxCell>
-        <mxCell id="q-downstream-head" value="Downstream Orders API&#10;Easy Auth V2" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/compute/Function_Apps.svg;" vertex="1" parent="1">
-          <mxGeometry x="1175" y="96" width="50" height="50" as="geometry" />
+        <mxCell id="q-downstream-head" value="Downstream Orders API&#10;Easy Auth V2" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/compute/Function_Apps.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1175.0" y="96.0" width="50.0" height="50.0" />
         </mxCell>
-        <mxCell id="q-downstream-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="1199" y="214" width="2" height="808" as="geometry" />
+        <mxCell id="q-downstream-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1199.0" y="214.0" width="2.0" height="808.0" />
         </mxCell>
-        <mxCell id="q-t1" value="Transport tier - real HTTP status (rejected before MCP runs)" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=11;fontColor=#7a1f1f;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry x="48" y="230" width="620" height="18" as="geometry" />
+        <mxCell id="q-t1" value="Transport tier - real HTTP status (rejected before MCP runs)" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=11;fontColor=#7a1f1f;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="48.0" y="230.0" width="620.0" height="18.0" />
         </mxCell>
-        <mxCell id="q-t2" value="MCP protocol tier - HTTP stays 200; errors via JSON-RPC error or CallToolResult.isError" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=11;fontColor=#9a5a00;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry x="48" y="479" width="760" height="18" as="geometry" />
+        <mxCell id="q-t2" value="MCP protocol tier - HTTP stays 200; errors via JSON-RPC error or CallToolResult.isError" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=11;fontColor=#9a5a00;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="48.0" y="479.0" width="760.0" height="18.0" />
         </mxCell>
-        <mxCell id="q-m1" value="1. tools/call + bearer token A" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="200" y="272" as="sourcePoint" />
-            <mxPoint x="450" y="272" as="targetPoint" />
+        <mxCell id="q-m1" value="1. tools/call + bearer token A" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="200.0" y="272.0" as="sourcePoint" />
+            <mxPoint x="450.0" y="272.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m2" value="2. HTTP 401: missing / invalid token&#10;gateway policy adds WWW-Authenticate PRM challenge (RFC 9728)" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#c62828;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="450" y="330" as="sourcePoint" />
-            <mxPoint x="200" y="330" as="targetPoint" />
+        <mxCell id="q-m2" value="2. HTTP 401: missing / invalid token&#10;gateway policy adds WWW-Authenticate PRM challenge (RFC 9728)" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#c62828;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="450.0" y="330.0" as="sourcePoint" />
+            <mxPoint x="200.0" y="330.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m3" value="3. Forward token A (validate-azure-ad-token passes)" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="450" y="388" as="sourcePoint" />
-            <mxPoint x="700" y="388" as="targetPoint" />
+        <mxCell id="q-m3" value="3. Forward token A (validate-azure-ad-token passes)" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="450.0" y="388.0" as="sourcePoint" />
+            <mxPoint x="700.0" y="388.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m4" value="4. HTTP 401: Easy Auth rejects (no valid token / wrong audience)" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#c62828;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="700" y="446" as="sourcePoint" />
-            <mxPoint x="200" y="446" as="targetPoint" />
+        <mxCell id="q-m4" value="4. HTTP 401: Easy Auth rejects (no valid token / wrong audience)" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#c62828;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="700.0" y="446.0" as="sourcePoint" />
+            <mxPoint x="200.0" y="446.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m5" value="5. HTTP 200 + JSON-RPC error {error.code -32602}&#10;unknown tool / invalid params (MCP framework; MCP spec)" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#7b1fa2;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="700" y="504" as="sourcePoint" />
-            <mxPoint x="200" y="504" as="targetPoint" />
+        <mxCell id="q-m5" value="5. HTTP 200 + JSON-RPC error {error.code -32602}&#10;unknown tool / invalid params (MCP framework; MCP spec)" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#7b1fa2;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="700.0" y="504.0" as="sourcePoint" />
+            <mxPoint x="200.0" y="504.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m6" value="6. Dispatch get_order_status (known tool, valid params)" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="700" y="562" as="sourcePoint" />
-            <mxPoint x="950" y="562" as="targetPoint" />
+        <mxCell id="q-m6" value="6. Dispatch get_order_status (known tool, valid params)" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="700.0" y="562.0" as="sourcePoint" />
+            <mxPoint x="950.0" y="562.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m7" value="7. HTTP 200 + isError=true: &quot;403 Forbidden - requires Orders.Read&quot;&#10;fail closed; no downstream call" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#e8820c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="950" y="620" as="sourcePoint" />
-            <mxPoint x="200" y="620" as="targetPoint" />
+        <mxCell id="q-m7" value="7. HTTP 200 + isError=true: &quot;403 Forbidden - requires Orders.Read&quot;&#10;fail closed; no downstream call" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#e8820c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="950.0" y="620.0" as="sourcePoint" />
+            <mxPoint x="200.0" y="620.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m8" value="8. GET order + token B (aud = downstream)" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="950" y="678" as="sourcePoint" />
-            <mxPoint x="1200" y="678" as="targetPoint" />
+        <mxCell id="q-m8" value="8. GET order + token B (aud = downstream)" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2f5b9c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="950.0" y="678.0" as="sourcePoint" />
+            <mxPoint x="1200.0" y="678.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m9" value="9. HTTP 401 on internal hop: wrong audience / not allowlisted" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#c62828;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1200" y="736" as="sourcePoint" />
-            <mxPoint x="950" y="736" as="targetPoint" />
+        <mxCell id="q-m9" value="9. HTTP 401 on internal hop: wrong audience / not allowlisted" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#c62828;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="1200.0" y="736.0" as="sourcePoint" />
+            <mxPoint x="950.0" y="736.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m10" value="10. HTTP 200 + isError=true: downstream call failed&#10;(surfaced as an MCP tool error)" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#e8820c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="950" y="794" as="sourcePoint" />
-            <mxPoint x="200" y="794" as="targetPoint" />
+        <mxCell id="q-m10" value="10. HTTP 200 + isError=true: downstream call failed&#10;(surfaced as an MCP tool error)" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#e8820c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="950.0" y="794.0" as="sourcePoint" />
+            <mxPoint x="200.0" y="794.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m11" value="11. HTTP 200: order data (or 404 not-found -&gt; result)" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2e7d32;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1200" y="852" as="sourcePoint" />
-            <mxPoint x="950" y="852" as="targetPoint" />
+        <mxCell id="q-m11" value="11. HTTP 200: order data (or 404 not-found -&gt; result)" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2e7d32;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="1200.0" y="852.0" as="sourcePoint" />
+            <mxPoint x="950.0" y="852.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m12" value="12. HTTP 200 + isError=false: MCP tool result" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2e7d32;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="950" y="910" as="sourcePoint" />
-            <mxPoint x="700" y="910" as="targetPoint" />
+        <mxCell id="q-m12" value="12. HTTP 200 + isError=false: MCP tool result" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2e7d32;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="950.0" y="910.0" as="sourcePoint" />
+            <mxPoint x="700.0" y="910.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-m13" value="13. HTTP 200: streamed MCP result to caller" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2e7d32;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" edge="1" parent="1">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="700" y="968" as="sourcePoint" />
-            <mxPoint x="200" y="968" as="targetPoint" />
+        <mxCell id="q-m13" value="13. HTTP 200: streamed MCP result to caller" style="endArrow=classic;endFill=1;rounded=0;strokeColor=#2e7d32;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="700.0" y="968.0" as="sourcePoint" />
+            <mxPoint x="200.0" y="968.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="q-takeaway" value="Only tier 1 (transport) changes the HTTP status; tiers 2-3 stay HTTP 200.&#10;A client must check both the JSON-RPC error object and CallToolResult.isError.&#10;Full three-tier explanation in the embedding doc (ADR-006)." style="rounded=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#000000;fontSize=11;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=8;" vertex="1" parent="1">
-          <mxGeometry x="40" y="1046" width="640" height="66" as="geometry" />
+        <mxCell id="q-takeaway" value="Within these three tiers, only tier 1 (transport) changes the HTTP status; tiers 2-3 stay HTTP 200.&#10;NOT the whole picture. API Management also rejects inside &lt;inbound&gt;, before the MCP runtime runs:&#10;per-server 403 insufficient_scope (issue 17), per-tool -32001 (issue 18), id-validity 400 (issue 88).&#10;TWO of those three DO change the HTTP status, so do not read the line above as system-wide.&#10;Those three are post-v1.0.0 additions and are NOT depicted here. per-tool-deny-path draws&#10;the issue-18 and issue-88 ones; it starts AFTER the 403. docs/mcp-request-flow.md lists all three.&#10;A client must check the HTTP status, the JSON-RPC error object, AND CallToolResult.isError.&#10;Full explanation: ADR-006 and docs/mcp-request-flow.md." style="rounded=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#000000;fontSize=11;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=8;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="1046.0" width="640.0" height="132" />
         </mxCell>
-        <mxCell id="q-legend" value="Arrows&#10;blue solid = request&#10;red dashed = HTTP 401 (transport reject)&#10;purple dashed = HTTP 200 + JSON-RPC error&#10;amber dashed = HTTP 200 + isError=true&#10;green solid = HTTP 200 success" style="rounded=1;fillColor=#f7f7f7;strokeColor=#999999;fontColor=#000000;fontSize=11;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=8;" vertex="1" parent="1">
-          <mxGeometry x="1090" y="1046" width="370" height="176" as="geometry" />
+        <mxCell id="q-legend" value="Arrows&#10;blue solid = request&#10;red dashed = HTTP 401 (transport reject)&#10;purple dashed = HTTP 200 + JSON-RPC error&#10;amber dashed = HTTP 200 + isError=true&#10;green solid = HTTP 200 success" style="rounded=1;fillColor=#f7f7f7;strokeColor=#999999;fontColor=#000000;fontSize=11;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=8;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1090.0" y="1046.0" width="370.0" height="176.0" />
         </mxCell>
       </root>
     </mxGraphModel>

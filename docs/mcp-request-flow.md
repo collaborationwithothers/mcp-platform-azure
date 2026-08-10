@@ -130,9 +130,27 @@ is the `Authorization` fallback: the bearer API Management forwards, read via
   `tools/call` (or naming a tool with no entry in this server's authorization
   map) -> HTTP 200 with a JSON-RPC `error` object, code `-32001`, request `id`
   echoed, no backend call (gateway tier, JSON-RPC-shaped; issue 18).
+- A `tools/call` whose `id` is missing, `null`, or not a string/integer ->
+  HTTP 400 with a JSON-RPC `error` object, code `-32600`, and NO `id` key at
+  all, no backend call (gateway tier; issue 88). MCP forbids a null `id`
+  ("the ID MUST NOT be null"), so there is no valid id to echo and inventing
+  one would break the caller's own correlation. This fires ahead of the
+  per-tool authorization check, so it applies even for a tool the caller IS
+  entitled to: it is a request-validity rejection, not an authorization
+  decision, and unlike the `-32001` deny it emits no audit event.
+- A `tools/call` (or any method) whose body is not valid JSON -> HTTP 500,
+  APIM's generic policy-expression failure, with no JSON-RPC envelope. This
+  happens at the gateway's unconditional request-body parse, before any of
+  the checks above. Known and out of scope for issue 88; a spec-conformant
+  response here would be a separate change.
 
 The three response tiers (transport 401 vs JSON-RPC error vs tool `isError`) are
 diagrammed and explained in ADR-006, "Reference diagrams" and "Request outcomes".
+Read those three as the tiers produced by the transport, the MCP runtime, and the
+tool; the gateway-issued surface described below is a fourth producer that ADR's
+diagram does not depict, and that THIS file, not the ADR, enumerates. It is also
+the only place all three instances are listed: `per-tool-deny-path` draws the
+issue-18 and issue-88 ones but starts after the issue-17 403 has already passed.
 The identity flows (app-only vs delegated OBO) are also in ADR-006.
 
 ### The fourth surface: gateway denial, before the backend
@@ -140,10 +158,12 @@ The identity flows (app-only vs delegated OBO) are also in ADR-006.
 ![Per-tool authorization deny path: after the issue-9 and issue-17 checks
 pass, API Management parses the JSON-RPC request body once, gates on
 tools/call, resolves the tool name (gen_ai.tool.name context variable,
-falling back to the parsed body), looks it up against the server's
-tool_authorization_map, and on a deny emits one audit trace to Application
-Insights before returning a JSON-RPC Protocol Error (HTTP 200, code -32001,
-request id echoed) without ever invoking the backend Function
+falling back to the parsed body), applies the issue-88 id-validity guard
+(rejecting a missing, null or non-scalar id with HTTP 400 and JSON-RPC -32600,
+id key omitted, before the map is consulted), then looks the tool up against
+the server's tool_authorization_map, and on a deny emits one audit trace to
+Application Insights before returning a JSON-RPC Protocol Error (HTTP 200,
+code -32001, request id echoed) without ever invoking the backend Function
 App.](diagrams/per-tool-deny-path.drawio.svg)
 
 The three tiers above classify a response by its wire shape. That is the right
@@ -155,15 +175,17 @@ before `<backend><forward-request />` ever runs. The Function host is never
 invoked, so nothing about such a request appears in the backend's logs, and no
 `X-MS-CLIENT-PRINCIPAL` is ever minted for it.
 
-Two instances of this surface exist in the repo, and they do NOT share a wire
+Three instances of this surface exist in the repo, and they do NOT share a wire
 shape. The property they share is where they happen, not what they look like:
 
 | Denial | Wire shape | Where |
 | --- | --- | --- |
 | Per-server entitlement (issue 17) | HTTP 403, `WWW-Authenticate: Bearer error="insufficient_scope"` (RFC 6750), JSON body `{"error":"insufficient_scope", ...}`, deliberately no `resource_metadata` | `<inbound>`, after `validate-azure-ad-token` |
-| Per-tool authorization (issue 18) | HTTP 200, JSON-RPC 2.0 error object, code `-32001`, request `id` echoed, over the normal response channel | `<inbound>`, after the per-server check, gated on `method == "tools/call"` |
+| Per-tool authorization (issue 18) | HTTP 200, JSON-RPC 2.0 error object, code `-32001`, request `id` echoed, over the normal response channel | `<inbound>`, after the per-server check and after the id-validity guard below, gated on `method == "tools/call"` |
+| Request-validity rejection (issue 88) | HTTP 400, JSON-RPC 2.0 error object, code `-32600`, `id` key OMITTED entirely (MCP forbids a null `id`, so there is none to echo) | `<inbound>`, inside the `method == "tools/call"` branch but BEFORE the per-tool authorization lookup, so it applies regardless of what that decision would have been |
 
-Both are in `infra/terraform/modules/apim-mcp-server/policies/mcp-server.xml`.
+All three are in
+`infra/terraform/modules/apim-mcp-server/policies/mcp-server.xml`.
 
 Why the shapes differ, precisely:
 
@@ -234,6 +256,36 @@ Why the shapes differ, precisely:
   See COMPATIBILITY.md, "MCP tools/call denial wire shape", verified against the
   MCP spec directly rather than against Microsoft Learn, since this is a
   protocol contract and not an Azure one.
+- The request-validity rejection (issue 88) is not a denial at all, despite
+  sharing this table. It fires when a `tools/call` carries an `id` that is
+  missing, `null`, or not a string/integer, and it runs BEFORE the per-tool
+  authorization lookup, so it applies to a tool the caller is fully entitled to
+  just as much as to one they are not. MCP is stricter than base JSON-RPC here:
+  "Requests MUST include a string or integer ID" and "Unlike base JSON-RPC, the
+  ID MUST NOT be null." The response therefore OMITS `id` rather than echoing
+  `null` (which would repeat the violation) or inventing one (which would break
+  the caller's own request/response correlation).
+
+  Same discipline as above about what is quoted and what is inferred. For a body
+  with a `method` and no `id`, the citation is exact: that is a NOTIFICATION by
+  the spec's own typology, and the Streamable HTTP transport's step 4 governs it
+  directly, sanctioning a 400 whose body "MAY comprise a JSON-RPC error response
+  that has no id". For an explicit `"id": null`, it is an inference: that message
+  is neither a valid request nor a valid notification, so step 4 does not cleanly
+  reach it and step 5 (requests) names no error status at all. Answering both the
+  same way is this repo's choice for a shape the spec leaves unaddressed.
+
+  Two operational consequences. First, it emits NO audit event, unlike the
+  `-32001` deny, because no authorization decision happened to record. That is
+  not a visibility loss, which is worth being precise about: the check never
+  reads the tool name and its response body is a fixed string, so every id-less
+  `tools/call` gets byte-identical bytes back whatever tool it names. Pre-fix
+  the response varied by tool, which is what made an id-less probe an
+  enumeration oracle worth auditing; that oracle is closed now, not hidden.
+  Enumeration requires a well-formed `id`, and those requests reach the
+  authorization check and emit its audit event as they always did. Second, it
+  is the one gateway rejection here that is HTTP-shaped AND JSON-RPC-shaped at
+  once: a 400 status carrying a JSON-RPC error object.
 
 The consequence worth internalising is that "which tier" and "how far did it get"
 are independent questions. A JSON-RPC error object on the wire no longer implies

@@ -133,6 +133,64 @@
           return body?["params"]?["name"]?.ToString() ?? "";
         }" />
         <!--
+          Id-validity guard (issue 88). Rejects any tools/call whose id is
+          missing, null, or not a string/integer, with HTTP 400 and a JSON-RPC
+          -32600 error whose id key is OMITTED entirely. MCP 2025-06-18
+          requires "a string or integer ID" and, unlike base JSON-RPC, says it
+          "MUST NOT be null"; the -32001 deny further down this branch
+          (search: "Deny wire shape") echoes body["id"] verbatim, so before
+          this guard a missing or null id came back as "id":null on the wire.
+          Live-proven, not theoretical.
+          THREE decisions here, each with a reason a future reader will want:
+          1. PLACEMENT, ahead of the authorization map lookup rather than
+             inside the deny branch. An invalid id is a REQUEST validity
+             problem, not an authorization outcome, so the answer must not
+             depend on whether the caller would have been allowed. The live
+             gate's check (i) probe 3 is what proves this: it sends an id-less
+             call for a tool the caller IS entitled to and still expects 400.
+          2. OMITTING the id rather than echoing null or inventing one.
+             Fabricating an id would break the caller's own request/response
+             correlation.
+          3. CODE -32600 "Invalid Request", not -32001 (this repo's per-tool
+             authorization code, unchanged below) and not -32602 (the SDK's
+             "Unknown tool" shape): this is neither an authorization denial
+             nor a missing tool.
+          The spec backing is NOT uniform across the two shapes this catches:
+          a body with a method and no id is a NOTIFICATION, which the
+          transport's step 4 governs directly (quoted), while an explicit
+          "id": null is neither a valid request nor a valid notification, so
+          answering it identically is this repo's inference. That distinction,
+          the verbatim quotes, and the verifying run numbers live in
+          COMPATIBILITY.md, "MCP request id MUST NOT be null...", and are
+          deliberately not restated here.
+          Two things this guard does NOT do. It never reaches malformed JSON,
+          which dies earlier at the unconditional mcpRequestBody set-variable
+          above and surfaces as APIM's generic 500; a spec-conformant response
+          for that case would be -32700 "Parse error", NOT this guard's code.
+          And it emits no audit event: ADR-009's "every deny is audited" is
+          untouched because nothing was denied, and since this check ignores
+          the tool name and returns a fixed body, every id-less tools/call
+          gets identical bytes, so there is no enumeration signal left to
+          record. Full argument in docs/mcp-request-flow.md.
+        -->
+        <choose>
+          <when condition="@{
+            var idBody = context.Variables.GetValueOrDefault&lt;JObject&gt;("mcpRequestBody");
+            var idToken = idBody?["id"];
+            bool validId = idToken != null &amp;&amp; idToken.Type != JTokenType.Null &amp;&amp;
+              (idToken.Type == JTokenType.String || idToken.Type == JTokenType.Integer);
+            return !validId;
+          }">
+            <return-response>
+              <set-status code="400" reason="Bad Request" />
+              <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+              </set-header>
+              <set-body>{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: tools/call must include a non-null string or integer id (MCP 2025-06-18 forbids a missing or null id)."}}</set-body>
+            </return-response>
+          </when>
+        </choose>
+        <!--
           Total map lookup, default-deny (issue 18): tool_authorization_map is
           rendered as a switch over every tool name this server's map knows
           about. unrestricted entries allow unconditionally (past the
@@ -228,6 +286,21 @@
               both the unmapped and the under-entitled case (non-concealment:
               the wire response does not distinguish which; the audit event
               above carries the tool name for operators who need to).
+              The id echo below can no longer emit a null id, and BOTH of its
+              null paths are now dead (issue 88, do not re-open this): body is
+              null only when the request body did not parse, which fails at the
+              mcpRequestBody parse well before this branch and returns a 500;
+              and body["id"] is null or non-scalar only when the id-validity
+              guard above would already have returned 400.
+              Be precise about which of that is observed and which is
+              construction. LIVE-PROVEN: the 500 on an unparseable body, and
+              the guard's 400 for a MISSING id and for an explicit "id": null.
+              NOT sent live: a non-scalar id (boolean, object, array). The
+              guard rejects those by the same condition, so they are dead by
+              construction rather than by observation, and no gate probe covers
+              them. The ternary is left as written because it is correct and
+              defensive, not because either branch is reachable. The full
+              reasoning, with the live evidence, is at that guard.
             -->
             <return-response>
               <set-status code="200" reason="OK" />

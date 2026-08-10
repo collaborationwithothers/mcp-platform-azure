@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="drawio-mcp" modified="2026-08-07T05:30:27.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+<mxfile host="drawio-mcp" modified="2026-08-10T15:13:15.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
   <diagram name="per-tool-deny-path" id="per-tool-deny">
     <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1200" background="#FFFFFF" math="0" shadow="0">
       <root>
@@ -8,29 +8,29 @@
         <mxCell id="title" value="Per-tool authorization: the deny path" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=20;fontColor=#000000;strokeColor=none;fillColor=none;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="40.0" y="20.0" width="900.0" height="30.0" />
         </mxCell>
-        <mxCell id="subtitle" value="Phase 3.5 thickening (issue #18), ADR-009. Extends v1.0.0; mid-implementation - live-gate proven (14 rounds; see PR #74) but NOT merged. NOT part of the v1.0.0 tag." style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontSize=13;fontColor=#666666;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+        <mxCell id="subtitle" value="Phase 3.5 thickening (issue #18), merged, plus the id-validity guard (issue #88), live-gate proven and NOT yet merged. ADR-009. Both extend v1.0.0; NEITHER is part of the v1.0.0 tag." style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontSize=13;fontColor=#666666;strokeColor=none;fillColor=none;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="40.0" y="52.0" width="1100.0" height="20.0" />
         </mxCell>
-        <mxCell id="subtitle2" value="Deny path only: what happens AFTER the issue-9 and issue-17 checks pass. The allow and fall-through paths are deliberately not drawn." style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontSize=13;fontColor=#666666;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+        <mxCell id="subtitle2" value="What happens AFTER the issue-9 and issue-17 checks pass: the id-validity guard (step 4b, issue #88) and the per-tool deny (issue #18). The allow and fall-through paths are deliberately not drawn." style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontSize=13;fontColor=#666666;strokeColor=none;fillColor=none;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="40.0" y="72.0" width="1100.0" height="20.0" />
         </mxCell>
         <mxCell id="p-caller-head" value="MCP client&#10;holds a valid, server-entitled token" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/general/Browser.svg;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="175.0" y="96.0" width="50.0" height="50.0" />
         </mxCell>
         <mxCell id="p-caller-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="199.0" y="214.0" width="2.0" height="716.0" />
+          <mxGeometry as="geometry" x="199.0" y="214.0" width="2.0" height="876" />
         </mxCell>
         <mxCell id="p-apim-head" value="API Management (MCP gateway)&#10;per-tool authorization, in &lt;inbound&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/app_services/API_Management_Services.svg;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="470.0" y="96.0" width="50.0" height="50.0" />
         </mxCell>
         <mxCell id="p-apim-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="494.0" y="214.0" width="2.0" height="716.0" />
+          <mxGeometry as="geometry" x="494.0" y="214.0" width="2.0" height="876" />
         </mxCell>
         <mxCell id="p-backend-head" value="MCP server Function App&#10;backend - not reached on this path" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;opacity=50;image=img/lib/azure2/compute/Function_Apps.svg;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="880.0" y="96.0" width="50.0" height="50.0" />
         </mxCell>
         <mxCell id="p-backend-life" style="shape=line;direction=north;strokeColor=#cfd4da;strokeWidth=1;dashed=1;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="904.0" y="214.0" width="2.0" height="716.0" />
+          <mxGeometry as="geometry" x="904.0" y="214.0" width="2.0" height="876" />
         </mxCell>
         <mxCell id="p-ai-head" value="Application Insights&#10;audit sink (side channel)" style="rounded=1;fillColor=#e8f0fb;strokeColor=#6c8ebf;fontColor=#000000;fontSize=11;verticalAlign=middle;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="1164.0" y="90.0" width="200.0" height="56.0" />
@@ -39,7 +39,7 @@
           <mxGeometry as="geometry" x="1164.0" y="152.0" width="230.0" height="58.0" />
         </mxCell>
         <mxCell id="p-ai-life" style="shape=line;direction=north;strokeColor=#b3b9c2;strokeWidth=1;dashed=1;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="1263.0" y="214.0" width="2.0" height="716.0" />
+          <mxGeometry as="geometry" x="1263.0" y="214.0" width="2.0" height="876" />
         </mxCell>
         <mxCell id="p-sec1" value="Precondition - already passed before this diagram starts" style="text;align=left;verticalAlign=middle;resizable=0;points=[];fontStyle=1;fontSize=11;fontColor=#4a7a3b;strokeColor=none;fillColor=none;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="48.0" y="236.0" width="800.0" height="18.0" />
@@ -69,34 +69,43 @@
           <mxGeometry as="geometry" x="234.0" y="564.0" width="520.0" height="68.0" />
         </mxCell>
         <mxCell id="p-step5" value="5. Total-map lookup against this server's tool_authorization_map&#10;case unrestricted   -&gt; allowed (it already cleared the per-server check above)&#10;case scope / role   -&gt; scp.Contains(scope) OR roles.Contains(role)&#10;default             -&gt; allowed = false: a tool name with NO map entry is denied" style="rounded=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontColor=#1a1a1a;fontSize=11;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="234.0" y="644.0" width="520.0" height="86.0" />
+          <mxGeometry as="geometry" x="234.0" y="800" width="520.0" height="86.0" />
         </mxCell>
         <mxCell id="p-deny" value="6. allowed == false   -&gt;   DENY   (the only branch this diagram depicts)" style="rounded=1;fillColor=#fdeeee;strokeColor=#b85450;strokeWidth=1.6;fontColor=#000000;fontSize=11;fontStyle=1;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="234.0" y="742.0" width="520.0" height="46.0" />
+          <mxGeometry as="geometry" x="234.0" y="900" width="520.0" height="46.0" />
+        </mxCell>
+        <mxCell id="p-m4b" value="4c. HTTP 400 + JSON-RPC error, id key OMITTED (there is no valid id to echo, and inventing one&#10;would break the caller's correlation)   {jsonrpc: 2.0, error: {code: -32600, message: Invalid Request ...}}&#10;NO audit event: nothing was denied, and every id-less tools/call gets identical bytes, so there is no enumeration signal to record." style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#e8820c;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
+          <mxGeometry as="geometry" relative="1">
+            <mxPoint x="495.0" y="758.0" as="sourcePoint" />
+            <mxPoint x="200.0" y="758.0" as="targetPoint" />
+          </mxGeometry>
         </mxCell>
         <mxCell id="p-m7" value="7. ONE audit event: &lt;trace source=issue-18-per-tool-authorization severity=error&gt;&#10;metadata: caller (oid, else azp, else unknown) and tool. Not sampled - every deny is recorded." style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#00838f;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
           <mxGeometry as="geometry" relative="1">
-            <mxPoint x="495.0" y="812.0" as="sourcePoint" />
-            <mxPoint x="1263.0" y="812.0" as="targetPoint" />
+            <mxPoint x="495.0" y="968.0" as="sourcePoint" />
+            <mxPoint x="1263.0" y="968.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
         <mxCell id="p-m8" value="8. HTTP 200 + JSON-RPC Protocol Error, request id echoed&#10;{jsonrpc: 2.0, id: 7, error: {code: -32001, message: insufficient_scope ...}}" style="endArrow=classic;endFill=1;rounded=0;dashed=1;strokeColor=#7b1fa2;strokeWidth=1.8;fontSize=10;fontColor=#111111;labelBackgroundColor=#ffffff;spacing=2;" parent="1" edge="1">
           <mxGeometry as="geometry" relative="1">
-            <mxPoint x="495.0" y="880.0" as="sourcePoint" />
-            <mxPoint x="200.0" y="880.0" as="targetPoint" />
+            <mxPoint x="495.0" y="1036.0" as="sourcePoint" />
+            <mxPoint x="200.0" y="1036.0" as="targetPoint" />
           </mxGeometry>
         </mxCell>
         <mxCell id="p-backend-never" value="BACKEND NEVER INVOKED ON THIS PATH&#10;The deny &lt;return-response&gt; sits in &lt;inbound&gt; and returns before&#10;&lt;backend&gt;&lt;forward-request /&gt;&lt;/backend&gt; ever runs. No request, no&#10;forwarded token and no tool execution reaches the Function App.&#10;The lifeline above is drawn deliberately empty." style="rounded=1;fillColor=#fdeeee;strokeColor=#b85450;strokeWidth=1.6;dashed=1;fontColor=#000000;fontSize=11;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="694.0" y="838.0" width="420.0" height="88.0" />
+          <mxGeometry as="geometry" x="694.0" y="990" width="420.0" height="88.0" />
         </mxCell>
-        <mxCell id="p-takeaway" value="Fourth surface on the ADR-006 error taxonomy&#10;A gateway-side per-tool denial is a JSON-RPC Protocol Error:&#10;HTTP 200 carrying an error object, with the request id echoed.&#10;It is NOT a transport 401/403 ahead of the JSON-RPC envelope&#10;(that tier is reserved for transport and session violations), and&#10;NOT a CallToolResult with isError=true (that tier is reserved for&#10;failures during actual tool execution).&#10;-32001 is a custom code in the MCP-reserved range (-32000 to&#10;-32099), deliberately not -32602 'Unknown tool', which would&#10;misdescribe a mapped-but-under-entitled caller.&#10;MCP spec 2025-06-18; COMPATIBILITY.md 2026-08-06." style="rounded=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#000000;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=8;spacingTop=6;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="40.0" y="962.0" width="520.0" height="190.0" />
+        <mxCell id="p-takeaway" value="Fourth surface on the ADR-006 error taxonomy&#10;This surface now has three instances: the issue-17 per-server 403,&#10;the issue-88 id-validity 400 (step 4b), and the per-tool deny below.&#10;Two of the three change the HTTP status, so ADR-006's &quot;only tier 1&#10;changes the status&quot; holds within tiers 1-3 ONLY, never system-wide.&#10;A gateway-side per-tool denial is a JSON-RPC Protocol Error:&#10;HTTP 200 carrying an error object, with the request id echoed.&#10;It is NOT a transport 401/403 ahead of the JSON-RPC envelope&#10;(that tier is reserved for transport and session violations), and&#10;NOT a CallToolResult with isError=true (that tier is reserved for&#10;failures during actual tool execution).&#10;-32001 is a custom code in the MCP-reserved range (-32000 to&#10;-32099), deliberately not -32602 'Unknown tool', which would&#10;misdescribe a mapped-but-under-entitled caller.&#10;MCP spec 2025-06-18; COMPATIBILITY.md 2026-08-06." style="rounded=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#000000;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=8;spacingTop=6;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="1120" width="520.0" height="235" />
         </mxCell>
         <mxCell id="p-ordering" value="Two causes, one indistinguishable wire response&#10;An unmapped tool name and a mapped-but-under-entitled caller&#10;produce the SAME response; it does not say which. The audit&#10;event carries the tool name for operators who need to tell them&#10;apart.&#10;&#10;Audit ordering is a constraint, not a style choice&#10;&lt;trace&gt; is documented for inbound, outbound and backend only,&#10;never for on-error, so it must sit in &lt;inbound&gt; immediately before&#10;the deny &lt;return-response&gt;. severity=error is the maximum tier of&#10;the verbosity enum, so it clears the diagnostic setting's gate&#10;(severity &gt;= configured verbosity) at ANY configured verbosity -&#10;a robust relationship, not a fragile exact-match one. COMPATIBILITY.md 2026-08-07." style="rounded=1;fillColor=#ffffff;strokeColor=#666666;fontColor=#000000;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=8;spacingTop=6;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="580.0" y="962.0" width="520.0" height="190.0" />
+          <mxGeometry as="geometry" x="580.0" y="1120" width="520.0" height="190.0" />
         </mxCell>
-        <mxCell id="p-legend" value="Arrows&#10;blue solid       = request&#10;purple dashed = HTTP 200 + JSON-RPC error&#10;teal dashed    = audit telemetry, side channel&#10;&#10;The blue and purple arrows carry the same&#10;meaning here as in mcp-request-outcomes&#10;(ADR-006); the teal one is new to this&#10;diagram and is not a client-visible response.&#10;&#10;Faded lane = present but never invoked." style="rounded=1;fillColor=#f7f7f7;strokeColor=#999999;fontColor=#000000;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=8;spacingTop=6;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="1120.0" y="962.0" width="340.0" height="190.0" />
+        <mxCell id="p-legend" value="Arrows&#10;blue solid       = request&#10;purple dashed = HTTP 200 + JSON-RPC error&#10;orange dashed = HTTP 400 + JSON-RPC error (id-validity guard)&#10;teal dashed    = audit telemetry, side channel&#10;&#10;The blue and purple arrows carry the same&#10;meaning here as in mcp-request-outcomes&#10;(ADR-006); the teal one is new to this&#10;diagram and is not a client-visible response.&#10;&#10;Faded lane = present but never invoked." style="rounded=1;fillColor=#f7f7f7;strokeColor=#999999;fontColor=#000000;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingRight=8;spacingTop=6;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1120.0" y="1120" width="340.0" height="190.0" />
+        </mxCell>
+        <mxCell id="p-step4b" value="4b. Id-validity guard (issue #88) - BEFORE the map lookup, so it applies whatever that lookup would have decided&#10;valid id = present AND not null AND (string OR integer).   MCP 2025-06-18: &quot;Requests MUST include a string or integer ID&quot;, and&#10;&quot;Unlike base JSON-RPC, the ID MUST NOT be null&quot;.   Invalid -&gt; return immediately; the map lookup below never runs." style="rounded=1;fillColor=#fff8e1;strokeColor=#e8820c;strokeWidth=1.6;fontColor=#1a1a1a;fontSize=11;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="230.0" y="640.0" width="520.0" height="74.0" />
         </mxCell>
       </root>
     </mxGraphModel>
