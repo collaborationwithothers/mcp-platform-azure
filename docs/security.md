@@ -129,21 +129,24 @@ The downstream access path depends on the caller identity mode.
 (`McpTools.Identity.IdentityModeResolver`, decided from the
 `X-MS-CLIENT-PRINCIPAL` claims Easy Auth injects):
 
-- **Delegated (an `scp` claim):** `GetOrderStatus.Run` reads the caller's
-  inbound token via the MCP extension's
+- **Delegated (an `scp` claim):** the MCP layer first requires the exact
+  `Orders.Read.AsUser` delegated scope. `DelegatedScopeAuthorization` splits
+  the space-separated scope value from the trusted Easy Auth principal and
+  accepts the existing short and schema-URI claim-type aliases. Microsoft Learn
+  documents the scope value format, but not which alias Easy Auth emits. See
+  COMPATIBILITY.md, "X-MS-CLIENT-PRINCIPAL identity-mode and delegated-scope
+  extraction". A missing scope returns `403 Forbidden: get_order_status
+  requires the delegated scope 'Orders.Read.AsUser'.` before the tool reads the
+  inbound bearer, logs the call, starts OBO, or contacts the downstream API.
+  Only an admitted call reads the inbound token via the MCP extension's
   `TryGetHttpTransport`/`HttpTransport.Headers` and exchanges it for a
-  downstream-audience token via Entra, authenticating itself with NO stored
-  client secret (a federated identity credential trusting the server's Function
-  App managed identity, Terraform-managed and re-created every ephemeral run,
-  docs/runbooks/obo-app-registrations.md). The token-store header
-  (`X-MS-TOKEN-AAD-ACCESS-TOKEN`) is expected **absent** in this topology (no
-  token store), so the raw `Authorization` bearer is the operative OBO user
-  assertion. See ADR-006, "OBO exchange: the inbound-token gap and its
-  correction," for why an earlier revision wrongly concluded the inbound token
-  was unreachable. The exchange logic
-  (`McpTools.Downstream.DownstreamOrdersClient`, `ManagedIdentityOboTokenAcquirer`)
-  is unit-tested, including an explicit test asserting the downstream call
-  never carries the inbound assertion.
+  downstream-audience token via Entra. The server uses no stored client secret.
+  It uses a federated identity credential that trusts the Function App managed
+  identity. The token-store header (`X-MS-TOKEN-AAD-ACCESS-TOKEN`) is absent in
+  this topology, so the raw `Authorization` bearer is the OBO user assertion.
+  The exchange logic (`McpTools.Downstream.DownstreamOrdersClient`,
+  `ManagedIdentityOboTokenAcquirer`) is unit-tested. One test asserts that the
+  downstream call never carries the inbound assertion.
 - **App-context (an `azp`/`appid` application identity, no `scp`):** the MCP
   layer requires `Orders.Read` in the `roles` claim. A missing role returns the deterministic tool
   error `403 Forbidden: get_order_status requires the application role
@@ -155,8 +158,8 @@ The downstream access path depends on the caller identity mode.
   headers only. The downstream never authorizes from those headers.
 
 `GetOrderStatus.Run`'s own branching is unit-tested against a fake downstream
-client (delegated -> OBO downstream, authorized app-context -> app-only
-downstream, missing role/principal -> rejected).
+client (authorized delegated -> OBO downstream, authorized app-context ->
+app-only downstream, missing scope/role/principal -> rejected).
 
 ### get_service_info authorization (issue 79)
 
@@ -206,11 +209,12 @@ Because the tool calls nothing downstream, there is no OBO exchange and no
 downstream token acquisition anywhere on this path: authorization begins and
 ends at the MCP tool boundary.
 
-**VERIFIED (tool source).** Cross-tool refusal is symmetric only for
-app-context callers. `GetOrderStatus.Run` sends a delegated caller straight to
-OBO before it checks `Orders.Read`. The operator-facing result and wire shapes
-belong in `docs/mcp-request-flow.md`, "Debugging map"; this section owns the
-identity posture that explains them.
+**VERIFIED (tool source).** Cross-tool refusal now has a backend backstop in
+both identity modes. `GetOrderStatus.Run` checks `Orders.Read` for an
+app-context caller and `Orders.Read.AsUser` for a delegated caller before either
+downstream path. The operator-facing result and wire shapes belong in
+`docs/mcp-request-flow.md`, "Debugging map". This section owns the identity
+posture that explains them.
 
 ### get_access_guidance authorization (issue 82)
 
@@ -244,19 +248,19 @@ tenant.
 
 **Read the `requiredEntitlements` list as a description of the BACKEND, not as
 a copy of the gateway map.** The two use different vocabularies deliberately.
-The gateway map has three words for a tool: scope, role, unrestricted. The
-backend has a mechanism the gateway has no word for. On `get_order_status`'s
-delegated path no application-role check runs at the MCP layer at all; the
-caller's own authority travels to the downstream Orders API through the OBO
-exchange, and Entra's assignment-required gate on that API decides at
-token-exchange time. That is why the delegated row for `get_order_status` names
-`downstreamAssignmentRequired` and carries no role. See "Trusted-subsystem
-trade-off and backstop asymmetry" below for how that gate was established and
-for the caveat that Global Administrators bypass it. Because one tool can be
-authorized two different ways depending on the caller's identity mode, each row
-carries an `appliesTo` and a `mechanism`, and the list is total over tool TIMES
-identity mode rather than over tools. `ToolEntitlementParityTests` fails the
-build if a tool ships without both of its rows.
+The gateway map has three words for a tool: scope, role, unrestricted. Each
+backend row has an `allOf` list. Every item in that list must pass. The delegated
+`get_order_status` row names two separate controls: the backend
+`Orders.Read.AsUser` scope check and the downstream
+`downstreamAssignmentRequired` gate at OBO token issuance. Neither substitutes
+for the other. The gateway scope remains a separate edge control and is not
+read by the backend. An empty `allOf` means no per-tool backend control. It does
+not waive the gateway's per-server entitlement or Easy Auth. See
+"Trusted-subsystem trade-off and backstop asymmetry" below for how the
+downstream gate was established and the Global Administrator bypass caveat.
+Because one tool can be authorized two different ways depending on caller
+identity mode, the list remains total over tool TIMES identity mode.
+`ToolEntitlementParityTests` fails the build if a tool ships without both rows.
 
 ### Header trust chain (issue 10)
 
@@ -273,9 +277,9 @@ upstream layers own:
    strips any client-supplied `X-MS-*` headers** before injecting its own, so a
    caller cannot forge a principal.
 3. **The code asserts (does not re-validate).** It asserts Easy Auth is enabled
-   (the startup `BuiltInAuthGuard`, below) and then does **claims-based
-   authorization** on the trusted `X-MS-CLIENT-PRINCIPAL` (the delegated-vs-
-   app-context decision).
+   (the startup `BuiltInAuthGuard`, below) and then does claims-based
+   authorization on the trusted `X-MS-CLIENT-PRINCIPAL`. It selects delegated
+   versus app-context mode and enforces that mode's per-tool scope or role.
 
 **Startup fail-closed check.** `BuiltInAuthGuard` (run in `Program.cs` before
 any tool is served) refuses to start in any non-`Development` environment
@@ -298,17 +302,20 @@ with Easy Auth off could supply its own `X-MS-CLIENT-PRINCIPAL` and pick its
 own identity mode.
 
 **Trusted-subsystem trade-off and backstop asymmetry.** The delegated branch
-keeps the original user's authority through OBO. The app-context branch cannot
-do that because there is no user. It instead enforces per-caller policy at the
-MCP layer and calls downstream as one server identity. The downstream therefore
-cannot distinguish the original agents for authorization; compromising the
-server identity affects every authorized app-only caller. The caller ids carried
-in `X-Mcp-Caller-Azp` and `X-Mcp-Caller-Oid` preserve audit attribution but are
-explicitly not trusted for authorization. The app-context branch also has no
-OBO-exchange backstop for the inbound caller, so its fail-closed controls are
-critical: APIM and built-in auth validate the inbound token, code requires
-`Orders.Read`, and downstream built-in auth accepts only the server app. This is
-the intentional trusted-subsystem trade-off, not token passthrough.
+keeps the original user's authority through OBO. It now has two independent
+per-tool controls before and during that exchange: the backend requires
+`Orders.Read.AsUser`, then the downstream assignment-required gate decides
+whether Entra issues a downstream token. The app-context branch cannot preserve
+a user identity because there is no user. It enforces per-caller policy at the
+MCP layer and calls downstream as one server identity. The downstream cannot
+distinguish the original agents for authorization. Compromising the server
+identity affects every authorized app-only caller. The caller ids carried in
+`X-Mcp-Caller-Azp` and `X-Mcp-Caller-Oid` preserve audit attribution but are not
+trusted for authorization. The app-context branch has no OBO-exchange backstop,
+so its fail-closed controls remain critical: APIM and built-in auth validate the
+inbound token, code requires `Orders.Read`, and downstream built-in auth accepts
+only the server app. This is the intentional trusted-subsystem trade-off, not
+token passthrough.
 
 **Downstream role is an enforced issuance gate, not a bare grant (issue 53).**
 The downstream Orders API has "Assignment required?" = Yes

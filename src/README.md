@@ -76,9 +76,10 @@ drives a real MCP session against the deployed gateway endpoint - the primary
 behavioural seam in the spec's Testing Decisions.
 
 It wires the session shape end to end: connect, initialize, tools/list, and
-tools/call. The normal mode asserts both frozen result contracts; the
-`MCP_EXPECT_FORBIDDEN_ROLE` mode asserts the deterministic missing-role MCP
-error. It reads the target endpoint and bearer token from
+tools/call. The normal mode asserts both frozen result contracts. The
+`MCP_EXPECT_FORBIDDEN_ROLE` and `MCP_EXPECT_FORBIDDEN_SCOPE` modes assert the
+deterministic backend authorization error for a missing application role or
+delegated scope. It reads the target endpoint and bearer token from
 `MCP_SERVER_ENDPOINT` and `MCP_ACCESS_TOKEN`.
 
 ### McpTools.Tests (`tests/McpTools.Tests`)

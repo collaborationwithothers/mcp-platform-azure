@@ -17,8 +17,8 @@ never per TOOL. This ADR records how per-tool authorization was added.
 Five decisions, each expanded below:
 
 - **D1.** Enforce per tool at the GATEWAY, in an APIM policy fragment at server
-  scope, and KEEP the existing backend app-role check as a genuine second layer.
-  Neither supersedes the other.
+  scope, and KEEP the backend role and delegated-scope checks as genuine second
+  layers. Neither supersedes the other.
 - **D2.** Deny by default, from a TOTAL map of tool name to required claim. The
   map is not a list of forbidden tools; it is the list of the only tools that can
   be invoked.
@@ -116,10 +116,12 @@ distinct moments, each catching something the other cannot.
   misconfigured. It is not hypothetical that the gateway can be bypassed: the
   Functions backend is reachable directly on its own hostname (this repo probed
   it and got a 405, not a 401, on 2026-07-16 -- see the `set-header
-  Authorization` comment in the fragment), so Easy Auth plus
-  `AppRoleAuthorization.HasOrdersRead` is what stands between a direct caller and
-  the tool. A rendered-map bug, a drifted map, or a policy deployment that failed
-  to apply would all be invisible to the gateway layer and caught here.
+  Authorization` comment in the fragment). Easy Auth plus
+  `AppRoleAuthorization.HasOrdersRead` for app-context calls, or
+  `DelegatedScopeAuthorization.HasScope` for delegated calls, is what stands
+  between a direct caller and the tool. A rendered-map bug, a drifted map, or a
+  policy deployment that failed to apply would all be invisible to the gateway
+  layer and caught here.
 
 Neither layer is redundant with the other, and the existence of one is not a
 reason to weaken the other. The gateway layer is deliberately NOT given authority
@@ -522,26 +524,28 @@ check, just not on the premise that it guards a fragile coupling. See Appendix B
 correction 1.
 
 **C5. Two enforcement layers must be kept in step conceptually, not
-mechanically.** The gateway map gates on `Orders.Read` for `get_order_status`,
-and `AppRoleAuthorization.RequiredRole` is the same string in the backend. They
-are two independent statements of the same requirement, deliberately not shared
-through a common source, because sharing would make a single edit weaken both
-layers at once and destroy the defense-in-depth property. The cost is that they
-can disagree; the mitigation is that disagreement fails CLOSED in the direction
-that matters (a caller denied at the gateway never reaches the backend, and a
-caller admitted by a too-permissive gateway map still faces the backend check).
+mechanically.** For `get_order_status`, the gateway map gates app-context calls
+on `Orders.Read` and delegated calls on `Orders.Read.AsUser`. The backend checks
+the same values through `AppRoleAuthorization` and
+`DelegatedScopeAuthorization`. The values are deliberately not shared through a
+common source. Sharing would let one edit weaken both layers. The cost is that
+they can disagree. The mitigation is fail-closed: a caller denied at the gateway
+never reaches the backend, and a caller admitted by a too-permissive gateway map
+still faces the backend check.
 
-The operational consequence of that sameness, recorded on 2026-08-07: because
-both layers name `Orders.Read` for `get_order_status`, the gateway ALWAYS denies
-first on the gateway path, so a caller under-entitled for this tool is
-under-entitled at BOTH layers and the backend check becomes unreachable through
-APIM. Any test that intends to prove the BACKEND layer for this tool must
-therefore call the backend hostname directly. The live gate does exactly that and
-keeps the two proofs separate:
+For app-context calls, the operational consequence of that sameness was recorded
+on 2026-08-07: both layers name `Orders.Read`, so the gateway denies first on
+the gateway path. The app-context backend check is unreachable through APIM. The
+same rule now applies to delegated calls: APIM denies a caller missing
+`Orders.Read.AsUser` before the Function sees it. Any test of either backend
+check must call the backend hostname directly. The live gate proves the
+app-context case. The delegated case has a current manual procedure but no
+captured live proof yet:
 
-| Layer | Proven by | Path |
+| Layer | Evidence or procedure | Path |
 | --- | --- | --- |
 | Backend (`AppRoleAuthorization.HasOrdersRead`, issue #45) | `scripts/gate/invoke-and-assert.ps1` step [3] | Functions host directly, `$BackendMcpUrl` |
+| Backend (`DelegatedScopeAuthorization.HasScope`, issue #98) | Current manual procedure: `docs/demos/obo-happy-path.md` step 2b. No captured live evidence yet. | Functions host directly, `<s1 BackendMcpUrl>` |
 | Gateway (per-tool map, issue #18) | `tests/integration/discovery-assertions.ps1` check [9]-d, `Assert-ToolAuthorization`'s `UnderEntitledToken` branch | Through APIM |
 
 Step [3] was retargeted at the backend by commit `e6f8967` (shipped in PR #74)
@@ -913,33 +917,35 @@ restate it, to avoid the same drift already corrected once in
 `docs/runbooks/live-test-tfvars-reference.md`: a claim recorded in two places
 only has to go stale in one of them.
 
-### The layer asymmetry this widening makes load-bearing
+### The backend delegated-scope check (issue #98)
 
-For an app-only caller, per-tool entitlement is checked twice: once at the
-gateway (`tool_authorization_map`), once again in the backend
-(`AppRoleAuthorization`, issue #45). For a delegated caller it is checked
-once. `GetOrderStatus.Run` calls `AppRoleAuthorization.HasOrdersRead` only on
-its `AppContext` branch; the `Delegated` branch goes straight to the OBO
-exchange with no per-tool check of its own
-(`src/McpTools/Tools/GetOrderStatus.cs`). Before this widening that asymmetry
-was inert -- a delegated caller could never reach the tool at all, so the
-backend's missing second check never mattered. After it, the gateway's
-`tool_authorization_map` is the ONLY thing standing between a delegated
-caller and this tool, for every future scope anyone adds to this or any other
-row.
+Issue #98 closes the asymmetry created by the issue #83 widening. The backend
+now requires `Orders.Read.AsUser` for the delegated `get_order_status` branch.
+It checks the trusted Easy Auth principal before it reads the inbound bearer,
+logs the call, starts OBO, or contacts the downstream API. The check is local to
+the backend. It does not read or share the gateway's `tool_authorization_map`.
 
-The downstream "Assignment required" gate (issue 53) is a real second control
-on the delegated path -- live-evidenced in `docs/demos/obo-happy-path.md`,
-"Run 2026-07-22" -- but it is not a substitute for a per-tool check and must
-not be read as one. It gates whether the OBO exchange succeeds for THIS USER
-against the DOWNSTREAM APPLICATION, not whether this user may call THIS TOOL.
-A `tool_authorization_map` misconfiguration -- the wrong scope, or a scope on
-a tool that should not have one -- would not be caught by it.
+Microsoft Learn describes `scp` as a space-separated string of delegated
+scopes. Easy Auth makes the claims available to application code in
+`X-MS-CLIENT-PRINCIPAL`, but says claims mapping can change a claim type. The
+backend splits the scope value and matches the required value exactly. It accepts
+the existing short and schema-URI aliases. The exact claim-type string that Easy
+Auth emits for `scp` remains UNVERIFIABLE from Microsoft Learn. See
+COMPATIBILITY.md, "X-MS-CLIENT-PRINCIPAL identity-mode and delegated-scope
+extraction".
 
-Adding a matching per-tool `scp` check to the backend, mirroring
-`AppRoleAuthorization`'s existing per-tool role check, would close this
-symmetrically. It is explicitly out of scope for issue #83, which decides
-what evidence is gathered, not how authorization works. Tracked as issue #98.
+The downstream "Assignment required" gate remains a separate second control.
+It decides whether Entra issues the downstream token during OBO for this user
+and downstream application. It does not decide whether this user may call this
+tool. A gateway-map error would not be caught by the downstream gate.
+
+The 2026-08-10 evidence in `docs/demos/obo-happy-path.md` is historical gateway
+evidence only. Its negative arm was denied by APIM before it reached the
+Function. It cannot prove this backend check. The current procedure adds a direct
+Function negative with the existing `Orders.Invoke`-only client. It must return
+the tool-level 403 for the missing `Orders.Read.AsUser` scope. Until its result
+is added to that file's "Captured evidence" section, the direct backend proof is
+pending.
 
 ## References
 

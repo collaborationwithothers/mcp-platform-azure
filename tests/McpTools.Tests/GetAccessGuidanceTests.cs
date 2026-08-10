@@ -124,37 +124,77 @@ public class GetAccessGuidanceTests
     }
 
     [Fact]
-    public void RequiredEntitlements_RoleIsSetIfAndOnlyIfMechanismIsApplicationRole()
+    public void RequiredEntitlements_SerializesTheAllOfContract()
     {
-        // The invariant that replaces "exactly one of role/unrestricted is set":
-        // a null RequiredRole is never a gap, because Mechanism always says
-        // which classification produced it. This mirrors the Terraform-side
-        // validation at infra/terraform/modules/apim-mcp-server/variables.tf:151.
+        var guidance = new AccessGuidance(
+            GetAccessGuidance.SummaryValue,
+            GetAccessGuidance.RequiredEntitlementsValue,
+            GetAccessGuidance.DocsUrlValue,
+            GetAccessGuidance.DataDisclaimerValue);
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(guidance));
+
+        var delegatedOrderStatus = document.RootElement
+            .GetProperty("requiredEntitlements")
+            .EnumerateArray()
+            .Single(entry => entry.GetProperty("tool").GetString() == GetOrderStatus.ToolName
+                && entry.GetProperty("appliesTo").GetString() == GetAccessGuidance.AppliesToDelegated);
+
+        Assert.True(delegatedOrderStatus.TryGetProperty("allOf", out var allOf));
+        Assert.False(delegatedOrderStatus.TryGetProperty("mechanism", out _));
+        Assert.False(delegatedOrderStatus.TryGetProperty("requiredRole", out _));
+
+        var requirements = allOf.EnumerateArray().ToList();
+        Assert.Equal(2, requirements.Count);
+        Assert.Contains(requirements, requirement =>
+            requirement.GetProperty("kind").GetString() == GetAccessGuidance.RequirementKindDelegatedScope
+            && requirement.GetProperty("enforcedAt").GetString() == GetAccessGuidance.EnforcedAtBackendTool
+            && requirement.GetProperty("requiredValue").GetString()
+                == DelegatedScopeAuthorization.GetOrderStatusScope);
+        Assert.Contains(requirements, requirement =>
+            requirement.GetProperty("kind").GetString()
+                == GetAccessGuidance.RequirementKindDownstreamAssignmentRequired
+            && requirement.GetProperty("enforcedAt").GetString()
+                == GetAccessGuidance.EnforcedAtDownstreamTokenIssuance
+            && requirement.GetProperty("requiredValue").ValueKind == JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void RequiredEntitlements_RequirementsCarryValuesOnlyWhenTheControlNeedsOne()
+    {
         foreach (var entry in GetAccessGuidance.RequiredEntitlementsValue)
         {
-            if (entry.Mechanism == GetAccessGuidance.MechanismApplicationRole)
+            foreach (var requirement in entry.AllOf)
             {
+                if (requirement.Kind == GetAccessGuidance.RequirementKindDownstreamAssignmentRequired)
+                {
+                    Assert.Null(requirement.RequiredValue);
+                    Assert.Equal(
+                        GetAccessGuidance.EnforcedAtDownstreamTokenIssuance,
+                        requirement.EnforcedAt);
+                    continue;
+                }
+
                 Assert.False(
-                    string.IsNullOrEmpty(entry.RequiredRole),
-                    $"'{entry.Tool}' ({entry.AppliesTo}) claims mechanism applicationRole but names no role.");
-            }
-            else
-            {
-                Assert.True(
-                    entry.RequiredRole is null,
-                    $"'{entry.Tool}' ({entry.AppliesTo}) names role '{entry.RequiredRole}' under mechanism '{entry.Mechanism}'.");
+                    string.IsNullOrEmpty(requirement.RequiredValue),
+                    $"'{entry.Tool}' ({entry.AppliesTo}) names a claim control without its required value.");
+                Assert.Equal(GetAccessGuidance.EnforcedAtBackendTool, requirement.EnforcedAt);
             }
         }
     }
 
     [Fact]
-    public void RequiredEntitlements_UseOnlyTheDeclaredMechanismAndModeVocabulary()
+    public void RequiredEntitlements_UseOnlyTheDeclaredRequirementAndModeVocabulary()
     {
-        var mechanisms = new[]
+        var kinds = new[]
         {
-            GetAccessGuidance.MechanismApplicationRole,
-            GetAccessGuidance.MechanismDownstreamAssignmentRequired,
-            GetAccessGuidance.MechanismUnrestricted,
+            GetAccessGuidance.RequirementKindApplicationRole,
+            GetAccessGuidance.RequirementKindDelegatedScope,
+            GetAccessGuidance.RequirementKindDownstreamAssignmentRequired,
+        };
+        var enforcementSites = new[]
+        {
+            GetAccessGuidance.EnforcedAtBackendTool,
+            GetAccessGuidance.EnforcedAtDownstreamTokenIssuance,
         };
         var modes = new[]
         {
@@ -164,27 +204,59 @@ public class GetAccessGuidanceTests
 
         foreach (var entry in GetAccessGuidance.RequiredEntitlementsValue)
         {
-            Assert.Contains(entry.Mechanism, mechanisms);
             Assert.Contains(entry.AppliesTo, modes);
+            foreach (var requirement in entry.AllOf)
+            {
+                Assert.Contains(requirement.Kind, kinds);
+                Assert.Contains(requirement.EnforcedAt, enforcementSites);
+            }
         }
     }
 
     [Fact]
-    public void RequiredEntitlements_NameTheRolesTheOtherToolsActuallyCheck()
+    public void RequiredEntitlements_NameTheControlsTheBackendActuallyChecks()
     {
-        // Sourced from AppRoleAuthorization, the backend's own single source of
-        // truth for these values, so a role rename cannot leave this list
-        // stating a role no code checks.
         var ordersRow = Assert.Single(
             GetAccessGuidance.RequiredEntitlementsValue,
             e => e.Tool == GetOrderStatus.ToolName
                 && e.AppliesTo == GetAccessGuidance.AppliesToApplication);
-        Assert.Equal(AppRoleAuthorization.RequiredRole, ordersRow.RequiredRole);
+        var ordersRole = Assert.Single(ordersRow.AllOf);
+        Assert.Equal(GetAccessGuidance.RequirementKindApplicationRole, ordersRole.Kind);
+        Assert.Equal(AppRoleAuthorization.RequiredRole, ordersRole.RequiredValue);
+
+        var delegatedOrdersRow = Assert.Single(
+            GetAccessGuidance.RequiredEntitlementsValue,
+            e => e.Tool == GetOrderStatus.ToolName
+                && e.AppliesTo == GetAccessGuidance.AppliesToDelegated);
+        Assert.Collection(
+            delegatedOrdersRow.AllOf,
+            requirement =>
+            {
+                Assert.Equal(GetAccessGuidance.RequirementKindDelegatedScope, requirement.Kind);
+                Assert.Equal(GetAccessGuidance.EnforcedAtBackendTool, requirement.EnforcedAt);
+                Assert.Equal(DelegatedScopeAuthorization.GetOrderStatusScope, requirement.RequiredValue);
+            },
+            requirement =>
+            {
+                Assert.Equal(GetAccessGuidance.RequirementKindDownstreamAssignmentRequired, requirement.Kind);
+                Assert.Equal(GetAccessGuidance.EnforcedAtDownstreamTokenIssuance, requirement.EnforcedAt);
+                Assert.Null(requirement.RequiredValue);
+            });
 
         var serviceRows = GetAccessGuidance.RequiredEntitlementsValue.Where(
             e => e.Tool == GetServiceInfo.ToolName).ToList();
         Assert.Equal(2, serviceRows.Count);
-        Assert.All(serviceRows, row => Assert.Equal(AppRoleAuthorization.ServiceInfoRole, row.RequiredRole));
+        Assert.All(serviceRows, row =>
+        {
+            var requirement = Assert.Single(row.AllOf);
+            Assert.Equal(GetAccessGuidance.RequirementKindApplicationRole, requirement.Kind);
+            Assert.Equal(AppRoleAuthorization.ServiceInfoRole, requirement.RequiredValue);
+        });
+
+        var guidanceRows = GetAccessGuidance.RequiredEntitlementsValue.Where(
+            e => e.Tool == GetAccessGuidance.ToolName).ToList();
+        Assert.Equal(2, guidanceRows.Count);
+        Assert.All(guidanceRows, row => Assert.Empty(row.AllOf));
     }
 
     [Fact]
@@ -223,28 +295,32 @@ public class GetAccessGuidanceTests
     }
 
     [Fact]
-    public void EveryRoleNameEmitted_IsEitherRuntimeBackedOrDeclaredUnguarded()
+    public void EveryAuthorizationValueEmitted_IsEitherRuntimeBackedOrDeclaredUnguarded()
     {
-        // The drift guard for the gap the second governance review found. Every
-        // role name in requiredEntitlements is taken from AppRoleAuthorization,
-        // so it cannot name a role no code checks. The two per-server names in
-        // the summary are bare literals sourced from a deployment secret this
-        // code cannot read, and no repo-side guard for their VALUES is possible.
+        // Each per-tool value comes from the same authorization constant that
+        // the backend checks. The two per-server names in the summary are bare
+        // literals sourced from deployment configuration this code cannot read.
         //
         // What IS guardable is the boundary. A third unguarded role name added
         // to the emitted text fails here until someone adds it to this set,
         // which forces the DataDisclaimerValue scope sentence to be revisited at
         // the same time. Content moving while the disclaimer stayed put is
         // exactly what went wrong before.
-        var runtimeBacked = new[] { AppRoleAuthorization.RequiredRole, AppRoleAuthorization.ServiceInfoRole };
+        var runtimeBacked = new[]
+        {
+            AppRoleAuthorization.RequiredRole,
+            AppRoleAuthorization.ServiceInfoRole,
+            DelegatedScopeAuthorization.GetOrderStatusScope,
+        };
         var declaredUnguarded = new[] { "Orders.Invoke.All", "Catalog.Invoke.All" };
         var known = runtimeBacked.Concat(declaredUnguarded).ToHashSet(StringComparer.Ordinal);
 
         var emitted = GetAccessGuidance.SummaryValue
             + " " + GetAccessGuidance.DataDisclaimerValue
             + " " + string.Join(" ", GetAccessGuidance.RequiredEntitlementsValue
-                .Select(entry => entry.RequiredRole)
-                .Where(role => role is not null));
+                .SelectMany(entry => entry.AllOf)
+                .Select(requirement => requirement.RequiredValue)
+                .Where(value => value is not null));
 
         // Role-shaped: two or more dot-separated capitalised words, e.g.
         // Orders.Read or Catalog.Invoke.All. Deliberately not anchored to the
@@ -256,9 +332,9 @@ public class GetAccessGuidanceTests
         var unaccounted = found.Except(known, StringComparer.Ordinal).ToList();
         Assert.True(
             unaccounted.Count == 0,
-            $"role name(s) emitted by get_access_guidance that this test does not account for: "
-            + $"{string.Join(", ", unaccounted)}. If a name is checked at runtime, source it from "
-            + "AppRoleAuthorization. If it is deployment configuration this server cannot read, add "
+            $"authorization value(s) emitted by get_access_guidance that this test does not account for: "
+            + $"{string.Join(", ", unaccounted)}. If a value is checked at runtime, source it from "
+            + "the relevant authorization constant. If it is deployment configuration this server cannot read, add "
             + "it to declaredUnguarded AND make sure DataDisclaimerValue's scope sentence still "
             + "covers it.");
     }

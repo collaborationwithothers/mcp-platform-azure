@@ -138,6 +138,13 @@ requirement.
   are `Orders.Read` for `get_order_status` and `ServiceInfo.Read` for
   `get_service_info`. This is the backend result, not the usual gateway result
   when the map enforces the same role.
+- **VERIFIED from tool source and unit tests.** A delegated caller that reaches
+  the Function directly without `Orders.Read.AsUser` receives the tool-level
+  error `403 Forbidden: get_order_status requires the delegated scope
+  'Orders.Read.AsUser'.` The check happens before the tool reads the inbound
+  bearer or starts OBO. The response's HTTP 200 envelope is not yet observed for
+  this new path. Through APIM, the gateway rejects the same token first with its
+  JSON-RPC `-32001` error, so that path cannot prove the backend check.
 - **VERIFIED; INFERRED plus OBSERVED for HTTP 200.** An ordinary tool exception
   has the same envelope as an explicit tool error: a `result` with
   `isError = true`. The pinned SDK discards the ordinary exception message and
@@ -168,7 +175,7 @@ states are:
 | --- | --- | --- |
 | No entry | Gateway default-deny | JSON-RPC `error`, code `-32001` |
 | Entry rejects the caller, including the documented `ServiceInfo.Read` entry | Gateway | JSON-RPC `error`, code `-32001` |
-| Entry admits the call, or a caller bypasses the gateway | Tool | `result` with `isError: true` if the tool's independent role check refuses it |
+| Entry admits the call, or a caller bypasses the gateway | Tool | `result` with `isError: true` if the tool's independent role or delegated-scope check refuses it |
 
 The HTTP 200 entries in this table are **INFERRED plus OBSERVED**, as above.
 The table prevents a false live assertion: adding a role-gated map entry does

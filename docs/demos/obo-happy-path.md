@@ -9,9 +9,9 @@ delegated token in CI (ADR-006, "Testing strategy: the user-context token
 problem"; docs/runbooks/obo-app-registrations.md, "User-context token
 strategy"). So this is the human-run half of acceptance criterion 7.
 
-## What this demo proves, run today
+## What this demo covers
 
-Two things, at two different layers, from delegated tokens:
+Two established checks and one current proof procedure use delegated tokens:
 
 1. **OBO happy path (issue 10).** A signed-in human, not a program, reaches
    `get_order_status` and gets a real order back, sourced from the downstream
@@ -26,6 +26,11 @@ Two things, at two different layers, from delegated tokens:
    Before issue 83 no tool row named a scope at all, so this branch of the
    policy had never executed, by anyone -- ADR-009 records why no automated
    mechanism can close that gap.
+3. **The backend delegated-scope check (issue #98).** Step 2b calls the
+   Function directly with the same `Orders.Invoke`-only token. The client
+   expects the tool-level 403 for missing `Orders.Read.AsUser`, not the
+   gateway's `-32001` error. This is a current procedure only. It is not proven
+   until its result is recorded under "Captured evidence".
 
 This demo does not prove observability ingestion (diagnostic-setting
 acceptance, telemetry arrival, or cost -- issue 75's separate scope) or the
@@ -34,7 +39,9 @@ below exercises but this demo does not itself inspect).
 
 Whether this has actually been run, and when, is recorded in **Captured
 evidence** below, by date -- check the most recent entry before treating either
-claim above as currently proven rather than merely the intended procedure.
+claim above as currently proven rather than merely the intended procedure. The
+2026-08-10 entry proves the gateway check only. It does not prove the backend
+check added by issue #98.
 
 Nothing here deploys anything; it runs against an already-deployed tracer during
 a live-test window. All order data is synthetic (CONTOSO-1001 to CONTOSO-1005).
@@ -137,6 +144,27 @@ per-tool check denies it first. Paired with step 2's success -- same server,
 same per-server entitlement, different per-tool entitlement -- this is what
 proves the `scope` branch discriminates rather than merely executes.
 
+### 2b. Prove the backend delegated-scope check directly (issue #98)
+
+Use the same negative-arm token, but call the Function endpoint directly. Do not
+send this request through APIM. APIM denies the token first, so its `-32001`
+result cannot prove the backend check.
+
+```bash
+BACKEND_MCP_URL="$(terraform -chdir=infra/terraform/scenarios/s1-entra-mcp-server output -raw mcp_backend_base_url)/runtime/webhooks/mcp"
+MCP_ACCESS_TOKEN="<the negative-arm delegated token>" \
+MCP_EXPECT_FORBIDDEN_SCOPE="Orders.Read.AsUser" \
+  dotnet run --project src/McpTestClient -- "$BACKEND_MCP_URL"
+```
+
+The client must report its authorization-denial assertion passed for
+`Orders.Read.AsUser`.
+That assertion requires the MCP tool result `403 Forbidden: get_order_status
+requires the delegated scope 'Orders.Read.AsUser'.` The server's unit test proves
+that this branch does not start OBO or contact the downstream API. Record the
+direct endpoint's redacted transcript below. Do not rewrite the 2026-08-10
+gateway transcript as evidence of this check.
+
 ### 3. (Recommended) delegated passthrough-closed check
 
 Present the positive-arm token DIRECTLY to the downstream; expect 401. This is
@@ -149,6 +177,13 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <positive-arm
 ```
 
 ## Captured evidence
+
+### Pending: direct backend delegated-scope negative (issue #98)
+
+No manual run has been captured for this check. When it is run, record the date,
+the redacted `scp` value (`Orders.Invoke` only), the direct Function endpoint,
+and the `McpTestClient` authorization-denial assertion. This evidence must show the
+tool-level 403, not the gateway's JSON-RPC `-32001` result.
 
 ### Run 2026-07-19
 
