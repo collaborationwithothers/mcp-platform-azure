@@ -141,7 +141,8 @@
           https://modelcontextprotocol.io/specification/2025-06-18/basic/index,
           2026-08-10). Live-gate evidence the same day (gate-evidence/
           null-id-deny-path-evidence.md, run 31381168415) showed the -32001
-          deny response at line ~260 below echoes body["id"] verbatim, and
+          per-tool deny response further down this same tools/call branch
+          (search: "Deny wire shape") echoes body["id"] verbatim, and
           BOTH a missing id and an explicit "id": null produced HTTP 200 with
           "id":null on the wire, a real violation, not a theoretical one.
           Placed here, ahead of the map lookup, rather than only inside the
@@ -184,13 +185,15 @@
           missing tool, it is a malformed request the gateway never got far
           enough to authorize.
           Malformed JSON (the ticket's third case) never reaches here at all:
-          it fails at the unconditional mcpRequestBody parse (line ~120,
-          above, which runs for every method, not only tools/call) and
-          surfaces as APIM's generic policy-expression-failure 500 with no
-          JSON-RPC envelope, confirmed by the same live-gate evidence.
-          Out of scope for issue 88 (which is about the -32001 response's id
-          field specifically); a spec-conformant response for THAT case, if
-          wanted, is a separate follow-up.
+          it fails at the unconditional mcpRequestBody set-variable above,
+          which runs for every method, not only tools/call, and surfaces as
+          APIM's generic policy-expression-failure 500 with no JSON-RPC
+          envelope, confirmed by the same live-gate evidence. Out of scope for
+          issue 88 (which is about the -32001 response's id field
+          specifically). If a spec-conformant response for THAT case is ever
+          wanted, the code is -32700 "Parse error" ("Invalid JSON was received
+          by the server", jsonrpc.org), NOT the -32600 used here: do not reach
+          for this guard's code by analogy.
           NO audit event here, deliberately, and the reasoning is recorded so
           the choice reads as a decision rather than an oversight. The trace
           and log-to-eventhub pair below fire on the per-tool DENY, which is

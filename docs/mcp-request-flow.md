@@ -146,6 +146,10 @@ is the `Authorization` fallback: the bearer API Management forwards, read via
 
 The three response tiers (transport 401 vs JSON-RPC error vs tool `isError`) are
 diagrammed and explained in ADR-006, "Reference diagrams" and "Request outcomes".
+Read those three as the tiers produced by the transport, the MCP runtime, and the
+tool; the gateway-issued surface described below is a fourth producer that ADR's
+diagram does not depict (its re-export is a pending human step) and that THIS
+file, not the ADR, enumerates.
 The identity flows (app-only vs delegated OBO) are also in ADR-006.
 
 ### The fourth surface: gateway denial, before the backend

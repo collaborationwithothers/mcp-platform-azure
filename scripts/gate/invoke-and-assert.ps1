@@ -81,17 +81,19 @@
        Tool-name resolution: gen_ai.tool.name context variable, falling back
        to the parsed body params.name (COMPATIBILITY.md 2026-08-06).
        Also runs check (i) (issue 88): the tools/call id-validity guard.
-       Asserts that a request with no id, or an explicit "id": null, is
-       rejected with HTTP 400 + JSON-RPC error -32600 before the
-       authorization decision, with the id key omitted from the response
-       (not echoed as null -- MCP forbids a null id and there is no valid id
-       to echo). A third probe, malformed JSON, is recorded but never
-       asserted (out of scope; it fails earlier, at the policy's
-       unconditional body parse, not the tools/call gate). Verbatim
-       status/headers/body for all three land in EvidenceDir/null-id-deny-
-       path-evidence.md regardless of pass/fail. See discovery-assertions.ps1's
-       Assert-ToolAuthorization and COMPATIBILITY.md, "MCP request id MUST NOT
-       be null...".
+       Four probes. Three are asserted, and all expect HTTP 400 + JSON-RPC
+       error -32600 with the id key OMITTED from the response (not echoed as
+       null -- MCP forbids a null id and there is no valid id to echo): no id
+       field, an explicit "id": null, and no id field on a tool the caller IS
+       entitled to. That third one is the only probe that proves the guard
+       runs BEFORE the authorization decision rather than inside the deny
+       branch, since the first two name a tool that is denied anyway. The
+       fourth probe, malformed JSON, is recorded but never asserted (out of
+       scope; it fails earlier, at the policy's unconditional body parse, so
+       it never reaches the tools/call gate). Verbatim status/headers/body for
+       all four land in EvidenceDir/null-id-deny-path-evidence.md regardless
+       of pass/fail. See discovery-assertions.ps1's Assert-ToolAuthorization
+       and COMPATIBILITY.md, "MCP request id MUST NOT be null...".
 
   Exits non-zero if the MCP client, the discovery assertions, or the registry
   convergence assertion fail. Registry convergence is made deterministic by the

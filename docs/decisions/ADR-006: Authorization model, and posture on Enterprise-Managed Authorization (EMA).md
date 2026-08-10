@@ -116,15 +116,40 @@ the automated live gate; the gate covers only the audience-mismatch negative tes
 
 ### Request outcomes: HTTP status vs MCP errors
 
-![MCP request outcomes: a success returns HTTP 200 with a tool result; failures
-appear on three surfaces - a transport HTTP 401 (missing/invalid token), an
-HTTP 200 JSON-RPC protocol error (unknown tool/bad params), and an HTTP 200 tool
-result with isError=true (e.g. missing Orders.Read).](../diagrams/mcp-request-outcomes.drawio.svg)
+![MCP request outcomes, as drawn: a success returns HTTP 200 with a tool result;
+failures appear on the three surfaces this diagram depicts - a transport HTTP 401
+(missing/invalid token), an HTTP 200 JSON-RPC protocol error (unknown tool/bad
+params), and an HTTP 200 tool result with isError=true (e.g. missing
+Orders.Read). It does not depict the gateway-issued surface described
+below.](../diagrams/mcp-request-outcomes.drawio.svg)
 
-A caller sees three distinct failure surfaces, and only the first changes the HTTP
-status. A robust client must inspect the HTTP status, the JSON-RPC `error` object,
-and the tool result's `isError` flag independently; "forbidden" can arrive on two
-of these surfaces with different wire shapes.
+**The diagram above is incomplete and its re-export is pending.** It shows the
+three tiers this section describes, which were the whole picture when it was
+drawn. They no longer are: issues 17, 18 and 88 each added a rejection issued by
+API Management itself, inside the server-scope policy's `<inbound>`, before the
+request ever reaches the MCP runtime. Under this repo's Diagrams rule the
+`.drawio.svg` re-export is a human step, so the drawing is left as-is and this
+caption carries the correction rather than the picture. Do not read the diagram
+as a complete enumeration of failure surfaces.
+
+The three tiers below are organised by which layer produced the failure. A
+caller sees them plus a fourth producer, the gateway itself:
+
+- **Tiers 1 to 3** (this section) are the transport, the MCP runtime, and the
+  tool. Within these three, only tier 1 changes the HTTP status.
+- **The gateway-issued surface** is a fourth producer and is NOT enumerated
+  here, because its instances arrived with later issues and each has its own
+  wire shape: HTTP 403 `insufficient_scope` (per-server entitlement, issue 17),
+  HTTP 200 with a JSON-RPC `-32001` error (per-tool authorization, issue 18),
+  and HTTP 400 with a JSON-RPC `-32600` error (request-validity id guard,
+  issue 88). Two of those three change the HTTP status, so "only tier 1 changes
+  the status" holds only within tiers 1 to 3, never across the whole system.
+  `docs/mcp-request-flow.md` is the canonical enumeration of all four
+  producers; it is deliberately not duplicated here.
+
+A robust client must inspect the HTTP status, the JSON-RPC `error` object, and
+the tool result's `isError` flag independently; "forbidden" can arrive on
+several of these surfaces with different wire shapes.
 
 1. Transport (real HTTP 401). API Management (`validate-azure-ad-token`) and the
    Function App's Easy Auth V2 reject a missing, invalid, or wrong-audience token
@@ -132,7 +157,9 @@ of these surfaces with different wire shapes.
    immediate 401 from the gateway policy carrying the RFC 9728 PRM challenge
    (`WWW-Authenticate: Bearer resource_metadata="..."`); an invalid or
    wrong-audience token fails validation with a 401 and the gateway `on-error`
-   adds the same challenge. This is the ONLY tier that changes the HTTP status.
+   adds the same challenge. This is the only one of tiers 1 to 3 that changes
+   the HTTP status; the gateway-issued surface noted above also does, on two of
+   its three instances.
    (infra/terraform/modules/apim-mcp-server/policies/mcp-server.xml.)
 
 2. JSON-RPC protocol error (HTTP 200). The request authenticated and reached the

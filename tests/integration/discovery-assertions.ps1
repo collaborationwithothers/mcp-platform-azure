@@ -149,8 +149,9 @@ param(
     [string]$EventHubNamespaceFqdn = '',
     [string]$EventHubName = '',
     # Issue 88: directory for the per-tool authorization loop's check (i) --
-    # null/missing JSON-RPC id evidence capture on the -32001 deny path.
-    # Passed through to Assert-ToolAuthorization. Empty => log to stdout only.
+    # the tools/call id-validity guard, which fires before the -32001 deny
+    # path is ever reached. Passed through to Assert-ToolAuthorization.
+    # Empty => log to stdout only.
     [string]$EvidenceDir = ''
 )
 
