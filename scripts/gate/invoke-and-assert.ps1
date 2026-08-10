@@ -80,6 +80,11 @@
        the envelope top level (mcp-server.xml, COMPATIBILITY.md 2026-08-06).
        Tool-name resolution: gen_ai.tool.name context variable, falling back
        to the parsed body params.name (COMPATIBILITY.md 2026-08-06).
+       Also runs check (i) (issue 88, non-fatal): three raw probes against the
+       same -32001 deny path (no id, "id": null, malformed JSON), recording
+       verbatim status/headers/body to EvidenceDir/null-id-deny-path-
+       evidence.md. Evidence capture, not an assertion -- it does not fail the
+       gate; see discovery-assertions.ps1's Assert-ToolAuthorization.
 
   Exits non-zero if the MCP client, the discovery assertions, or the registry
   convergence assertion fail. Registry convergence is made deterministic by the
@@ -345,7 +350,8 @@ Write-Host "[4] Raw-HTTP discovery assertions"
     -ServiceToolToken $serviceToolToken `
     -SharedObservabilityWorkspaceId $SharedObservabilityWorkspaceId `
     -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
-    -EventHubName $EventHubName
+    -EventHubName $EventHubName `
+    -EvidenceDir $EvidenceDir
 if ($LASTEXITCODE -ne 0) {
     throw "Discovery assertions failed (exit $LASTEXITCODE)."
 }

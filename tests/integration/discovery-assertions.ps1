@@ -147,7 +147,11 @@ param(
     # cannot gate a same-run pass/fail. Optional: when either is empty, the
     # audit-event assertion is skipped with a warning.
     [string]$EventHubNamespaceFqdn = '',
-    [string]$EventHubName = ''
+    [string]$EventHubName = '',
+    # Issue 88: directory for the per-tool authorization loop's check (i) --
+    # null/missing JSON-RPC id evidence capture on the -32001 deny path.
+    # Passed through to Assert-ToolAuthorization. Empty => log to stdout only.
+    [string]$EvidenceDir = ''
 )
 
 Set-StrictMode -Version Latest
@@ -195,6 +199,42 @@ function Get-HeaderValue {
     $v = $Response.Headers[$Name]
     if ($v -is [array]) { return ($v -join ', ') }
     return [string]$v
+}
+
+# Issue 88: raw-body probe used by the null/missing-id evidence capture below.
+# Invoke-JsonRpc's [int]$Id parameter cannot express a missing id, an explicit
+# "id": null, or malformed JSON, so this bypasses it and returns the response
+# verbatim (status, headers, body) rather than a parsed object. Never throws:
+# a transport-level failure (as opposed to a non-2xx HTTP response, which
+# Invoke-Raw's SkipHttpErrorCheck already tolerates) is recorded as evidence,
+# not a script error, matching scripts/gate/capture-prm-evidence.ps1's
+# non-fatal Invoke-Probe pattern.
+function Invoke-RawIdProbe {
+    param([string]$Uri, [string]$Token, [string]$Body)
+    $result = [ordered]@{
+        status  = $null
+        headers = $null
+        body    = $null
+        error   = $null
+    }
+    try {
+        $resp = Invoke-Raw -Uri $Uri -Headers @{
+            Authorization = "Bearer $Token"
+            Accept        = 'application/json, text/event-stream'
+        } -Body $Body
+        $result.status = [int]$resp.StatusCode
+        $result.headers = ($resp.Headers.Keys | ForEach-Object {
+            "$($_): $(Get-HeaderValue -Response $resp -Name $_)"
+        }) -join '; '
+        $result.body = if ($resp.Content -is [byte[]]) {
+            [System.Text.Encoding]::UTF8.GetString($resp.Content)
+        } else {
+            [string]$resp.Content
+        }
+    } catch {
+        $result.error = $_.Exception.Message
+    }
+    return [pscustomobject]$result
 }
 
 # A minimal JSON-RPC initialize body; the challenge fires in APIM inbound before
@@ -515,6 +555,10 @@ function Assert-ToolAuthorization {
         [string]$OpenToolName = 'get_access_guidance',
         [string]$EventHubNamespaceFqdn = '',
         [string]$EventHubName = '',
+        # Issue 88: directory for check (i)'s raw evidence file. Empty => log
+        # to stdout only, matching EvidenceDir's existing optional pattern in
+        # scripts/gate/invoke-and-assert.ps1.
+        [string]$EvidenceDir = '',
         [switch]$WarnOnly
     )
 
@@ -790,6 +834,65 @@ function Assert-ToolAuthorization {
         Write-Host "::warning::[$Label-h] SKIPPED: UnderEntitledToken is empty, so the unrestricted-branch check did not run. This is NOT evidence the branch works; ADR-009 and docs/security.md describe it as exercised on the strength of this check alone."
         Write-Host ''
     }
+
+    # (i) Issue 88: null/missing JSON-RPC id evidence capture on the SAME
+    # -32001 deny path check (c) exercises (unmapped tool name, entitled
+    # token). EVIDENCE, not an assertion: mcp-server.xml:242 sets
+    # ["id"] = body != null ? body["id"] : null, and the MCP 2025-06-18 spec
+    # (Base Protocol, Requests) forbids a null id on any response, but which
+    # of these three request shapes actually reaches that line -- and what it
+    # emits -- has not been observed live. Never calls Fail/assertFail: doing
+    # so would assert a "correct" behaviour this ticket exists to determine.
+    # Remove this check once issue 88's acceptance items 2-4 land (either the
+    # policy is fixed and check (c)'s existing id-echo assertion above gains a
+    # permanent negative-case sibling for whichever case is real, or the null
+    # branch is proven unreachable and documented at mcp-server.xml:242).
+    Write-Host "[$Label-i] $ServerUrl tools/call '$UnmappedProbeToolName' null/missing-id evidence capture (issue 88, non-fatal)"
+    $noIdBody = "{`"jsonrpc`":`"2.0`",`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}}"
+    $nullIdBody = "{`"jsonrpc`":`"2.0`",`"id`":null,`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}}"
+    # Deliberately truncated (missing the final two closing braces): invalid
+    # JSON syntax, sent with a well-formed Authorization header so the failure
+    # under investigation is the body parse, not the token.
+    $malformedBody = "{`"jsonrpc`":`"2.0`",`"id`":99,`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}"
+    $idProbes = [ordered]@{
+        'no id field'    = $noIdBody
+        '"id": null'     = $nullIdBody
+        'malformed JSON' = $malformedBody
+    }
+    $idProbeResults = [ordered]@{}
+    foreach ($probeLabel in $idProbes.Keys) {
+        $r = Invoke-RawIdProbe -Uri $ServerUrl -Token $Token -Body $idProbes[$probeLabel]
+        $idProbeResults[$probeLabel] = $r
+        if ($r.error) {
+            Write-Host "  [$probeLabel] transport error (not an HTTP response): $($r.error)"
+        } else {
+            Write-Host "  [$probeLabel] status=$($r.status) body=$($r.body)"
+        }
+    }
+    if (-not [string]::IsNullOrEmpty($EvidenceDir)) {
+        $null = New-Item -ItemType Directory -Path $EvidenceDir -Force
+        $evidencePath = Join-Path $EvidenceDir 'null-id-deny-path-evidence.md'
+        $sb = [System.Text.StringBuilder]::new()
+        [void]$sb.AppendLine("## $Label -- $ServerUrl")
+        [void]$sb.AppendLine('')
+        foreach ($probeLabel in $idProbeResults.Keys) {
+            $r = $idProbeResults[$probeLabel]
+            [void]$sb.AppendLine("### $probeLabel")
+            [void]$sb.AppendLine('')
+            [void]$sb.AppendLine("- request body : $($idProbes[$probeLabel])")
+            if ($r.error) {
+                [void]$sb.AppendLine("- transport error: $($r.error)")
+            } else {
+                [void]$sb.AppendLine("- status  : $($r.status)")
+                [void]$sb.AppendLine("- headers : $($r.headers)")
+                [void]$sb.AppendLine("- body    : $($r.body)")
+            }
+            [void]$sb.AppendLine('')
+        }
+        Add-Content -Path $evidencePath -Value $sb.ToString() -Encoding utf8
+        Write-Host "  evidence appended to $evidencePath"
+    }
+    Write-Host ''
 }
 
 # Asserts a per-tool deny emitted its audit event (issue 18), by reading the
@@ -1294,6 +1397,7 @@ if ($perToolServers.Count -gt 0) {
             -OpenToolName $OpenToolName `
             -EventHubNamespaceFqdn $EventHubNamespaceFqdn `
             -EventHubName $EventHubName `
+            -EvidenceDir $EvidenceDir `
             -WarnOnly:$srv.WarnOnly
     }
 }
