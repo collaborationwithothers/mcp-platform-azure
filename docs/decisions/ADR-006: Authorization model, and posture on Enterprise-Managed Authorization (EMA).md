@@ -120,17 +120,18 @@ the automated live gate; the gate covers only the audience-mismatch negative tes
 failures appear on the three surfaces this diagram depicts - a transport HTTP 401
 (missing/invalid token), an HTTP 200 JSON-RPC protocol error (unknown tool/bad
 params), and an HTTP 200 tool result with isError=true (e.g. missing
-Orders.Read). It does not depict the gateway-issued surface described
-below.](../diagrams/mcp-request-outcomes.drawio.svg)
+Orders.Read). It does not depict the gateway-issued surface described below,
+which has its own diagram in
+docs/mcp-request-flow.md.](../diagrams/mcp-request-outcomes.drawio.svg)
 
-**The diagram above is incomplete and its re-export is pending.** It shows the
-three tiers this section describes, which were the whole picture when it was
-drawn. They no longer are: issues 17, 18 and 88 each added a rejection issued by
-API Management itself, inside the server-scope policy's `<inbound>`, before the
-request ever reaches the MCP runtime. Under this repo's Diagrams rule the
-`.drawio.svg` re-export is a human step, so the drawing is left as-is and this
-caption carries the correction rather than the picture. Do not read the diagram
-as a complete enumeration of failure surfaces.
+**Scope of the diagram above.** It depicts the three tiers this section
+describes, as deployed at tag v1.0.0, and its claim that only tier 1 changes the
+HTTP status is true *within those three tiers*. It is not a complete enumeration
+of failure surfaces, and must not be read as one: issues 17, 18 and 88 each added
+a rejection issued by API Management itself, inside the server-scope policy's
+`<inbound>`, before the request reaches the MCP runtime. Those have their own
+diagram, `docs/diagrams/per-tool-deny-path.drawio.svg`, embedded in
+`docs/mcp-request-flow.md`, which is where that surface is drawn and explained.
 
 The three tiers below are organised by which layer produced the failure. A
 caller sees them plus a fourth producer, the gateway itself:

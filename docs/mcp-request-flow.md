@@ -157,11 +157,19 @@ The identity flows (app-only vs delegated OBO) are also in ADR-006.
 ![Per-tool authorization deny path: after the issue-9 and issue-17 checks
 pass, API Management parses the JSON-RPC request body once, gates on
 tools/call, resolves the tool name (gen_ai.tool.name context variable,
-falling back to the parsed body), looks it up against the server's
-tool_authorization_map, and on a deny emits one audit trace to Application
-Insights before returning a JSON-RPC Protocol Error (HTTP 200, code -32001,
-request id echoed) without ever invoking the backend Function
+falling back to the parsed body), applies the issue-88 id-validity guard
+(rejecting a missing, null or non-scalar id with HTTP 400 and JSON-RPC -32600,
+id key omitted, before the map is consulted), then looks the tool up against
+the server's tool_authorization_map, and on a deny emits one audit trace to
+Application Insights before returning a JSON-RPC Protocol Error (HTTP 200,
+code -32001, request id echoed) without ever invoking the backend Function
 App.](diagrams/per-tool-deny-path.drawio.svg)
+
+> **Diagram export pending.** The `.drawio` source above carries the issue-88
+> id-validity guard (step 4b); the embedded `.drawio.svg` does not yet, because
+> under this repo's Diagrams rule the export is a human step performed after
+> layout is corrected by hand. Until that export lands, the rendered image shows
+> the pre-issue-88 path. This PR is not complete without it.
 
 The three tiers above classify a response by its wire shape. That is the right
 axis for a client, which sees only the wire, but it is the wrong axis for an

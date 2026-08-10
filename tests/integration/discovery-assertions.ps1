@@ -838,7 +838,9 @@ function Assert-ToolAuthorization {
 
     # (i) Issue 88: id-validity guard on tools/call, permanent negative-case
     # sibling to check (c)'s id-echo assertion. Live-gate evidence (run
-    # 31381168415, 2026-08-10, gate-evidence/id-validity-guard-evidence.md)
+    # 31381168415, 2026-08-10, written by that run as
+    # gate-evidence/null-id-deny-path-evidence.md; this check now writes
+    # id-validity-guard-evidence.md, renamed once the fix landed)
     # proved a request with no id field, or an explicit "id": null, both
     # reached the -32001 deny path pre-fix and echoed "id":null on the wire --
     # forbidden by MCP 2025-06-18 (Base Protocol > Requests: "the ID MUST NOT
