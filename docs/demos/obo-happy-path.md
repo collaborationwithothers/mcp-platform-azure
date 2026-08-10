@@ -293,3 +293,98 @@ delegated path, with the standing GA-bypass caveat.
   - Clean teardown of the `azuread` resources was again not exercised
     (`skip_teardown=true`); a full `skip_teardown=false` run still validates the
     destroy path.
+
+### Run 2026-08-10 (issue #83: the delegated scope branch, matched pair)
+
+The evidence this demo's "What this demo proves" section (claim 2) points at:
+proof that the gateway's per-tool `scope` check on `get_order_status`
+discriminates, not merely renders. Against `ephemeral-env.yml` run
+[31364080957](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31364080957)
+(apply-call-destroy green, `skip_teardown=true`). Stamp `apim-mcp-tracer-5dcee91f`;
+gateway MCP endpoint
+`https://apim-mcp-tracer-5dcee91f.azure-api.net/orders/runtime/webhooks/mcp`.
+Branch `claude/issue-83-evidence-scope-branch`.
+
+**Result: the `scope` branch admits a caller who holds it and refuses one who
+does not, both having cleared the identical per-server check.** Confirmed by a
+matched pair of real, MFA-backed interactive sign-ins as the same user, from
+two different client app registrations, differing only in which one was
+consented for `Orders.Read.AsUser`.
+
+**Positive arm (`entra-app-registrations.md` section 4,
+`mcp-tracer-vscode-client`).** Decoded token (redacted, non-identifying facts
+only): `scp` = `Orders.Invoke Orders.Read.AsUser user_impersonation`, no
+`roles` claim, `amr` = `["pwd","mfa"]` (genuine interactive sign-in, not a
+scripted bypass). `get_order_status` succeeded via the delegated branch -> OBO
+-> downstream, both frozen contract shapes correct:
+
+```
+[McpTestClient] Target MCP endpoint: https://apim-mcp-tracer-5dcee91f.azure-api.net/orders/runtime/webhooks/mcp
+[McpTestClient] Authorization header: present (Bearer)
+[McpTestClient] initialize OK: protocol 2025-06-18, server Azure Functions MCP server.
+[McpTestClient] tools/list returned 3 tool(s):
+  - get_access_guidance
+  - get_order_status
+  - get_service_info
+[McpTestClient] call(known)   -> {"orderId":"CONTOSO-1003","status":"Processing","updatedUtc":"2026-06-05T17:45:00Z"}
+[McpTestClient] known id OK: { orderId=CONTOSO-1003, status=Processing, updatedUtc=2026-06-05T17:45:00Z }.
+[McpTestClient] call(unknown) -> {"orderId":"CONTOSO-9999","found":false,"message":"No order was found for id 'CONTOSO-9999'. Order data is synthetic (known ids are CONTOSO-1001 to CONTOSO-1005)."}
+[McpTestClient] unknown id OK: typed not-found (found:false) for CONTOSO-9999.
+[McpTestClient] All session and tool assertions passed.
+```
+
+**Negative arm (`entra-app-registrations.md` section 4a,
+`mcp-tracer-test-client-delegated-without-scope`).** Decoded token (redacted,
+non-identifying facts only): `scp` = `Orders.Invoke` ONLY -- no
+`Orders.Read.AsUser`, no `user_impersonation` -- no `roles` claim, `amr` =
+`["pwd","mfa"]`. `tools/list` still returned all three tools, confirming this
+token cleared the identical per-server check the positive arm's did.
+`get_order_status` was refused before OBO ever ran:
+
+```
+[McpTestClient] Target MCP endpoint: https://apim-mcp-tracer-5dcee91f.azure-api.net/orders/runtime/webhooks/mcp
+[McpTestClient] Authorization header: present (Bearer)
+[McpTestClient] initialize OK: protocol 2025-06-18, server Azure Functions MCP server.
+[McpTestClient] tools/list returned 3 tool(s):
+  - get_access_guidance
+  - get_order_status
+  - get_service_info
+Unhandled exception. ModelContextProtocol.McpProtocolException: Request failed (remote): insufficient_scope: the caller is not authorized to call tool 'get_order_status'.
+```
+
+The exception type (`McpProtocolException`, not a parsed `CallToolResult` with
+`isError`) and the message text (`insufficient_scope: the caller is not
+authorized to call tool 'get_order_status'.`) match `mcp-server.xml`'s per-tool
+deny body verbatim -- code `-32001`, the JSON-RPC Protocol Error wire shape
+ADR-009 documents, not an HTTP 401/403 (which would mean the per-server check
+had refused it instead) and not a tool-execution failure.
+
+**Why this is the scope branch specifically, not the already-proven role
+branch.** The same `-32001` text is also what an app-only caller lacking
+`Orders.Read` gets, via the role check issue 18 already proved. What isolates
+this as the `scope` branch: both arms here are delegated tokens (`scp`
+present, no `roles` claim on either), both cleared the SAME per-server check
+with the SAME scope (`Orders.Invoke`), and the only difference between them is
+`Orders.Read.AsUser`. That difference is what produced the different outcome.
+
+**Interpretation.** This closes the gap ADR-009's issue-#80 close-out left
+open: "`scope`... is unprovable by THIS gate as constructed." It is not
+provable by the automated gate, and remains so (ADR-006's constraint is
+structural, not something this run changes). It is provable by a human, and
+now has been, once, with the negative arm establishing discrimination rather
+than mere execution.
+
+- **Open / honest notes:**
+  - This is one recorded run, not a standing gate. Nothing about `scope`
+    branch coverage is re-checked automatically; a future change to this
+    fragment could silently break it and only the `terraform test` fixture
+    (render-time) plus a repeat of this manual demo (execution-time) would
+    catch it.
+  - Step 3 (delegated passthrough-closed check) was not exercised in this run.
+  - The exact `X-MS-CLIENT-PRINCIPAL` claim-type STRING form is still not
+    directly asserted from server-side logs; unchanged open item from the
+    2026-07-19 run.
+  - Deploy stamp `apim-mcp-tracer-5dcee91f` was kept alive
+    (`skip_teardown=true`) specifically to run this demo; tear it down after
+    (`az group delete -n rg-mcp-tracer-31364080957 --yes`) -- it is not
+    destroyed automatically and bills continuously until removed.
