@@ -80,11 +80,18 @@
        the envelope top level (mcp-server.xml, COMPATIBILITY.md 2026-08-06).
        Tool-name resolution: gen_ai.tool.name context variable, falling back
        to the parsed body params.name (COMPATIBILITY.md 2026-08-06).
-       Also runs check (i) (issue 88, non-fatal): three raw probes against the
-       same -32001 deny path (no id, "id": null, malformed JSON), recording
-       verbatim status/headers/body to EvidenceDir/null-id-deny-path-
-       evidence.md. Evidence capture, not an assertion -- it does not fail the
-       gate; see discovery-assertions.ps1's Assert-ToolAuthorization.
+       Also runs check (i) (issue 88): the tools/call id-validity guard.
+       Asserts that a request with no id, or an explicit "id": null, is
+       rejected with HTTP 400 + JSON-RPC error -32600 before the
+       authorization decision, with the id key omitted from the response
+       (not echoed as null -- MCP forbids a null id and there is no valid id
+       to echo). A third probe, malformed JSON, is recorded but never
+       asserted (out of scope; it fails earlier, at the policy's
+       unconditional body parse, not the tools/call gate). Verbatim
+       status/headers/body for all three land in EvidenceDir/null-id-deny-
+       path-evidence.md regardless of pass/fail. See discovery-assertions.ps1's
+       Assert-ToolAuthorization and COMPATIBILITY.md, "MCP request id MUST NOT
+       be null...".
 
   Exits non-zero if the MCP client, the discovery assertions, or the registry
   convergence assertion fail. Registry convergence is made deterministic by the

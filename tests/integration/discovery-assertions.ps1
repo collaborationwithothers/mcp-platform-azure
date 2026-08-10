@@ -835,19 +835,20 @@ function Assert-ToolAuthorization {
         Write-Host ''
     }
 
-    # (i) Issue 88: null/missing JSON-RPC id evidence capture on the SAME
-    # -32001 deny path check (c) exercises (unmapped tool name, entitled
-    # token). EVIDENCE, not an assertion: mcp-server.xml:242 sets
-    # ["id"] = body != null ? body["id"] : null, and the MCP 2025-06-18 spec
-    # (Base Protocol, Requests) forbids a null id on any response, but which
-    # of these three request shapes actually reaches that line -- and what it
-    # emits -- has not been observed live. Never calls Fail/assertFail: doing
-    # so would assert a "correct" behaviour this ticket exists to determine.
-    # Remove this check once issue 88's acceptance items 2-4 land (either the
-    # policy is fixed and check (c)'s existing id-echo assertion above gains a
-    # permanent negative-case sibling for whichever case is real, or the null
-    # branch is proven unreachable and documented at mcp-server.xml:242).
-    Write-Host "[$Label-i] $ServerUrl tools/call '$UnmappedProbeToolName' null/missing-id evidence capture (issue 88, non-fatal)"
+    # (i) Issue 88: id-validity guard on tools/call, permanent negative-case
+    # sibling to check (c)'s id-echo assertion. Live-gate evidence (run
+    # 31381168415, 2026-08-10, gate-evidence/null-id-deny-path-evidence.md)
+    # proved a request with no id field, or an explicit "id": null, both
+    # reached the -32001 deny path pre-fix and echoed "id":null on the wire --
+    # forbidden by MCP 2025-06-18 (Base Protocol > Requests: "the ID MUST NOT
+    # be null"). mcp-server.xml now rejects both BEFORE the authorization
+    # decision with HTTP 400 + a JSON-RPC error object that OMITS the id key
+    # (COMPATIBILITY.md, "MCP request id MUST NOT be null..."); this asserts
+    # that fix. A third case, malformed JSON, does NOT reach the deny path at
+    # all (fails earlier at the policy's unconditional body parse, HTTP 500,
+    # no JSON-RPC envelope) -- confirmed by the same live run and out of scope
+    # for issue 88; captured here for the record only, never asserted.
+    Write-Host "[$Label-i] $ServerUrl tools/call '$UnmappedProbeToolName' id-validity guard (issue 88)"
     $noIdBody = "{`"jsonrpc`":`"2.0`",`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}}"
     $nullIdBody = "{`"jsonrpc`":`"2.0`",`"id`":null,`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}}"
     # Deliberately truncated (missing the final two closing braces): invalid
@@ -855,19 +856,44 @@ function Assert-ToolAuthorization {
     # under investigation is the body parse, not the token.
     $malformedBody = "{`"jsonrpc`":`"2.0`",`"id`":99,`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}"
     $idProbes = [ordered]@{
-        'no id field'    = $noIdBody
-        '"id": null'     = $nullIdBody
-        'malformed JSON' = $malformedBody
+        'no id field'    = @{ Body = $noIdBody; Assert = $true }
+        '"id": null'     = @{ Body = $nullIdBody; Assert = $true }
+        'malformed JSON' = @{ Body = $malformedBody; Assert = $false }
     }
     $idProbeResults = [ordered]@{}
     foreach ($probeLabel in $idProbes.Keys) {
-        $r = Invoke-RawIdProbe -Uri $ServerUrl -Token $Token -Body $idProbes[$probeLabel]
+        $probe = $idProbes[$probeLabel]
+        $r = Invoke-RawIdProbe -Uri $ServerUrl -Token $Token -Body $probe.Body
         $idProbeResults[$probeLabel] = $r
         if ($r.error) {
             Write-Host "  [$probeLabel] transport error (not an HTTP response): $($r.error)"
-        } else {
-            Write-Host "  [$probeLabel] status=$($r.status) body=$($r.body)"
+            if ($probe.Assert) {
+                & $assertFail "tools/call with $probeLabel : transport error, no HTTP response to check: $($r.error)."
+            }
+            continue
         }
+        Write-Host "  [$probeLabel] status=$($r.status) body=$($r.body)"
+        if (-not $probe.Assert) { continue }
+        if ($r.status -ne 400) {
+            & $assertFail "tools/call with $probeLabel : expected HTTP 400 (id-validity guard), got $($r.status). Body: $($r.body)"
+            continue
+        }
+        $parsed = $null
+        try { $parsed = $r.body | ConvertFrom-Json -ErrorAction Stop } catch { }
+        if ($null -eq $parsed) {
+            & $assertFail "tools/call with $probeLabel : HTTP 400 body was not valid JSON: $($r.body)"
+            continue
+        }
+        if ($parsed.PSObject.Properties.Name -contains 'id') {
+            & $assertFail "tools/call with $probeLabel : HTTP 400 body carries an 'id' key (value: $(Get-SafeProperty $parsed 'id')); the id-validity guard must OMIT id entirely, not echo it (even as null), since MCP forbids a null id and there is no valid id to echo."
+            continue
+        }
+        $errCode = Get-JsonRpcErrorCode $parsed
+        if ($null -eq $errCode -or [int]$errCode -ne -32600) {
+            & $assertFail "tools/call with $probeLabel : expected JSON-RPC error.code -32600 (Invalid Request), got $(Get-SafeProperty (Get-JsonRpcError $parsed) 'code'). Body: $($r.body)"
+            continue
+        }
+        Pass "${Label}: tools/call with $probeLabel correctly rejected (HTTP 400, error.code -32600, id key omitted)."
     }
     if (-not [string]::IsNullOrEmpty($EvidenceDir)) {
         $null = New-Item -ItemType Directory -Path $EvidenceDir -Force
@@ -879,7 +905,7 @@ function Assert-ToolAuthorization {
             $r = $idProbeResults[$probeLabel]
             [void]$sb.AppendLine("### $probeLabel")
             [void]$sb.AppendLine('')
-            [void]$sb.AppendLine("- request body : $($idProbes[$probeLabel])")
+            [void]$sb.AppendLine("- request body : $($idProbes[$probeLabel].Body)")
             if ($r.error) {
                 [void]$sb.AppendLine("- transport error: $($r.error)")
             } else {

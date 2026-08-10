@@ -133,6 +133,65 @@
           return body?["params"]?["name"]?.ToString() ?? "";
         }" />
         <!--
+          Id-validity guard (issue 88), runs BEFORE the authorization decision
+          below, for every tools/call regardless of what that decision would
+          have been: MCP 2025-06-18 Base Protocol > Requests requires "a
+          string or integer ID" and, unlike base JSON-RPC, says the ID "MUST
+          NOT be null" (verified directly against
+          https://modelcontextprotocol.io/specification/2025-06-18/basic/index,
+          2026-08-10). Live-gate evidence the same day (gate-evidence/
+          null-id-deny-path-evidence.md, run 31381168415) showed the -32001
+          deny response at line ~260 below echoes body["id"] verbatim, and
+          BOTH a missing id and an explicit "id": null produced HTTP 200 with
+          "id":null on the wire -- a real violation, not a theoretical one.
+          Placed here, ahead of the map lookup, rather than only inside the
+          deny branch: an invalid id is a REQUEST validity problem, not an
+          authorization outcome, so it must not depend on whether the caller
+          would otherwise have been allowed or denied.
+          Wire shape: HTTP 400 with a JSON-RPC error object that OMITS the id
+          key entirely (not id:null). Both choices are spec-sanctioned, not
+          invented: the Streamable HTTP transport page says "If the server
+          cannot accept the input, it MUST return an HTTP error status code
+          (e.g., 400 Bad Request). The HTTP response body MAY comprise a
+          JSON-RPC error response that has no id" (same URL as above,
+          "Streamable HTTP" section, 2026-08-10). Omitting id (not inventing
+          one) matches the ticket's own steer: fabricating an id would break
+          the client's own request/response correlation. Error code -32600
+          "Invalid Request" is the standard JSON-RPC 2.0 code for exactly this
+          case ("The JSON sent is not a valid Request object.", verified
+          against https://www.jsonrpc.org/specification, 2026-08-10) --
+          deliberately NOT -32001 (this repo's per-tool authorization code,
+          unchanged below) or -32602 (the SDK's "Unknown tool" shape,
+          COMPATIBILITY.md): this is neither an authorization denial nor a
+          missing tool, it is a malformed request the gateway never got far
+          enough to authorize.
+          Malformed JSON (the ticket's third case) never reaches here at all:
+          it fails at the unconditional mcpRequestBody parse (line ~120,
+          above, which runs for every method, not only tools/call) and
+          surfaces as APIM's generic policy-expression-failure 500 with no
+          JSON-RPC envelope -- confirmed by the same live-gate evidence.
+          Out of scope for issue 88 (which is about the -32001 response's id
+          field specifically); a spec-conformant response for THAT case, if
+          wanted, is a separate follow-up.
+        -->
+        <choose>
+          <when condition="@{
+            var idBody = context.Variables.GetValueOrDefault&lt;JObject&gt;("mcpRequestBody");
+            var idToken = idBody?["id"];
+            bool validId = idToken != null &amp;&amp; idToken.Type != JTokenType.Null &amp;&amp;
+              (idToken.Type == JTokenType.String || idToken.Type == JTokenType.Integer);
+            return !validId;
+          }">
+            <return-response>
+              <set-status code="400" reason="Bad Request" />
+              <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+              </set-header>
+              <set-body>{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request: tools/call must include a non-null string or integer id (MCP 2025-06-18 forbids a missing or null id)."}}</set-body>
+            </return-response>
+          </when>
+        </choose>
+        <!--
           Total map lookup, default-deny (issue 18): tool_authorization_map is
           rendered as a switch over every tool name this server's map knows
           about. unrestricted entries allow unconditionally (past the
