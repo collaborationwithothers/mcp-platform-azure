@@ -838,18 +838,39 @@ delegated path decorative rather than real. `Orders.Read.AsUser` keeps a
 genuine negative case constructible: a caller holding `Orders.Invoke` alone is
 still refused.
 
-**Naming departure, stated plainly.** This repo's convention elsewhere is a
-delegated scope `X.Y` paired with an application role `X.Y.All`
-(`docs/runbooks/entra-app-registrations.md` section 1a). `Orders.Read.AsUser`
-does not follow it, because it cannot: Entra rejects a scope whose value
-duplicates an existing app role value on the same application ignoring case,
-and `Orders.Read` is already `get_order_status`'s backend role
-(`AppRoleAuthorization.RequiredRole`). The convention-clean alternative --
-renaming the role to `Orders.Read.All` and the scope to `Orders.Read` -- was
-rejected for this ticket. It reaches into the C# constant, the live app
-registration, the negative-test client grants (section 3), and gate checks
-(e) through (g), all to fix a naming inconsistency this ADR would rather just
-name than pay to remove.
+**Naming departure, and why it is not merely a convention preference.** This
+repo's convention elsewhere is a delegated scope `X.Y` paired with an
+application role `X.Y.All` (`docs/runbooks/entra-app-registrations.md`
+section 1a). `Orders.Read.AsUser` does not follow it, because it cannot.
+
+Not documented: governance review (2026-08-10) ran two independent search
+passes against Microsoft Learn and found no basis for the claim that Entra
+rejects a scope value duplicating an app role value on the same application --
+the Graph `permissionScope.value` and `appRole.value` docs state only length
+and character-set constraints, no portal how-to for either blade documents a
+cross-collection check, and no AADSTS or Graph error code for this case
+exists on Learn. `entra-app-registrations.md` section 1a asserts the same
+constraint, uncited, predating this ticket; that assertion was equally
+unverified until now, and this ADR does not lean on it as corroboration.
+
+LIVE-OBSERVED, 2026-08-10 (Hari, `mcp-tracer-server`'s Expose an API blade,
+Add a scope): attempting to add a scope literally named `Orders.Read` on the
+same application that already carries the app role `Orders.Read`
+(`AppRoleAuthorization.RequiredRole`) was refused, with the error "Failed to
+update undefined application property. Error detail: It contains duplicate
+value. Please Provide unique value." This is a dated, observed fact against
+the actual application this ticket's server uses, not an inference from
+documentation -- the same evidentiary standing as every other
+`LIVE UPDATE`/`CAPTURED` row in COMPATIBILITY.md, where docs are silent and a
+direct observation is what this repo has instead. See COMPATIBILITY.md for
+the dated row.
+
+The convention-clean alternative -- renaming the role to `Orders.Read.All`
+and the scope to `Orders.Read` -- was rejected for this ticket regardless of
+the collision question's answer: it reaches into the C# constant, the live
+app registration, the negative-test client grants (section 3), and gate
+checks (e) through (g), all to fix a naming inconsistency this ADR would
+rather just name than pay to remove.
 
 ### What now closes the evidence gap, and what still does not
 

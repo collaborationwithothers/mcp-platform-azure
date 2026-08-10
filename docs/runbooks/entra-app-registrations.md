@@ -424,14 +424,20 @@ admin consent. A token from this client, carrying both `Orders.Invoke` (clears
 the per-server check) and `Orders.Read.AsUser` (clears the per-tool check),
 should now succeed on `get_order_status` via the delegated branch.
 
-**Naming trap.** The new scope's value cannot be `Orders.Read`: Entra rejects a
-scope whose value duplicates an existing app role value on the same
-application, ignoring case, and `Orders.Read` is already `get_order_status`'s
-backend app role (section 2 above; `AppRoleAuthorization.RequiredRole`).
-`Orders.Read.AsUser` therefore inverts this runbook's usual `X.Y` scope /
-`X.Y.All` role convention deliberately, rather than by oversight -- the
-convention-clean fix would be renaming the role instead, which ADR-009 records
-as rejected for this ticket (too much surface for what it buys here).
+**Naming trap, live-confirmed 2026-08-10.** The new scope's value cannot be
+`Orders.Read`: attempting to add a scope literally named `Orders.Read` on this
+same application, which already carries the app role `Orders.Read` (section 2
+above; `AppRoleAuthorization.RequiredRole`), was refused by Entra with "Failed
+to update undefined application property. Error detail: It contains duplicate
+value. Please Provide unique value." (Expose an API blade, Add a scope). Not
+documented on Microsoft Learn (governance review, 2026-08-10, UNVERIFIABLE via
+two independent search passes) but directly observed against this
+application, which this repo treats as sufficient evidence on its own terms --
+see COMPATIBILITY.md. `Orders.Read.AsUser` therefore inverts this runbook's
+usual `X.Y` scope / `X.Y.All` role convention, confirmed necessary rather than
+merely deliberate. The convention-clean fix would be renaming the role
+instead, which ADR-009 records as rejected for this ticket (too much surface
+for what it buys here).
 
 ## 4a. Delegated negative-test client (holds Orders.Invoke only, issue #83)
 
