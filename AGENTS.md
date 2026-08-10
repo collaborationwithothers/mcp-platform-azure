@@ -340,7 +340,9 @@ reason and runs on its own pull_request triggers (incl. labeled/unlabeled) so a
 label change does not re-run the heavier jobs. It is promoted to required in
 branch protection by Hari; the workflow ships the check, the promotion is Hari's
 step. Non-required jobs: mcp-parity (scripts/check-mcp-parity), drift-agent-tests
-(issue #4 harness), and compat-sync-tests (the compat-sync guard's unit tests);
+(issue #4 harness), compatibility-drift-structure (issue #100, validates the
+extracted COMPATIBILITY.md doc-link structure), and compat-sync-tests (the
+compat-sync guard's unit tests);
 Hari may promote any of these in branch protection. There are no trigger-level
 path filters, so the required jobs always run; instead each step guards itself
 with find and prints SKIPPED until real .tf / .csproj files land. Pinned
