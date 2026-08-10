@@ -284,18 +284,19 @@ that pruning is not an architectural change.
 
 ### The deny wire shape
 
-A denial is a JSON-RPC 2.0 Protocol Error: HTTP 200, the request `id` echoed, an
-`error` object with code -32001 (a custom code in the MCP-reserved -32000 to
--32099 range) and an RFC 6750 `insufficient_scope` message. It is NOT a
-`CallToolResult` with `isError: true` (that tier is reserved for failures during
-actual tool EXECUTION, and this call never executed), and NOT an HTTP 401/403
-ahead of any JSON-RPC envelope (that tier is reserved for transport and session
-violations). This was verified directly against the MCP specification revision
-2025-06-18, not against Microsoft Learn; the full derivation, including why
--32602 "Unknown tool" would misdescribe a mapped-but-under-entitled denial, is
-recorded in COMPATIBILITY.md, "MCP tools/call denial wire shape", 2026-08-06
-(https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling
-and https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).
+This policy deliberately returns a JSON-RPC 2.0 Protocol Error: HTTP 200, the
+request `id` echoed, and an `error` object with code -32001 (a custom code in
+the MCP-reserved -32000 to -32099 range) carrying an RFC 6750
+`insufficient_scope` message.
+
+**VERIFIED:** MCP names Protocol Errors and Tool Execution Errors as distinct
+categories. **INFERRED:** the specification does not assign a per-tool
+authorization denial to either category, so this repository chooses a Protocol
+Error because the gateway refuses before a tool runs. The backend's `isError`
+shape is equally specification-compliant. **INFERRED plus OBSERVED:** HTTP 200
+is this deployment's selected wire shape, not a status the specification
+mandates. COMPATIBILITY.md, "MCP tools/call denial wire shape", owns the source
+derivation. `docs/mcp-request-flow.md` owns the operator-facing outcomes.
 
 One consequence of that shape is architectural rather than incidental: there is
 ONE deny path for both the unmapped and the under-entitled case, and the wire

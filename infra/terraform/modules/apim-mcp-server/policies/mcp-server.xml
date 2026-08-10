@@ -272,20 +272,25 @@
               return auditEvent.ToString(Newtonsoft.Json.Formatting.None);
             }</log-to-eventhub>
             <!--
-              Deny wire shape (issue 18): a JSON-RPC 2.0 Protocol Error, id
-              echoed from the parsed request, delivered over the normal
-              response channel, NOT a CallToolResult with isError (that tier
-              is reserved for failures during actual tool execution) and NOT
-              an HTTP 401/403 ahead of any JSON-RPC envelope (that tier is
-              reserved for transport/session violations). Verified directly
-              against the MCP spec (2025-06-18), not Microsoft Learn;
-              COMPATIBILITY.md, 2026-08-06. Code -32001 is a custom code in
-              the MCP-reserved range (-32000 to -32099), deliberately not the
-              spec's -32602 "Unknown tool" example: that label would misdescribe
-              a mapped-but-under-entitled denial, and this is one deny path for
-              both the unmapped and the under-entitled case (non-concealment:
-              the wire response does not distinguish which; the audit event
-              above carries the tool name for operators who need to).
+              Deny wire shape (issue 18): this policy deliberately returns a
+              JSON-RPC 2.0 Protocol Error, with the parsed request id echoed
+              over the normal response channel. VERIFIED: MCP names Protocol
+              Errors and Tool Execution Errors as distinct categories.
+              INFERRED: the spec does not assign a per-tool authorization
+              denial to either, so this repo chooses a Protocol Error because
+              the gateway denies before a tool runs. The backend's isError
+              shape is equally spec-compliant. INFERRED plus OBSERVED: HTTP
+              200 is this deployment's selected wire shape, not a spec
+              mandate. COMPATIBILITY.md, "MCP tools/call denial wire shape",
+              owns the source derivation; docs/mcp-request-flow.md owns the
+              operator outcome. Code -32001 is a custom code in the
+              MCP-reserved range (-32000 to -32099), deliberately not the
+              spec's -32602 "Unknown tool" example: that label would
+              misdescribe a mapped-but-under-entitled denial, and this is one
+              deny path for both the unmapped and the under-entitled case
+              (non-concealment: the wire response does not distinguish which;
+              the audit event above carries the tool name for operators who
+              need to).
               The id echo below can no longer emit a null id, and BOTH of its
               null paths are now dead (issue 88, do not re-open this): body is
               null only when the request body did not parse, which fails at the

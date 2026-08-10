@@ -206,6 +206,12 @@ Because the tool calls nothing downstream, there is no OBO exchange and no
 downstream token acquisition anywhere on this path: authorization begins and
 ends at the MCP tool boundary.
 
+**VERIFIED (tool source).** Cross-tool refusal is symmetric only for
+app-context callers. `GetOrderStatus.Run` sends a delegated caller straight to
+OBO before it checks `Orders.Read`. The operator-facing result and wire shapes
+belong in `docs/mcp-request-flow.md`, "Debugging map"; this section owns the
+identity posture that explains them.
+
 ### get_access_guidance authorization (issue 82)
 
 `get_access_guidance` is the one tool on this server that applies no per-tool

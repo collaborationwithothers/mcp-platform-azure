@@ -122,7 +122,8 @@ failures appear on the three surfaces this diagram depicts - a transport HTTP 40
 params), and an HTTP 200 tool result with isError=true (e.g. missing
 Orders.Read). It does not depict the gateway-issued surface described below,
 which docs/mcp-request-flow.md enumerates; the takeaway box says so and names
-its three instances.](../diagrams/mcp-request-outcomes.drawio.svg)
+its three instances. HTTP 200 here is this deployment's inferred-and-observed
+wire shape, not an MCP mandate.](../diagrams/mcp-request-outcomes.drawio.svg)
 
 **Scope of the diagram above.** It depicts the three tiers this section
 describes, as deployed at tag v1.0.0, and its claim that only tier 1 changes the
@@ -168,20 +169,18 @@ several of these surfaces with different wire shapes.
    its three instances.
    (infra/terraform/modules/apim-mcp-server/policies/mcp-server.xml.)
 
-2. JSON-RPC protocol error (HTTP 200). The request authenticated and reached the
-   MCP runtime but was not a valid call: an unknown tool name or malformed
-   parameters. The Functions MCP extension returns HTTP 200 with a JSON-RPC
-   `error` object (for example code -32602, invalid params), per the MCP
-   specification's error handling. The HTTP layer is healthy; the error is in the
-   JSON-RPC envelope.
+2. JSON-RPC protocol error (HTTP 200 in this deployment). The request
+   authenticated and reached the MCP runtime but was not a valid call. The
+   runtime returns a JSON-RPC `error` object. **INFERRED plus OBSERVED:** HTTP
+   200 is this deployment's wire shape, not a status mandated by the MCP
+   specification. `docs/mcp-request-flow.md` owns the current conditions and
+   evidence.
 
-3. Tool execution error (HTTP 200 + `isError`). The tool ran and failed.
-   `get_order_status` returns a `CallToolResult` with `isError = true` for a
-   missing `Orders.Read` app role (the deterministic "403 Forbidden" tool error,
-   fail-closed with no downstream call), a failed downstream call, or a
-   fail-closed principal check. The HTTP status is 200 and there is no JSON-RPC
-   `error` object; the failure sits inside the successful tool-call result.
-   (src/McpTools/Tools/GetOrderStatus.cs.)
+3. Tool execution error (HTTP 200 + `isError` in this deployment). The tool ran
+   and returned a result that marks failure. **INFERRED plus OBSERVED:** the HTTP
+   status is this deployment's wire shape, not a specification mandate.
+   `docs/mcp-request-flow.md` owns the current tool, principal, and exception
+   outcomes.
 
 The 403 in tier 3 is an MCP tool error, not an HTTP 403 - which is why the diagram
 draws the transport reject and the tool-level `isError` as different colours: they

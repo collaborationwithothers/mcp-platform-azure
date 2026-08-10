@@ -11,22 +11,14 @@ namespace McpTools.Tools;
 /// The second synthetic tool exposed by the tracer: get_service_info (issue 79).
 ///
 /// Its entire purpose is to prove per-tool authorization, not to serve useful
-/// data. get_order_status is the only other tool on this server, and one tool
-/// cannot demonstrate that a caller entitled to tool A is refused tool B: there
-/// is no tool B to refuse. This tool IS tool B. It requires a DIFFERENT
+/// data. get_order_status is the other role-gated tool on this server. One
+/// role-gated tool cannot demonstrate that a caller entitled to tool A is
+/// refused tool B: there is no tool B to refuse. This tool is tool B. It
+/// requires a DIFFERENT
 /// application role (<see cref="AppRoleAuthorization.ServiceInfoRole"/>) from
 /// get_order_status's <see cref="AppRoleAuthorization.RequiredRole"/>, so an
 /// Orders.Read holder calling get_service_info is refused -- the cross-tool
 /// property issue 76 exists to prove.
-///
-/// The converse holds only for APP-CONTEXT callers, and the difference is worth
-/// knowing before anyone writes the live assertion. A ServiceInfo.Read holder
-/// calling get_order_status is refused only when it arrives app-context, which
-/// is the path GetOrderStatus role-checks. A DELEGATED caller reaching
-/// get_order_status is routed straight to the OBO exchange with no role check
-/// at all (GetOrderStatus.Run's Delegated branch), so it is not refused by role
-/// there. The cross-tool proof is therefore symmetric only within app-context;
-/// do not write a live assertion that assumes otherwise.
 ///
 /// The response is fixed service metadata compiled into the assembly (see the
 /// FROZEN constants below). It reads no configuration, calls no downstream
@@ -36,25 +28,10 @@ namespace McpTools.Tools;
 /// route by which org-identifying data (a hostname, a resource id, a config
 /// value) could reach this public repo's demo output.
 ///
-/// A DELEGATED caller (an scp principal) reaches this same check and is
-/// denied in this deployment. That is a decision, not an oversight. The
-/// app-role grant made to the client application does not appear in a
-/// delegated token that application obtains, so the caller does not hold
-/// ServiceInfo.Read. The boundary is worth stating precisely, and so is how far
-/// away it is. A delegated caller would pass this check only if the app role had
-/// been assigned to the signed-in user (or a group they are in), because such an
-/// assignment DOES surface in the roles claim. This deployment cannot reach that
-/// state by accident: it defines its app roles with Allowed member types =
-/// Applications only (docs/runbooks/entra-app-registrations.md), and an
-/// Applications-only role cannot be assigned to a user at all. Getting there
-/// takes two deliberate changes, widening allowedMemberTypes and then assigning.
-/// So the path is unreached by configuration rather than by protocol, but it is
-/// two decisions away, not one toggle. There is still only one role check to
-/// write, unlike
-/// get_order_status's OBO split. Do not restate this as "delegated tokens never
-/// carry roles"; Microsoft Learn contradicts that blanket form. Verified
-/// 2026-08-08 against "Identify the permission type for an access token"; see
-/// docs/security.md, "get_service_info authorization", for the citation.
+/// docs/security.md, "get_service_info authorization", is the canonical account
+/// of delegated callers and the app-role configuration. It also records why the
+/// cross-tool proof applies only to app-context callers. The operator-facing wire
+/// outcomes are in docs/mcp-request-flow.md, "Debugging map".
 /// </summary>
 public sealed class GetServiceInfo
 {
@@ -124,29 +101,12 @@ public sealed class GetServiceInfo
         // BuiltInAuthGuard asserts Easy Auth is enabled, and enabled Easy Auth
         // strips client-supplied X-MS-* headers before injecting its own
         // (docs/security.md, "trust chain").
-        // WHERE THE THROW MESSAGES BELOW ACTUALLY GO: server logs only, never
-        // the caller. Verified against the pinned stack's source, 2026-08-08
-        // (COMPATIBILITY.md, "MCP tool method: thrown exception wire shape").
-        // The MCP SDK catches any exception that is not McpProtocolException or
-        // OperationCanceledException and replaces it with a CallToolResult whose
-        // text is the bare string "An error occurred invoking '<tool>'." An
-        // InvalidOperationException's Message is DISCARDED; only McpException
-        // subtypes keep theirs.
-        //
-        // That is the outcome we want here, so it is left as is rather than
-        // "fixed": these three cases are fail-closed authentication rejections,
-        // and a caller who did not traverse the authenticated path should not be
-        // told which check rejected them. The detail an operator needs still
-        // reaches the logs through the SDK's own error logging. The messages are
-        // written for that reader, not for the wire.
-        //
-        // The consequence to know before changing anything here: a throw and the
-        // 403 CallToolResult below are INDISTINGUISHABLE to a client. Both are
-        // HTTP 200, both carry isError = true. Only the text differs. Do not
-        // write a test or a gate assertion that expects a JSON-RPC protocol
-        // error from this method; a tool method cannot emit one except by
-        // throwing McpProtocolException, which the SDK documents as being for
-        // protocol concerns and explicitly not for application-level errors.
+        // These throws deliberately fail closed without exposing the principal
+        // failure to the caller. The pinned SDK turns an ordinary exception into
+        // the generic tool-error text and preserves the detail in server logs.
+        // VERIFIED source evidence: COMPATIBILITY.md, "MCP tool method: thrown
+        // exception wire shape". docs/mcp-request-flow.md owns the client-visible
+        // wire outcome and why it differs from the gateway's -32001 response.
         var resolution = IdentityModeResolver.ResolveWithPrincipal(headers);
         return resolution.Mode switch
         {
