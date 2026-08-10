@@ -72,6 +72,25 @@ class ExtractTests(unittest.TestCase):
     def test_doc_links(self):
         self.assertEqual(self.by_key["widget-a"]["doc_links"], ["https://learn.microsoft.com/widget"])
 
+    def test_doc_links_split_markdown_breaks_and_trim_punctuation(self):
+        markdown = (
+            "| What | Notes | Last verified |\n"
+            "| --- | --- | --- |\n"
+            "| Widget E | Re-check trigger: docs change. "
+            "https://learn.microsoft.com/first<br>"
+            "**https://learn.microsoft.com/second**. | 2026-07-09 |\n"
+        )
+
+        items = et.extract_triggers(markdown)
+
+        self.assertEqual(
+            items[0]["doc_links"],
+            [
+                "https://learn.microsoft.com/first",
+                "https://learn.microsoft.com/second",
+            ],
+        )
+
     def test_recorded_claim_is_the_trigger_cell(self):
         self.assertIn("Some rationale", self.by_key["widget-a"]["recorded_claim"])
         self.assertIn("Re-check trigger", self.by_key["widget-a"]["recorded_claim"])

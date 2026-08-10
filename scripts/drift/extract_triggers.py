@@ -30,7 +30,11 @@ from pathlib import Path
 
 TRIGGER_MARKER = "Re-check trigger:"
 DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
-URL_RE = re.compile(r"https?://[^\s|)\]]+")
+# Markdown delimiters end a URL token even when no whitespace separates them.
+# This keeps two links joined with ``<br>`` as two work-list entries instead of
+# passing one merged value to the weekly judge.
+URL_RE = re.compile(r"https?://[^\s|)\]<>*`\"']+")
+TRAILING_URL_PUNCTUATION = ".,;:"
 # A markdown table separator row, e.g. |---|:--:|-----| (only dashes, colons,
 # pipes and spaces between the outer pipes).
 SEPARATOR_RE = re.compile(r"^\|[\s:|-]+\|\s*$")
@@ -142,7 +146,8 @@ def extract_triggers(markdown_text: str) -> list[dict]:
                 break
 
         doc_links: list[str] = []
-        for url in URL_RE.findall(line):
+        for candidate in URL_RE.findall(line):
+            url = candidate.rstrip(TRAILING_URL_PUNCTUATION)
             if url not in doc_links:
                 doc_links.append(url)
 

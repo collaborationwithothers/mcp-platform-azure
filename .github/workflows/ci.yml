@@ -236,6 +236,27 @@ jobs:
             echo "SKIPPED: no scripts/drift/tests yet."
           fi
 
+  # NOT a required status check. Extracts the real COMPATIBILITY.md work-list
+  # and checks that every emitted doc link is an individual, structurally valid
+  # HTTP(S) URL (issue #100). This is deliberately narrower than the weekly
+  # drift agent: no network request, Microsoft Learn, model invocation, or
+  # judgement of the underlying documentation claim. Hari may promote it to a
+  # required check in branch protection if desired.
+  compatibility-drift-structure:
+    name: compatibility-drift-structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate extracted COMPATIBILITY.md doc links
+        shell: bash
+        run: |
+          work_list="${RUNNER_TEMP}/compatibility-work-list.json"
+          python3 scripts/drift/extract_triggers.py COMPATIBILITY.md \
+            --out "$work_list"
+          python3 scripts/drift/validate_work_list.py "$work_list"
+
   # NOT a required status check. Unit tests for the compat-sync guard harness
   # (issue #64): scripts/compat_sync/check_compat_sync.py, the required
   # `compat-sync` check's decision logic. Dependency-free like drift-agent-tests:

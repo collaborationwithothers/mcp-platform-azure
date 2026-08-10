@@ -93,8 +93,10 @@ repo-hygiene checker already exercised in CI). No new runtime.
 - Behaviour: line-based parse. A candidate row is a Markdown table row (line
   begins with `|`) whose text contains `Re-check trigger:`. For each, split on
   `|`; cell 0 is the identifying label; capture the trigger substring (from
-  `Re-check trigger:` to end of cell or line) and any `https://learn.microsoft`
-  URL(s) present in the row.
+  `Re-check trigger:` to end of cell or line) and every HTTP(S) URL in the
+  row. Whitespace, table delimiters, closing brackets, Markdown delimiters
+  (angle brackets, backticks, quotation marks, and asterisks) end a URL token.
+  The extractor removes trailing `.`, `,`, `;`, and `:` from each token.
 - Output: `work-list.json`, an array of objects (see 5.1). Deterministic and
   stable: same input yields byte-identical output (rows in file order).
 - Exit non-zero only on unreadable input or a malformed table row it cannot key.
@@ -164,6 +166,21 @@ repo-hygiene checker already exercised in CI). No new runtime.
 - `runs-on: ubuntu-latest` only (hard rule; never the VNet runner group).
 - Steps: checkout -> setup Python -> `extract_triggers.py` -> judge action ->
   `apply_verdicts.py`. Any step failing fails the job (fail-loud).
+
+### 4.5 Component: `scripts/drift/validate_work_list.py`
+
+- Input: `work-list.json` emitted by `extract_triggers.py`.
+- Behaviour: deterministic, stdlib-only structural validation. It requires a
+  top-level JSON array, an array-valued `doc_links` field on every item, and a
+  valid individual HTTP(S) URL for every link. It rejects empty strings,
+  whitespace, unencoded formatting delimiters, invalid percent escapes,
+  embedded second URL schemes, missing hosts, and invalid ports. It collects
+  every error with the item key and link index. It does not modify the
+  work-list, fetch a URL, or judge a documented claim.
+- Output: a success line on stdout, or the collected structural errors on
+  stderr.
+- Exit: zero for valid output; one for unreadable or malformed JSON, or a
+  structural validation error.
 
 ## 5. Data contracts
 
@@ -250,12 +267,19 @@ slugging identically) are a hard error in extract, not a silent merge.
     open-issues list -> asserted intended actions for each status, the
     completeness gate, the dedup skip, the 5-cap suppression, and the "now clear
     -> you may close" summary line.
+  - `validate_work_list.py`: fixture work-lists -> asserted rejection of merged
+    or malformed doc links, while rows with no doc links remain valid.
 - A new **non-required** CI job in `.github/workflows/ci.yml` (stable job name,
   not added to branch protection) runs these tests. It guards itself with `find`
   and prints SKIPPED until the scripts land, consistent with the existing
   self-guarding CI steps. The job runs `python3 -m unittest discover` over
   `scripts/drift/tests` using the runner's stdlib Python (no `pip install`),
   mirroring the dependency-free `mcp-parity` job.
+- `compatibility-drift-structure` is a separate, non-required CI job. It runs
+  the extractor against the checked-out COMPATIBILITY.md, then verifies that
+  every emitted doc link is an individual, structurally valid HTTP(S) URL. It
+  makes no network request, does not invoke a model, and does not judge whether a
+  documented claim has changed. It does not alter the weekly agent's schedule.
 - The model's judgement is not unit-tested (non-deterministic). The harness
   around it is fully tested.
 
