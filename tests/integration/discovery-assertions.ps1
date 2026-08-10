@@ -862,6 +862,21 @@ function Assert-ToolAuthorization {
     # come from a guard that runs BEFORE, and independently of, that decision.
     # Without this probe the "ahead of the map lookup" claim in
     # mcp-server.xml and COMPATIBILITY.md would be asserted but untested.
+    #
+    # That discrimination holds on SERVER 1 ONLY, and the probe label says so
+    # rather than claiming it everywhere. It rests on check (h) having shown
+    # $OpenToolName is admitted, and (h) is guarded on -not $WarnOnly, so it
+    # never runs for server 2. On server 2 this repo does not establish that
+    # the tool is allowed for $Token, so a 400 there is consistent with the
+    # tool being denied anyway and proves nothing more than probes 1 and 2.
+    # The probe still runs on server 2 (a 400 is still the correct answer);
+    # only the placement CLAIM is withheld.
+    $placementProofHolds = -not $WarnOnly
+    $openToolProbeLabel = if ($placementProofHolds) {
+        "no id field on the ALLOWED tool '$OpenToolName' (proves the guard runs before the authorization decision)"
+    } else {
+        "no id field on '$OpenToolName' (NOT a placement proof here: check (h) does not run on this server, so the tool is not known to be allowed)"
+    }
     Write-Host "[$Label-i] $ServerUrl tools/call id-validity guard (issue 88)"
     $noIdBody = "{`"jsonrpc`":`"2.0`",`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}}"
     $nullIdBody = "{`"jsonrpc`":`"2.0`",`"id`":null,`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}}"
@@ -873,7 +888,7 @@ function Assert-ToolAuthorization {
     $idProbes = [ordered]@{
         'no id field'                          = @{ Body = $noIdBody; Assert = $true }
         '"id": null'                           = @{ Body = $nullIdBody; Assert = $true }
-        "no id field on the ALLOWED tool '$OpenToolName' (proves the guard runs before the authorization decision)" = @{ Body = $noIdAllowedToolBody; Assert = $true }
+        $openToolProbeLabel                    = @{ Body = $noIdAllowedToolBody; Assert = $true }
         'malformed JSON'                       = @{ Body = $malformedBody; Assert = $false }
     }
     $idProbeResults = [ordered]@{}

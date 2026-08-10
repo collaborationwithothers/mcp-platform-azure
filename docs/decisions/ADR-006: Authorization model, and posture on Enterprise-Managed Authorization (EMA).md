@@ -121,8 +121,8 @@ failures appear on the three surfaces this diagram depicts - a transport HTTP 40
 (missing/invalid token), an HTTP 200 JSON-RPC protocol error (unknown tool/bad
 params), and an HTTP 200 tool result with isError=true (e.g. missing
 Orders.Read). It does not depict the gateway-issued surface described below,
-which has its own diagram in docs/mcp-request-flow.md; the takeaway box says so
-and names its three instances.](../diagrams/mcp-request-outcomes.drawio.svg)
+which docs/mcp-request-flow.md enumerates; the takeaway box says so and names
+its three instances.](../diagrams/mcp-request-outcomes.drawio.svg)
 
 **Scope of the diagram above.** It depicts the three tiers this section
 describes, as deployed at tag v1.0.0, and its claim that only tier 1 changes the
@@ -130,11 +130,13 @@ HTTP status is true *within those three tiers*. It is not a complete enumeration
 of failure surfaces, and must not be read as one: issues 17, 18 and 88 each added
 a rejection issued by API Management itself, inside the server-scope policy's
 `<inbound>`, before the request reaches the MCP runtime. Two of those three
-change the HTTP status. They have their own diagram,
-`docs/diagrams/per-tool-deny-path.drawio.svg`, embedded in
-`docs/mcp-request-flow.md`, which is where that surface is drawn and explained.
-The takeaway box inside the diagram above says the same, so the qualifier
-travels with the picture rather than living only in this paragraph.
+change the HTTP status. `docs/mcp-request-flow.md` enumerates all three and is
+the canonical list; the diagram it embeds,
+`docs/diagrams/per-tool-deny-path.drawio.svg`, draws the issue-18 and issue-88
+instances but deliberately starts after the issue-17 403 has passed, so it is
+not a complete picture of that surface either. The takeaway box inside the
+diagram above says the same, so the qualifier travels with the picture rather
+than living only in this paragraph.
 
 The three tiers below are organised by which layer produced the failure. A
 caller sees them plus a fourth producer, the gateway itself:
@@ -151,7 +153,7 @@ caller sees them plus a fourth producer, the gateway itself:
   `docs/mcp-request-flow.md` is the canonical enumeration of all four
   producers; it is deliberately not duplicated here.
 
-A robust client must inspect the HTTP status, the JSON-RPC `error` object, and
+A client must inspect the HTTP status, the JSON-RPC `error` object, and
 the tool result's `isError` flag independently; "forbidden" can arrive on
 several of these surfaces with different wire shapes.
 

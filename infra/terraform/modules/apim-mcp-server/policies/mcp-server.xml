@@ -287,12 +287,18 @@
               the wire response does not distinguish which; the audit event
               above carries the tool name for operators who need to).
               The id echo below can no longer emit a null id, and BOTH of its
-              null paths are now dead (issue 88, live-proven, do not re-open
-              this): body is null only when the request body did not parse,
-              which fails at the mcpRequestBody parse well before this branch
-              and returns a 500; and body["id"] is null or non-scalar only
-              when the id-validity guard above would already have returned
-              400. The ternary is left as written because it is correct and
+              null paths are now dead (issue 88, do not re-open this): body is
+              null only when the request body did not parse, which fails at the
+              mcpRequestBody parse well before this branch and returns a 500;
+              and body["id"] is null or non-scalar only when the id-validity
+              guard above would already have returned 400.
+              Be precise about which of that is observed and which is
+              construction. LIVE-PROVEN: the 500 on an unparseable body, and
+              the guard's 400 for a MISSING id and for an explicit "id": null.
+              NOT sent live: a non-scalar id (boolean, object, array). The
+              guard rejects those by the same condition, so they are dead by
+              construction rather than by observation, and no gate probe covers
+              them. The ternary is left as written because it is correct and
               defensive, not because either branch is reachable. The full
               reasoning, with the live evidence, is at that guard.
             -->

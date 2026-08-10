@@ -148,8 +148,9 @@ The three response tiers (transport 401 vs JSON-RPC error vs tool `isError`) are
 diagrammed and explained in ADR-006, "Reference diagrams" and "Request outcomes".
 Read those three as the tiers produced by the transport, the MCP runtime, and the
 tool; the gateway-issued surface described below is a fourth producer that ADR's
-diagram does not depict (its re-export is a pending human step) and that THIS
-file, not the ADR, enumerates.
+diagram does not depict, and that THIS file, not the ADR, enumerates. It is also
+the only place all three instances are listed: `per-tool-deny-path` draws the
+issue-18 and issue-88 ones but starts after the issue-17 403 has already passed.
 The identity flows (app-only vs delegated OBO) are also in ADR-006.
 
 ### The fourth surface: gateway denial, before the backend
