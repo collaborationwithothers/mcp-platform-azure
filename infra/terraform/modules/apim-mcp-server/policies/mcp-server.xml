@@ -143,7 +143,7 @@
           null-id-deny-path-evidence.md, run 31381168415) showed the -32001
           deny response at line ~260 below echoes body["id"] verbatim, and
           BOTH a missing id and an explicit "id": null produced HTTP 200 with
-          "id":null on the wire -- a real violation, not a theoretical one.
+          "id":null on the wire, a real violation, not a theoretical one.
           Placed here, ahead of the map lookup, rather than only inside the
           deny branch: an invalid id is a REQUEST validity problem, not an
           authorization outcome, so it must not depend on whether the caller
@@ -159,7 +159,7 @@
           the client's own request/response correlation. Error code -32600
           "Invalid Request" is the standard JSON-RPC 2.0 code for exactly this
           case ("The JSON sent is not a valid Request object.", verified
-          against https://www.jsonrpc.org/specification, 2026-08-10) --
+          against https://www.jsonrpc.org/specification, 2026-08-10),
           deliberately NOT -32001 (this repo's per-tool authorization code,
           unchanged below) or -32602 (the SDK's "Unknown tool" shape,
           COMPATIBILITY.md): this is neither an authorization denial nor a
@@ -169,7 +169,7 @@
           it fails at the unconditional mcpRequestBody parse (line ~120,
           above, which runs for every method, not only tools/call) and
           surfaces as APIM's generic policy-expression-failure 500 with no
-          JSON-RPC envelope -- confirmed by the same live-gate evidence.
+          JSON-RPC envelope, confirmed by the same live-gate evidence.
           Out of scope for issue 88 (which is about the -32001 response's id
           field specifically); a spec-conformant response for THAT case, if
           wanted, is a separate follow-up.
