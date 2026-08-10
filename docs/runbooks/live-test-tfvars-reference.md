@@ -102,7 +102,7 @@ as of issue #18:
   "publisher_name": "MCP Platform Azure",
   "publisher_email": "<publisher-email>",
 
-  "server_name": "orders-mcp",
+  "server_name": "orders",
   "server_path": "orders",
   "entra_validation": {
     "tenant_id": "<tenant-guid>",
@@ -113,19 +113,21 @@ as of issue #18:
   "required_scope": "Orders.Invoke",
   "required_role": "Orders.Invoke.All",
 
-  "server_2_name": "orders-mcp-2",
-  "server_2_path": "orders2",
+  "server_2_name": "catalog",
+  "server_2_path": "catalog",
   "server_2_prm_scopes": ["api://<server-app-client-id>/Catalog.Invoke"],
   "server_2_required_scope": "Catalog.Invoke",
   "server_2_required_role": "Catalog.Invoke.All",
 
   "tool_authorization_map": {
     "get_order_status": { "role": "Orders.Read" },
-    "get_service_info": { "role": "ServiceInfo.Read" }
+    "get_service_info": { "role": "ServiceInfo.Read" },
+    "get_access_guidance": { "unrestricted": true }
   },
   "server_2_tool_authorization_map": {
     "get_order_status": { "role": "Orders.Read" },
-    "get_service_info": { "role": "ServiceInfo.Read" }
+    "get_service_info": { "role": "ServiceInfo.Read" },
+    "get_access_guidance": { "unrestricted": true }
   },
 
   "registry_name": "apic-mcp-tracer",
@@ -155,17 +157,56 @@ convention (each server's PRM carries only its own scope URI) rather than the
 stale `user_impersonation` this file showed. All four fields above are now
 corrected to the real, confirmed values.
 
+**Correction (2026-08-09, issue #82):** this file previously showed
+`server_name` as `orders-mcp`, `server_2_name` as `orders-mcp-2`, and
+`server_2_path` as `orders2`. None of those match reality either. The corrected
+values are `orders` (server 1's name and path) and `catalog` (server 2's name
+and path). Server 2's name and path now match its scope family,
+`Catalog.Invoke`, which the previous `orders2` did not.
+
+**The two corrected fields do not rest on equally strong evidence, and the
+difference is worth stating rather than smoothing over.** The PATHS are
+independently confirmed: gate run
+[31314241913](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31314241913)
+printed the live server URLs as `.../orders/runtime/webhooks/mcp` and
+`.../catalog/runtime/webhooks/mcp`, so anyone can re-derive them from a run log.
+The NAMES are not. `server_name` and `server_2_name` appear in no gate output,
+no Terraform output this repo asserts on, and no CI check; the sole basis is
+Hari reading the live `S2_TFVARS_JSON` secret on 2026-08-09. Treat them as
+correct-on-report rather than verified, and re-check them the same way if they
+ever matter. That asymmetry is also the reason this drift survived two issues:
+nothing in the repository can see a server name.
+
+Why this one is worth recording rather than quietly fixing: `server_2_path` is
+the URL segment clients actually connect to, so a reader following this file
+would have built the wrong server 2 URL. Nothing in the gate depends on the
+value in this file, because the gate reads the Terraform outputs rather than
+this document, which is exactly why the drift survived two issues without
+failing anything.
+
 `tool_authorization_map` / `server_2_tool_authorization_map` (issue 18):
 `scope` and `unrestricted` are both optional per key and may be omitted
 entirely when only `role` applies, exactly as shown -- Terraform's
-`optional(...)` fills `scope = null`, `unrestricted = false`. Both servers
-carry the SAME map here because both still forward to the same backend. That
-backend (`src/McpTools/`) now exposes TWO tools, each gated on a different
-role: `get_order_status` on `Orders.Read`, and `get_service_info` (issue 79)
-on `ServiceInfo.Read`, both checked by the issue-45 `AppRoleAuthorization`
-mechanism. A server exposing a different tool set needs a different map; the
-live gate's per-server set-equality assertion (ADR-009) is what proves
-whichever map is configured still matches that server's real `tools/list`.
+`optional(...)` fills `scope = null`, `unrestricted = false`. The same holds in
+the other direction: an `unrestricted` entry omits `role` entirely and
+`optional(...)` fills `role = null`, so the `get_access_guidance` entry above is
+complete rather than truncated. Both servers carry the SAME map here because
+both still forward to the same backend. That backend (`src/McpTools/`) now
+exposes THREE tools. Two are gated on a role each: `get_order_status` on
+`Orders.Read`, and `get_service_info` (issue 79) on `ServiceInfo.Read`, both
+checked by the issue-45 `AppRoleAuthorization` mechanism. The third,
+`get_access_guidance` (issue 82), is gated on nothing by design. It is the only
+tool mapped `unrestricted`, and it is mapped that way so something executes that
+branch of the policy fragment. A server exposing a different tool set needs a
+different map; the live gate's per-server set-equality assertion (ADR-009) is
+what proves whichever map is configured still matches that server's real
+`tools/list`.
+
+Both maps must carry the `get_access_guidance` key even though the live gate's
+check (h) only calls that tool at server 1. Both servers front the same backend,
+so each server's check (a) runs against the same `tools/list`. A key present in
+only one map leaves the other server with a tool that has no map entry, which
+fails that server's set-equality assertion.
 
 **Deployment coupling: this JSON lives in a secret, not in this repo.**
 `tool_authorization_map` and `server_2_tool_authorization_map` are supplied
@@ -175,7 +216,9 @@ not from any file in this repository. A PR that adds a tool to the backend
 cannot also add that tool's key to this map, because the map is not code the
 PR can touch.
 **Hari must update the `S2_TFVARS_JSON` secret** to add `get_service_info` to
-BOTH maps above. This is a manual step; no PR can perform it.
+BOTH maps above. This is a manual step; no PR can perform it. The same is true
+of `get_access_guidance` (issue 82), with one difference: that entry names no
+app role, so it has no Entra half to follow. Adding the key is the whole step.
 
 The secret update is necessary but NOT sufficient to make the tool callable.
 The app role it names has to exist and be granted as well: `ServiceInfo.Read`

@@ -242,11 +242,13 @@ observability) extend without restructuring.
     -> { orderId: string, found: false, message: string }        // unknown id
   ```
 
-- **Amendment, agreed 2026-08-07, landed 2026-08-08 (issue 79).** Two bullets
+- **Amendment, agreed 2026-08-07, landed 2026-08-08 (issue 79); extended
+  2026-08-09 (issue 82).** Two bullets
   above no longer describe the server as it runs today. Both are left exactly as
   written, and this note records what changed and when. The two cases differ, so
   read them separately.
-  - **A second tool was added AFTER v1.0.0.** `get_service_info` did not exist at
+  - **A second tool was added AFTER v1.0.0, then a third.** `get_service_info`
+    did not exist at
     the tag. One tool cannot prove per-tool authorization works, because proving
     it means showing a caller entitled to tool A is refused tool B on the same
     server. `get_service_info` exists solely to make that provable: it requires
@@ -254,6 +256,16 @@ observability) extend without restructuring.
     `Orders.Read`), takes no input, calls nothing downstream, and returns three
     fixed strings compiled into the server. `get_order_status`'s own contract,
     directly above, remains frozen and unchanged.
+    `get_access_guidance` came later still, on 2026-08-09 (issue 82), for the
+    same kind of reason. The gateway classifies each tool as needing a scope,
+    needing a role, or unrestricted (ADR-009), and until this tool every mapped
+    tool used the role branch, so nothing ever executed the unrestricted one.
+    `get_access_guidance` is mapped unrestricted and applies no per-tool
+    entitlement check; it returns fixed guidance on which entitlements this
+    server's tools require and where to ask for one. The pattern across all
+    three is the same. v1.0.0 shipped one tool, and each tool added since exists
+    because a specific claim about the authorization model was otherwise
+    untestable.
   - **The "self-contained / calls nothing downstream" bullet was ALREADY
     superseded when v1.0.0 was tagged.** This is not a later change, and an
     earlier draft of this amendment got it wrong. OBO (on-behalf-of, the Entra

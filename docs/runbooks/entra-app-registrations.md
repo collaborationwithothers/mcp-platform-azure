@@ -259,6 +259,21 @@ the per-TOOL check. Without `Orders.Invoke.All` it would be denied at the
 per-server check instead, and the per-tool layer would go unproven. The client
 must still NOT have `Orders.Read`; that absence is what both proofs turn on.
 
+**Since issue #82 the same grant is load-bearing a second time, in the opposite
+direction.** Check [9]-h needs this client to clear the same per-server check
+and then be ALLOWED by the per-tool check, because `get_access_guidance` is
+mapped `unrestricted` rather than to a role. One grant, two checks, opposite
+expected outcomes. That pairing is what makes the per-tool layer's behaviour
+legible: in one run, against the same server and with the same token, this
+client must be refused `get_order_status` and served `get_access_guidance`. A
+layer that
+denied both, or allowed both, would look the same as a broken one.
+
+**Issue #82 required no new Entra object of any kind:** no app registration, no
+client secret, no app role, no grant, and no new entry in
+`entra_validation.allowed_client_application_ids`. It reuses this client exactly
+as it already stands.
+
 ## 3a. Cross-server negative-test client (entitled to server 1 only)
 
 A confidential client that proves grant-level cross-server isolation for the

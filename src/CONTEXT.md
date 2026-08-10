@@ -8,11 +8,17 @@ Glossary only. ASCII punctuation.
 
 **Tool**:
 A single callable capability the MCP server exposes to clients. Has a typed
-input and a typed result, including a typed not-found result. Two exist:
+input and a typed result, including a typed not-found result. Three exist:
 get_order_status, which takes an order id and reads the downstream Orders
-API, and get_service_info, which takes no input, calls nothing downstream,
-and returns fixed strings. They require DIFFERENT app roles (Orders.Read
-and ServiceInfo.Read), which is what makes per-tool authorization provable.
+API; get_service_info, which takes no input, calls nothing downstream, and
+returns fixed strings; and get_access_guidance, which describes the
+entitlements this server's tools require. Each tool is authorized on its own,
+and the three exist to make that provable rather than asserted. The first two
+require DIFFERENT app roles (Orders.Read and ServiceInfo.Read), so a caller
+entitled to one is refused the other. The third requires NO role at all, by
+deliberate design, which is what makes the gateway's unrestricted
+classification an exercised branch rather than a rendered one. Requiring no
+role is a classification, not an absence of one.
 _Avoid_: function, action, endpoint, command
 
 **MCP server**:

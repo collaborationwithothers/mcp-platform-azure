@@ -364,3 +364,55 @@ the three prerequisites above is missing, the two new gate secrets
 (`TEST_CLIENT_MCP_SERVICE_TOOL_ID`/`_SECRET`) resolve empty and checks
 (e)/(f)/(g) are skipped with a `::warning::` rather than failed -- this proves
 nothing was set up, not that per-tool authorization is broken.
+
+## The unrestricted branch (issue 82)
+
+Issue 82 adds a fourth prerequisite to the three above. It has the same shape as
+item 3, and it is the only setup issue 82 needs:
+
+4. `get_access_guidance` must be added to BOTH `tool_authorization_map` and
+   `server_2_tool_authorization_map` in the `S2_TFVARS_JSON` GitHub Environment
+   secret, as `{"unrestricted": true}` (see
+   [live-test-tfvars-reference.md](live-test-tfvars-reference.md)). Until this
+   is done, check [9]-a (the tools/list-vs-map set-equality assertion) fails for
+   every stamp, because the backend exposes the tool the moment this branch's
+   code deploys, whether or not the map has caught up.
+
+**Update the secret immediately before the branch's gate run, not days ahead.**
+The map key and the tool cannot land together: the key lives in a secret, the
+tool lives in the repository, and no PR can change the secret. Add the key early
+and set-equality fails the other way in the meantime, on any gate run against
+`main`, with a map key that has no matching tool. That window closes when this
+PR merges. Issue 79 had the same window. Keeping it to minutes is the whole
+mitigation; no ordering of the two steps avoids it (see
+[live-test-tfvars-reference.md](live-test-tfvars-reference.md), "Deployment
+coupling").
+
+With the fourth prerequisite in place, check [9] gains one more assertion, (h):
+the under-entitled client of
+[entra-app-registrations.md](entra-app-registrations.md) **section 3** (not 3b)
+calls `get_access_guidance` and must get a real result rather than a `-32001`.
+Checks (b), (d), (e), (f), and (g) exercise the map's `role` branch, and (c)
+exercises its default-deny path for a name absent from the map; (h) is the only
+check that reaches the `unrestricted` branch.
+
+Unlike (e)/(f)/(g), check (h) runs on server 1 only. The under-entitled client
+holds `Orders.Invoke.All` and nothing for server 2, so at server 2 its token is
+refused at the per-server check one layer before the per-tool map is consulted.
+A success assertion there could never pass, and running it `WarnOnly` would
+print a permanent warning that says nothing. The check is guarded on
+`-not $WarnOnly` for that reason, so the absence of a server 2 result is
+deliberate, not an oversight.
+
+**Issue 82 needs no new Entra object.** No new app registration, no new client
+secret, no new app role, no new grant, and no new entry in
+`entra_validation.allowed_client_application_ids`. Check (h) reuses the
+under-entitled client the gate already uses for check [9]-d, which is already in
+that list and whose token the gate already acquires. One inference follows, and
+it is an inference rather than a result: issue 45's step [3] drives that same
+client's token directly at the backend and gets the backend's own tool-level
+403, which means the client already clears the backend's Easy Auth, so check
+(h)'s backend leg is expected to work. The 2026-08-09 run
+([31314241913](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31314241913))
+settled it: check (h) passed, so no new Entra object was needed and the
+inference held.
