@@ -848,17 +848,30 @@ function Assert-ToolAuthorization {
     # all (fails earlier at the policy's unconditional body parse, HTTP 500,
     # no JSON-RPC envelope) -- confirmed by the same live run and out of scope
     # for issue 88; captured here for the record only, never asserted.
-    Write-Host "[$Label-i] $ServerUrl tools/call '$UnmappedProbeToolName' id-validity guard (issue 88)"
+    #
+    # PLACEMENT is the load-bearing claim, and the first two probes cannot
+    # prove it. Both name $UnmappedProbeToolName, which the map denies anyway,
+    # so an implementation that checked the id only INSIDE the -32001 deny
+    # branch would return 400 for them too and pass identically. The
+    # $OpenToolName probe is what discriminates: that tool is mapped
+    # unrestricted (check (h) proves it admits even an under-entitled caller),
+    # so with $Token the authorization decision is ALLOW. A 400 there can only
+    # come from a guard that runs BEFORE, and independently of, that decision.
+    # Without this probe the "ahead of the map lookup" claim in
+    # mcp-server.xml and COMPATIBILITY.md would be asserted but untested.
+    Write-Host "[$Label-i] $ServerUrl tools/call id-validity guard (issue 88)"
     $noIdBody = "{`"jsonrpc`":`"2.0`",`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}}"
     $nullIdBody = "{`"jsonrpc`":`"2.0`",`"id`":null,`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}}}"
+    $noIdAllowedToolBody = "{`"jsonrpc`":`"2.0`",`"method`":`"tools/call`",`"params`":{`"name`":`"$OpenToolName`",`"arguments`":{}}}"
     # Deliberately truncated (missing the final two closing braces): invalid
     # JSON syntax, sent with a well-formed Authorization header so the failure
     # under investigation is the body parse, not the token.
     $malformedBody = "{`"jsonrpc`":`"2.0`",`"id`":99,`"method`":`"tools/call`",`"params`":{`"name`":`"$UnmappedProbeToolName`",`"arguments`":{}"
     $idProbes = [ordered]@{
-        'no id field'    = @{ Body = $noIdBody; Assert = $true }
-        '"id": null'     = @{ Body = $nullIdBody; Assert = $true }
-        'malformed JSON' = @{ Body = $malformedBody; Assert = $false }
+        'no id field'                          = @{ Body = $noIdBody; Assert = $true }
+        '"id": null'                           = @{ Body = $nullIdBody; Assert = $true }
+        "no id field on the ALLOWED tool '$OpenToolName' (proves the guard runs before the authorization decision)" = @{ Body = $noIdAllowedToolBody; Assert = $true }
+        'malformed JSON'                       = @{ Body = $malformedBody; Assert = $false }
     }
     $idProbeResults = [ordered]@{}
     foreach ($probeLabel in $idProbes.Keys) {

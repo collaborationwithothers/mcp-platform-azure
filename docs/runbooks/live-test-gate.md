@@ -416,3 +416,51 @@ client's token directly at the backend and gets the backend's own tool-level
 ([31314241913](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31314241913))
 settled it: check (h) passed, so no new Entra object was needed and the
 inference held.
+
+## The id-validity guard (issue 88)
+
+**Issue 88 needs no new prerequisite at all.** No new Entra object, no new
+client, no new map key, and no `S2_TFVARS_JSON` edit. Check (i) reuses the
+entitled client and the two tool names the gate already has, so unlike issues
+79, 80, and 82 there is no secret-versus-repository ordering window to manage.
+
+Check (i) asserts the gateway rejects a `tools/call` whose JSON-RPC `id` is
+missing or `null`. MCP 2025-06-18 forbids a null `id` on a request, and before
+this fix the gateway echoed the caller's `id` verbatim on its `-32001` deny
+path, so both shapes produced `"id":null` on the wire. Run
+[31381168415](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31381168415)
+captured that pre-fix behaviour; run
+[31387242227](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31387242227)
+verified the fix. Expected now: HTTP 400, a JSON-RPC error object with code
+`-32600`, and no `id` key at all.
+
+The check sends four probes, and which tool each one names is the point, not an
+incidental detail:
+
+1. No `id` field, naming the unmapped probe tool. Asserted.
+2. `"id": null`, naming the unmapped probe tool. Asserted.
+3. No `id` field, naming `get_access_guidance` (the `unrestricted` tool from
+   issue 82). Asserted, and it is the only probe that proves anything about
+   WHERE the guard sits. Probes 1 and 2 name a tool the map denies anyway, so an
+   implementation that validated the `id` only inside the `-32001` deny branch
+   would answer them with a 400 too and pass identically. Probe 3 names a tool
+   the authorization decision ALLOWS, so a 400 there can only come from a check
+   that runs before, and independently of, that decision. That placement is the
+   load-bearing claim of the whole change, and this probe is the only thing
+   testing it.
+4. Deliberately malformed JSON. Recorded, never asserted. It does not reach the
+   `tools/call` branch at all: the policy's request-body parse runs
+   unconditionally for every method and fails first, so this returns APIM's
+   generic HTTP 500 with no JSON-RPC envelope. Known, out of scope for issue 88,
+   and captured only so the next reader does not have to rediscover it.
+
+All four write verbatim status, headers, and body to
+`gate-evidence/null-id-deny-path-evidence.md`, uploaded as the
+`prm-discovery-evidence` artifact.
+
+Unlike the `-32001` deny, this rejection emits NO audit event, so there is
+nothing to read back from the Event Hub and check (i) makes no
+`Assert-AuditEventEmitted` call. That is deliberate (it is a request-validity
+rejection, not an authorization decision) and its consequence is recorded at the
+guard in `mcp-server.xml`: a caller enumerating tool names with id-less requests
+is not visible in the audit trail.

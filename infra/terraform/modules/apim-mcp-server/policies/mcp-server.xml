@@ -149,14 +149,32 @@
           authorization outcome, so it must not depend on whether the caller
           would otherwise have been allowed or denied.
           Wire shape: HTTP 400 with a JSON-RPC error object that OMITS the id
-          key entirely (not id:null). Both choices are spec-sanctioned, not
-          invented: the Streamable HTTP transport page says "If the server
-          cannot accept the input, it MUST return an HTTP error status code
-          (e.g., 400 Bad Request). The HTTP response body MAY comprise a
-          JSON-RPC error response that has no id" (same URL as above,
-          "Streamable HTTP" section, 2026-08-10). Omitting id (not inventing
-          one) matches the ticket's own steer: fabricating an id would break
-          the client's own request/response correlation. Error code -32600
+          key entirely (not id:null). The spec backing differs between the two
+          cases this guard catches, and the difference is stated rather than
+          smoothed over, because presenting a design inference as a spec
+          consequence is a mistake this file's COMPATIBILITY.md rows have
+          already had to correct once (see the "MCP tools/call denial wire
+          shape" row's PRECISION CORRECTION, 2026-08-08).
+          Case A, NO id field at all: QUOTED. A body carrying a method and no
+          id is, by the spec's own typology, a NOTIFICATION ("Notifications
+          MUST NOT include an ID", Base Protocol > Notifications). The
+          Streamable HTTP transport's step 4 governs exactly that input ("If
+          the input is a JSON-RPC response or notification"), and says: "If
+          the server cannot accept the input, it MUST return an HTTP error
+          status code (e.g., 400 Bad Request). The HTTP response body MAY
+          comprise a JSON-RPC error response that has no id." So 400 plus a
+          no-id error body is the sanctioned response here, verbatim.
+          Case B, an explicit "id": null: INFERENCE, by analogy to case A.
+          Such a message is neither a valid request (the ID "MUST NOT be
+          null") nor a valid notification (it carries an id key), so transport
+          step 4 does not cleanly reach it, and step 5, which governs
+          requests, says only that the server returns text/event-stream or
+          application/json. Answering it the same way as case A is this
+          repo's deliberate choice for a message the spec leaves unaddressed,
+          not a rule the spec imposes.
+          Omitting id (not inventing one) matches the ticket's own steer:
+          fabricating an id would break the client's own request/response
+          correlation. Error code -32600
           "Invalid Request" is the standard JSON-RPC 2.0 code for exactly this
           case ("The JSON sent is not a valid Request object.", verified
           against https://www.jsonrpc.org/specification, 2026-08-10),
@@ -173,6 +191,19 @@
           Out of scope for issue 88 (which is about the -32001 response's id
           field specifically); a spec-conformant response for THAT case, if
           wanted, is a separate follow-up.
+          NO audit event here, deliberately, and the consequence is stated so
+          the choice is on the record rather than settled by silence: the
+          trace and log-to-eventhub pair below fire on the per-tool DENY, an
+          authorization decision about an identified caller and tool. This is
+          a request-validity rejection reached before any authorization
+          decision, so ADR-009's "every deny is audited" is untouched and
+          remains literally true. The cost is real though: pre-fix, an id-less
+          tools/call at an unmapped tool DID emit both audit signals, so a
+          caller enumerating tool names via id-less requests was visible and
+          is now not. Judged acceptable for issue 88's scope (an id-less
+          request never reaches the tool-name authorization decision, so there
+          is no authorization event to record), but a deliberate revisit, not
+          an oversight, if enumeration-visibility is later wanted.
         -->
         <choose>
           <when condition="@{
@@ -287,6 +318,15 @@
               both the unmapped and the under-entitled case (non-concealment:
               the wire response does not distinguish which; the audit event
               above carries the tool name for operators who need to).
+              The id echo below can no longer emit a null id, and BOTH of its
+              null paths are now dead (issue 88, live-proven, do not re-open
+              this): body is null only when the request body did not parse,
+              which fails at the mcpRequestBody parse well before this branch
+              and returns a 500; and body["id"] is null or non-scalar only
+              when the id-validity guard above would already have returned
+              400. The ternary is left as written because it is correct and
+              defensive, not because either branch is reachable. The full
+              reasoning, with the live evidence, is at that guard.
             -->
             <return-response>
               <set-status code="200" reason="OK" />
