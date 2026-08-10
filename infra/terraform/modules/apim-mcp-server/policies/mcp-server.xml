@@ -191,19 +191,30 @@
           Out of scope for issue 88 (which is about the -32001 response's id
           field specifically); a spec-conformant response for THAT case, if
           wanted, is a separate follow-up.
-          NO audit event here, deliberately, and the consequence is stated so
-          the choice is on the record rather than settled by silence: the
-          trace and log-to-eventhub pair below fire on the per-tool DENY, an
-          authorization decision about an identified caller and tool. This is
-          a request-validity rejection reached before any authorization
-          decision, so ADR-009's "every deny is audited" is untouched and
-          remains literally true. The cost is real though: pre-fix, an id-less
-          tools/call at an unmapped tool DID emit both audit signals, so a
-          caller enumerating tool names via id-less requests was visible and
-          is now not. Judged acceptable for issue 88's scope (an id-less
-          request never reaches the tool-name authorization decision, so there
-          is no authorization event to record), but a deliberate revisit, not
-          an oversight, if enumeration-visibility is later wanted.
+          NO audit event here, deliberately, and the reasoning is recorded so
+          the choice reads as a decision rather than an oversight. The trace
+          and log-to-eventhub pair below fire on the per-tool DENY, which is
+          an authorization decision about an identified caller and tool.
+          ADR-009's "every deny is audited" is therefore untouched: this is a
+          request-validity rejection reached before any authorization decision
+          exists to record.
+          The obvious objection is that pre-fix an id-less tools/call DID emit
+          both audit signals, so something once visible is now not. Look at
+          what was actually visible, though. This check does not read the tool
+          name at all (see the condition below) and its body is a fixed
+          string, so EVERY id-less tools/call gets byte-identical bytes back
+          whatever tool it names. Pre-fix the response varied by tool (deny
+          for unmapped or unentitled, forwarded for entitled), which is what
+          made an id-less probe an enumeration oracle worth auditing. That
+          oracle is now closed, not hidden: an id-less request reveals nothing
+          about which tools exist or which the caller may call. Enumeration
+          requires a well-formed id, and those requests reach the
+          authorization check and emit its audit event exactly as before.
+          Auditing a constant response would add volume to the trail without
+          adding signal, and would dilute the deny events, which ARE
+          security-relevant. Reachability also bounds this: the guard sits
+          after validate-azure-ad-token and after the per-server entitlement
+          check, so only an authenticated, entitled caller ever reaches it.
         -->
         <choose>
           <when condition="@{

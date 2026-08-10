@@ -460,7 +460,20 @@ All four write verbatim status, headers, and body to
 
 Unlike the `-32001` deny, this rejection emits NO audit event, so there is
 nothing to read back from the Event Hub and check (i) makes no
-`Assert-AuditEventEmitted` call. That is deliberate (it is a request-validity
-rejection, not an authorization decision) and its consequence is recorded at the
-guard in `mcp-server.xml`: a caller enumerating tool names with id-less requests
-is not visible in the audit trail.
+`Assert-AuditEventEmitted` call. That is deliberate: it is a request-validity
+rejection, and no authorization decision happened to record. It is also not a
+visibility loss, because the guard never reads the tool name and its response
+body is a fixed string, so every id-less `tools/call` gets byte-identical bytes
+back whatever tool it names. An id-less probe therefore reveals nothing about
+which tools exist or which the caller may call; enumeration needs a well-formed
+`id`, and those requests reach the authorization check and emit its audit event
+as before. Full reasoning at the guard in `mcp-server.xml`.
+
+One consequence for anyone extending this check: do NOT add an audit assertion
+to check (i) without first giving the audit events a type discriminator.
+`scripts/gate/wait_for_eventhub_audit.py` matches on `tool` plus a non-empty
+`caller` and has no event-type field, so an id-validity event emitted in the
+existing shape would be indistinguishable from a genuine authorization deny --
+and probes 1 and 2 use `UnmappedProbeToolName`, the same name check (c) asserts
+on. This is the collision the deliberately-distinct `EventHubWarmupToolName`
+already exists to avoid.

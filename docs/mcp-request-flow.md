@@ -268,12 +268,17 @@ Why the shapes differ, precisely:
   reach it and step 5 (requests) names no error status at all. Answering both the
   same way is this repo's choice for a shape the spec leaves unaddressed.
 
-  Two operational consequences. It emits NO audit event, unlike the `-32001`
-  deny, because there is no authorization decision to record; a caller probing
-  tool names with id-less requests is therefore not visible in the audit trail
-  (a deliberate, recorded trade, see the policy comment). And it is the one
-  gateway rejection here that is HTTP-shaped AND JSON-RPC-shaped at once: a 400
-  status carrying a JSON-RPC error object.
+  Two operational consequences. First, it emits NO audit event, unlike the
+  `-32001` deny, because no authorization decision happened to record. That is
+  not a visibility loss, which is worth being precise about: the check never
+  reads the tool name and its response body is a fixed string, so every id-less
+  `tools/call` gets byte-identical bytes back whatever tool it names. Pre-fix
+  the response varied by tool, which is what made an id-less probe an
+  enumeration oracle worth auditing; that oracle is closed now, not hidden.
+  Enumeration requires a well-formed `id`, and those requests reach the
+  authorization check and emit its audit event as they always did. Second, it
+  is the one gateway rejection here that is HTTP-shaped AND JSON-RPC-shaped at
+  once: a 400 status carrying a JSON-RPC error object.
 
 The consequence worth internalising is that "which tier" and "how far did it get"
 are independent questions. A JSON-RPC error object on the wire no longer implies
