@@ -112,37 +112,67 @@ is the `Authorization` fallback: the bearer API Management forwards, read via
 
 ## Debugging map
 
-- No `Authorization` header -> HTTP 401 + `WWW-Authenticate` PRM challenge at the
-  gateway (transport tier).
-- Invalid / wrong-audience token -> HTTP 401 from `validate-azure-ad-token` or
-  Easy Auth (transport tier); the gateway `on-error` adds the same challenge.
-- Missing / malformed `X-MS-CLIENT-PRINCIPAL` -> request rejected per-request;
-  and the host refuses to start at all if built-in auth is off (`BuiltInAuthGuard`).
-- Authenticated but wrong tool name / bad params -> HTTP 200 with a JSON-RPC
-  `error` object (protocol tier).
-- Authenticated, valid call, missing `Orders.Read` -> HTTP 200 with a
-  `CallToolResult` where `isError = true` ("403 Forbidden ..."), no downstream
-  call (tool tier).
-- Valid token, but it lacks this server's delegated scope and its app role ->
-  HTTP 403 + `WWW-Authenticate: Bearer error="insufficient_scope"` at the
-  gateway, no backend call (gateway tier, HTTP-shaped; issue 17).
-- Valid token, entitled to the server, but not to the tool named in a
-  `tools/call` (or naming a tool with no entry in this server's authorization
-  map) -> HTTP 200 with a JSON-RPC `error` object, code `-32001`, request `id`
-  echoed, no backend call (gateway tier, JSON-RPC-shaped; issue 18).
-- A `tools/call` whose `id` is missing, `null`, or not a string/integer ->
-  HTTP 400 with a JSON-RPC `error` object, code `-32600`, and NO `id` key at
-  all, no backend call (gateway tier; issue 88). MCP forbids a null `id`
-  ("the ID MUST NOT be null"), so there is no valid id to echo and inventing
-  one would break the caller's own correlation. This fires ahead of the
-  per-tool authorization check, so it applies even for a tool the caller IS
-  entitled to: it is a request-validity rejection, not an authorization
-  decision, and unlike the `-32001` deny it emits no audit event.
-- A `tools/call` (or any method) whose body is not valid JSON -> HTTP 500,
-  APIM's generic policy-expression failure, with no JSON-RPC envelope. This
-  happens at the gateway's unconditional request-body parse, before any of
-  the checks above. Known and out of scope for issue 88; a spec-conformant
-  response here would be a separate change.
+Each line names its evidence. **VERIFIED** means primary source or repository
+source. **OBSERVED** means a captured live run. **INFERRED** marks this repo's
+reading where the protocol does not prescribe the result. In particular, every
+HTTP 200 below is this deployment's selected and observed wire shape, not an MCP
+requirement.
+
+- **VERIFIED.** No `Authorization` header -> HTTP 401 + `WWW-Authenticate` PRM
+  challenge at the gateway (transport tier).
+- **VERIFIED.** Invalid / wrong-audience token -> HTTP 401 from
+  `validate-azure-ad-token` or built-in auth (transport tier); the gateway
+  `on-error` adds the same challenge.
+- **VERIFIED; INFERRED plus OBSERVED for HTTP 200.** Missing or malformed
+  `X-MS-CLIENT-PRINCIPAL` makes the tool throw. The caller receives HTTP 200
+  with `CallToolResult.isError = true` and `An error occurred invoking
+  '<tool>'.`; the detailed reason is in server logs only. Separately,
+  `BuiltInAuthGuard` stops the host when built-in auth is off.
+- **VERIFIED; INFERRED plus OBSERVED for HTTP 200.** A call that passed the
+  gateway map but names no registered tool or has bad parameters -> HTTP 200
+  with a JSON-RPC `error` object (MCP runtime tier). A name absent from the
+  gateway map does not reach this tier; the gateway default-denies it below.
+- **VERIFIED; INFERRED plus OBSERVED for HTTP 200.** An app-context caller that
+  reaches a role-gated tool without its required role receives a
+  `CallToolResult` with `isError = true` and a readable 403 message. The roles
+  are `Orders.Read` for `get_order_status` and `ServiceInfo.Read` for
+  `get_service_info`. This is the backend result, not the usual gateway result
+  when the map enforces the same role.
+- **VERIFIED; INFERRED plus OBSERVED for HTTP 200.** An ordinary tool exception
+  has the same envelope as an explicit tool error: a `result` with
+  `isError = true`. The pinned SDK discards the ordinary exception message and
+  returns `An error occurred invoking '<tool>'.`; the 2026-07-22 OBO run
+  observed that exact message. See COMPATIBILITY.md, "MCP tool method: thrown
+  exception wire shape".
+- **VERIFIED.** A valid token that lacks this server's delegated scope and app
+  role -> HTTP 403 + `WWW-Authenticate: Bearer error="insufficient_scope"` at
+  the gateway, with no backend call (gateway tier, HTTP-shaped; issue 17).
+- **VERIFIED; INFERRED plus OBSERVED for HTTP 200.** A valid token that is
+  entitled to the server but fails the tool map -> HTTP 200 with a JSON-RPC
+  `error` object, code `-32001`, request `id` echoed, and no backend call
+  (gateway tier, JSON-RPC-shaped; issue 18).
+- **VERIFIED.** A `tools/call` whose `id` is missing, `null`, or not a
+  string/integer -> HTTP 400 with a JSON-RPC `error` object, code `-32600`, and
+  no `id` key, with no backend call (gateway tier; issue 88). This fires ahead
+  of the per-tool authorization check and emits no audit event.
+- **OBSERVED.** A `tools/call` (or any method) whose body is not valid JSON ->
+  HTTP 500, APIM's generic policy-expression failure, with no JSON-RPC envelope.
+  The unconditional request-body parse causes it before the checks above. A
+  spec-conformant response is a separate change.
+
+**VERIFIED from the current policy, map reference, and tool source:** map
+presence is not itself the boundary between the two HTTP 200 shapes. The three
+states are:
+
+| Map state for this call | Who denies | Wire shape |
+| --- | --- | --- |
+| No entry | Gateway default-deny | JSON-RPC `error`, code `-32001` |
+| Entry rejects the caller, including the documented `ServiceInfo.Read` entry | Gateway | JSON-RPC `error`, code `-32001` |
+| Entry admits the call, or a caller bypasses the gateway | Tool | `result` with `isError: true` if the tool's independent role check refuses it |
+
+The HTTP 200 entries in this table are **INFERRED plus OBSERVED**, as above.
+The table prevents a false live assertion: adding a role-gated map entry does
+not itself make a caller missing that role reach the backend.
 
 The three response tiers (transport 401 vs JSON-RPC error vs tool `isError`) are
 diagrammed and explained in ADR-006, "Reference diagrams" and "Request outcomes".
@@ -201,61 +231,19 @@ Why the shapes differ, precisely:
   rejection at all: HTTP 200, an error object with the request `id` echoed,
   delivered over the normal request/response channel.
 
-  Two things are being claimed there, and only one of them comes from the spec.
-  Keeping them apart matters, because an earlier revision of this passage ran
-  them together and a reader could not tell which was which (corrected
-  2026-08-08; the same correction was applied to COMPATIBILITY.md's
-  "MCP tools/call denial wire shape" row).
+  **VERIFIED:** the MCP specification names Protocol Errors and Tool Execution
+  Errors as distinct categories. COMPATIBILITY.md, "MCP tools/call denial wire
+  shape", owns the exact source derivation.
 
-  **From the spec.** The MCP specification (2025-06-18) defines exactly two
-  error categories for `tools/call`: Protocol Errors, which are standard
-  JSON-RPC 2.0 error objects, and Tool Execution Errors, which are
-  `CallToolResult` with `isError: true`. The rule is a SHOULD, and it lives in
-  `schema/2025-06-18/schema.ts` rather than the prose page: any errors that
-  "originate from the tool" SHOULD be reported inside the result object with
-  `isError` set to true, "not as an MCP protocol-level error response.
-  Otherwise, the LLM would not be able to see that an error occurred and
-  self-correct."
+  **INFERRED:** the specification does not assign a per-tool authorization
+  denial to either category. Its authorization 403 concerns token validation at
+  the transport level, while its tool page says only to implement access
+  controls. This repository therefore chooses a Protocol Error because the
+  gateway refuses before any tool runs. That is a design judgement, not a quoted
+  mandate. The backend's `isError` result is equally specification-compliant.
 
-  **This repo's decision, NOT a spec requirement.** Which category a per-tool
-  authorization denial belongs to is not something the spec settles.
-
-  Deal with the nearest counter-evidence rather than around it, because a
-  skeptical reader will find it: the authorization section DOES carry an error
-  table whose 403 row reads "Invalid scopes or insufficient permissions", and a
-  per-tool denial is arguably insufficient permissions. That table is read here
-  as governing the HTTP status of OAuth 2.1 TOKEN validation, not the JSON-RPC
-  reporting channel of a tool-level decision, for two reasons: the section
-  scopes itself to authorization "at the transport level", and its neighbouring
-  rows ("Authorization required or token invalid", "Malformed authorization
-  request") are all token-lifecycle cases evaluated before any MCP method is
-  dispatched. On the tool side the spec says only "implement proper access
-  controls", with no guidance on reporting channel at all. That reading is a
-  judgement, not a quotation, and someone could reasonably land the other side
-  of it.
-
-  So the gateway
-  emitting a Protocol Error here is a design choice, argued on its merits:
-  nothing "originated from the tool" when the denial happens wholly inside
-  `<inbound>` and the tool never runs. HTTP 401/403 ahead of any JSON-RPC
-  envelope is reserved in this repo for transport and session violations, which
-  this is not.
-
-  The corollary is worth stating plainly, because the backend does the opposite
-  and that is not a contradiction: the MCP server's own role check returns
-  `isError: true`, and it is EQUALLY spec-compliant. It has no alternative in
-  any case, since a tool method cannot emit a Protocol Error (COMPATIBILITY.md,
-  "MCP tool method: thrown exception wire shape"). The gateway can, because it
-  refuses before any tool runs.
-
-  One more precision: the spec names no HTTP status for a well-formed
-  `tools/call` that the server answered, since its transport section enumerates
-  only 202, 400, 404 and 405. "HTTP 200" here is an inference from the absence
-  of any rule requiring a 4xx, plus live observation, not a quoted mandate.
-
-  See COMPATIBILITY.md, "MCP tools/call denial wire shape", verified against the
-  MCP spec directly rather than against Microsoft Learn, since this is a
-  protocol contract and not an Azure one.
+  **INFERRED plus OBSERVED:** HTTP 200 is this deployment's selected wire shape,
+  not a status the specification names for an answered `tools/call`.
 - The request-validity rejection (issue 88) is not a denial at all, despite
   sharing this table. It fires when a `tools/call` carries an `id` that is
   missing, `null`, or not a string/integer, and it runs BEFORE the per-tool
