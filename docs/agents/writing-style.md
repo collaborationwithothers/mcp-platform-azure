@@ -73,3 +73,12 @@ the AGENTS.md rules above them.
 
 - 2026-08-08: If Hari has to ask "explain what this says" or "simplify
   this", the document failed; fix the document, do not just answer in chat.
+- 2026-08-10: If Hari says he doesn't understand and to treat him as new to
+  the repo/session, that is not a request to compress further; drop jargon,
+  define terms plainly, and rebuild the explanation from the ground up, even
+  if it runs long.
+- 2026-08-10: A document that has accumulated dated corrections over time
+  (a live-state runbook, a demo record) should separate CURRENT STATE from
+  HISTORICAL EVIDENCE into distinct sections, not interleave "note added on
+  <date>" patches into the procedure a reader is meant to follow today;
+  historical evidence stays dated and undisturbed in its own section.

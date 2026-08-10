@@ -37,6 +37,7 @@ table is the single-page lookup.
 | 3a | Cross-server negative-test client | `TEST_CLIENT_SERVER1_ONLY_ID`/`_SECRET` | `mcp-tracer-test-client-server1-only` |
 | 3b | Cross-tool differentiation client | `TEST_CLIENT_MCP_SERVICE_TOOL_ID`/`_SECRET` | `mcp-tracer-test-client-service-tool` |
 | 4 | Interactive demo client | manual, pasted into host | `mcp-tracer-vscode-client` |
+| 4a | Delegated negative-test client (issue #83) | manual, pasted into host | `mcp-tracer-test-client-delegated-without-scope` |
 | ([obo-app-registrations.md](obo-app-registrations.md) section 1) | Downstream Orders API identity | `downstream_app`/`downstream_entra_auth` | `mcp-tracer-downstream-orders-api` |
 
 **Existing registrations predate this convention and need a manual rename.**
@@ -410,6 +411,70 @@ to the interactive host manually (ADR-006).
    rejected at the gateway until its id is present and the gate is re-applied. The
    id is what you paste into the interactive host's manual client-registration
    prompt.
+
+**Addition (issue #83): a per-tool delegated scope for `get_order_status`.**
+`tool_authorization_map`'s `get_order_status` entry now also carries a delegated
+scope, `Orders.Read.AsUser`, alongside its existing `Orders.Read` role (ADR-009,
+"Widening `get_order_status`"). This client is the intended **positive-arm**
+holder: on **Expose an API**, add a scope named `Orders.Read.AsUser` on the
+server app (same blade as `Orders.Invoke`; note the naming trap below), then on
+this client's **API permissions**, add it as a fourth delegated permission
+alongside `user_impersonation`, `Orders.Invoke`, and `Catalog.Invoke`, and grant
+admin consent. A token from this client, carrying both `Orders.Invoke` (clears
+the per-server check) and `Orders.Read.AsUser` (clears the per-tool check),
+should now succeed on `get_order_status` via the delegated branch.
+
+**Naming trap.** The new scope's value cannot be `Orders.Read`: Entra rejects a
+scope whose value duplicates an existing app role value on the same
+application, ignoring case, and `Orders.Read` is already `get_order_status`'s
+backend app role (section 2 above; `AppRoleAuthorization.RequiredRole`).
+`Orders.Read.AsUser` therefore inverts this runbook's usual `X.Y` scope /
+`X.Y.All` role convention deliberately, rather than by oversight -- the
+convention-clean fix would be renaming the role instead, which ADR-009 records
+as rejected for this ticket (too much surface for what it buys here).
+
+## 4a. Delegated negative-test client (holds Orders.Invoke only, issue #83)
+
+A second public client, deliberately **not** given `Orders.Read.AsUser`, so the
+issue-83 evidence is a matched pair rather than a single "it worked" anecdote: a
+token from THIS client clears the per-server check (it holds `Orders.Invoke`)
+and is refused `get_order_status` at the per-tool check; a token from section
+4's client, holding both scopes, is accepted. Two tokens, one difference, one
+outcome each.
+
+A second app registration is required here, not a second delegated permission
+on section 4's client. Verified against Microsoft Learn
+(`resources-and-scopes`, "Consent lifetime"; `scopes-oidc`, "the `.default`
+scope"; docs-verifier, 2026-08-10): once a client holds consent for two
+delegated scopes on the same resource, Entra returns BOTH in `scp` on every
+token for that resource, regardless of what the `scope=` request parameter
+names. So a single client cannot produce a token that omits a scope it has
+been consented for -- the only way to get an `Orders.Invoke`-only token is a
+client that has never been granted `Orders.Read.AsUser` at all.
+
+1. **App registrations > New registration.** Name
+   `mcp-tracer-test-client-delegated-without-scope`. Single tenant.
+2. **Authentication > Add a platform > Mobile and desktop applications**, add a
+   loopback redirect URI (e.g. `http://localhost`; this client only ever runs
+   the raw device-code flow below, never a browser redirect, but Entra
+   requires a public-client platform to be present to allow public client
+   flows). Set **Allow public client flows = Yes**.
+3. **API permissions > Add a permission > My APIs**, select the server resource
+   app from section 1, choose **Delegated permissions**, select ONLY server 1's
+   delegated scope `Orders.Invoke` (`required_scope`). **Add permissions**, then
+   **Grant admin consent for `<tenant>`**. Do NOT add `Orders.Read.AsUser`, and
+   do not add `user_impersonation` or `Catalog.Invoke` either -- this client's
+   entire purpose is holding the minimum needed to clear the per-server check
+   and nothing more, so its absence at the per-tool check is unambiguous.
+4. Record the **Application (client) ID** and add it to
+   `entra_validation.allowed_client_application_ids` (the `S2_TFVARS_JSON`
+   live-test secret), same reason as section 4 step 4: without it, the token is
+   rejected at the gateway's client-id check before the per-server check this
+   client exists to clear ever runs.
+
+No GitHub Environment secret is created for this client, the same as section
+4: it is never invoked by the automated gate, only by a human running the
+device-code procedure in `docs/demos/obo-happy-path.md`.
 
 ## Values this runbook produces, and where they are consumed
 

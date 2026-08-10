@@ -120,12 +120,12 @@ as of issue #18:
   "server_2_required_role": "Catalog.Invoke.All",
 
   "tool_authorization_map": {
-    "get_order_status": { "role": "Orders.Read" },
+    "get_order_status": { "role": "Orders.Read", "scope": "Orders.Read.AsUser" },
     "get_service_info": { "role": "ServiceInfo.Read" },
     "get_access_guidance": { "unrestricted": true }
   },
   "server_2_tool_authorization_map": {
-    "get_order_status": { "role": "Orders.Read" },
+    "get_order_status": { "role": "Orders.Read", "scope": "Orders.Read.AsUser" },
     "get_service_info": { "role": "ServiceInfo.Read" },
     "get_access_guidance": { "unrestricted": true }
   },
@@ -186,21 +186,35 @@ failing anything.
 
 `tool_authorization_map` / `server_2_tool_authorization_map` (issue 18):
 `scope` and `unrestricted` are both optional per key and may be omitted
-entirely when only `role` applies, exactly as shown -- Terraform's
-`optional(...)` fills `scope = null`, `unrestricted = false`. The same holds in
-the other direction: an `unrestricted` entry omits `role` entirely and
-`optional(...)` fills `role = null`, so the `get_access_guidance` entry above is
-complete rather than truncated. Both servers carry the SAME map here because
-both still forward to the same backend. That backend (`src/McpTools/`) now
-exposes THREE tools. Two are gated on a role each: `get_order_status` on
-`Orders.Read`, and `get_service_info` (issue 79) on `ServiceInfo.Read`, both
-checked by the issue-45 `AppRoleAuthorization` mechanism. The third,
-`get_access_guidance` (issue 82), is gated on nothing by design. It is the only
-tool mapped `unrestricted`, and it is mapped that way so something executes that
-branch of the policy fragment. A server exposing a different tool set needs a
+entirely when only `role` applies. The same holds in the other direction: an
+`unrestricted` entry omits `role` entirely and `optional(...)` fills
+`role = null`, so the `get_access_guidance` entry above is complete rather than
+truncated. Both servers carry the SAME map here because both still forward to
+the same backend. That backend (`src/McpTools/`) now exposes THREE tools.
+`get_service_info` (issue 79) is gated on the role `ServiceInfo.Read`, checked
+by the issue-45 `AppRoleAuthorization` mechanism. `get_access_guidance`
+(issue 82) is gated on nothing by design, the only tool mapped `unrestricted`,
+mapped that way so something executes that branch of the policy fragment.
+`get_order_status` carries BOTH a role and a scope, `Orders.Read` and
+`Orders.Read.AsUser`, checked with OR semantics -- an app-only caller (no `scp`
+claim) is judged on the role exactly as before; a delegated caller (no `roles`
+claim) is judged on the scope. A server exposing a different tool set needs a
 different map; the live gate's per-server set-equality assertion (ADR-009) is
 what proves whichever map is configured still matches that server's real
 `tools/list`.
+
+**Addition (issue #83), not yet applied to the live secret.** `Orders.Read.AsUser`
+on `get_order_status` is what lets a delegated (human-signed-in) caller reach
+that tool at all: previously the row named a role only, and a delegated token
+never carries a `roles` claim, so every delegated caller was refused
+regardless of what they held (ADR-009, "Widening `get_order_status`"). This is
+a deliberate access widening, confirmed by Hari on issue #83 before
+implementation, not a side effect of wanting a testable code path. Applying it
+needs `docs/runbooks/entra-app-registrations.md` sections 4 and 4a done first
+(the scope must exist on the server app registration before this map entry can
+reference it), then this JSON edited directly in the `S2_TFVARS_JSON` secret --
+this file is documentation, not the source Terraform reads (see "Deployment
+coupling" below).
 
 Both maps must carry the `get_access_guidance` key even though the live gate's
 check (h) only calls that tool at server 1. Both servers front the same backend,

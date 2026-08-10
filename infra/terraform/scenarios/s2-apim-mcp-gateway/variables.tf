@@ -135,11 +135,16 @@ variable "server_2_required_role" {
 # Per-tool authorization (issue 18). Same unprefixed/server_2_* convention as
 # required_scope/required_role above. Each map is the hand-maintained
 # passthrough provenance for that server's tool surface. Three tools today, all
-# under src/McpTools/Tools/: get_order_status gated on the Orders.Read app role,
-# get_service_info (issue 79) on ServiceInfo.Read -- both matching the issue-45
-# MCP-layer checks they sit in front of -- and get_access_guidance (issue 82)
-# mapped unrestricted = true, which applies no per-tool check at all and is the
-# only tool exercising that branch of the policy fragment. The live gate's
+# under src/McpTools/Tools/: get_service_info (issue 79) gated on the
+# ServiceInfo.Read app role, matching the issue-45 MCP-layer check it sits in
+# front of; get_access_guidance (issue 82) mapped unrestricted = true, which
+# applies no per-tool check at all and is the only tool exercising that branch
+# of the policy fragment; and get_order_status gated on BOTH the Orders.Read
+# app role and the Orders.Read.AsUser delegated scope (issue 83), OR-checked --
+# an app-only caller is judged on the role exactly as before issue 83, a
+# delegated (human-signed-in) caller on the scope, which no automated mechanism
+# can produce a token for (ADR-006), so this is the only entry any live gate
+# run cannot fully exercise; see the manual demo, ADR-009. The live gate's
 # per-server set-equality assertion is what proves this map has not drifted from
 # the deployed server's tools/list; ADR-009.
 variable "tool_authorization_map" {
