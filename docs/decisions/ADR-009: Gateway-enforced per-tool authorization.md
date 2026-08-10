@@ -849,18 +849,26 @@ rejects a scope value duplicating an app role value on the same application --
 the Graph `permissionScope.value` and `appRole.value` docs state only length
 and character-set constraints, no portal how-to for either blade documents a
 cross-collection check, and no AADSTS or Graph error code for this case
-exists on Learn. `entra-app-registrations.md` section 1a asserts the same
-constraint, uncited, predating this ticket; that assertion was equally
-unverified until now, and this ADR does not lean on it as corroboration.
+exists on Learn. `entra-app-registrations.md` section 1a asserts a BROADER
+form of the same idea, uncited, predating this ticket: case-INSENSITIVE
+comparison, and scope-versus-scope collisions in addition to scope-versus-role.
+That broader form remains unverified; nothing below closes it, and this ADR
+does not lean on it as corroboration.
 
-LIVE-OBSERVED, 2026-08-10 (Hari, `mcp-tracer-server`'s Expose an API blade,
-Add a scope): attempting to add a scope literally named `Orders.Read` on the
-same application that already carries the app role `Orders.Read`
-(`AppRoleAuthorization.RequiredRole`) was refused, with the error "Failed to
-update undefined application property. Error detail: It contains duplicate
-value. Please Provide unique value." This is a dated, observed fact against
-the actual application this ticket's server uses, not an inference from
-documentation -- the same evidentiary standing as every other
+LIVE-OBSERVED, 2026-08-10, but NARROWER than section 1a's claim (Hari,
+`mcp-tracer-server`'s Expose an API blade, Add a scope): attempting to add a
+scope literally named `Orders.Read` on the same application that already
+carries the app role `Orders.Read` (`AppRoleAuthorization.RequiredRole`) was
+refused, with the error "Failed to update undefined application property.
+Error detail: It contains duplicate value. Please Provide unique value." This
+tests exactly one instance -- exact-case, scope-versus-role -- and no other.
+It does not test case-insensitive comparison (the observed pair was an exact
+match, not e.g. `orders.read` against `Orders.Read`) and does not test
+scope-versus-scope. Both of those remain exactly as unverified as they were
+before this ticket; see the added note in `entra-app-registrations.md`
+section 1a. What this instance IS -- a dated, observed fact against the
+actual application this ticket's server uses, not an inference from
+documentation -- has the same evidentiary standing as every other
 `LIVE UPDATE`/`CAPTURED` row in COMPATIBILITY.md, where docs are silent and a
 direct observation is what this repo has instead. See COMPATIBILITY.md for
 the dated row.

@@ -103,6 +103,24 @@ steps 3 and 4; these are additional entries, not replacements for
 > role `X.Y.All`. `required_scope` and `required_role` are separate tfvars and
 > are never required to match, so this costs nothing.
 
+**What is actually verified of the claim above, and what is not (added
+2026-08-10, issue #83).** The blockquote predates this ticket and is uncited.
+Issue #83 tested one narrow instance of it directly: a scope named
+`Orders.Read` was refused on an application that already carried an app role
+also named `Orders.Read` -- exact-case, scope-versus-role, live-observed,
+dated (COMPATIBILITY.md, "Entra app registration: a scope value cannot
+duplicate an existing app role value"). The exact error text observed was
+"Failed to update undefined application property. Error detail: It contains
+duplicate value. Please Provide unique value.", not quite the paraphrase
+above. That observation does NOT verify the blockquote's broader form: the
+"compared case-insensitively"/"ignoring case" claim (untested -- the observed
+case was an exact match, not `orders.read` against `Orders.Read`) and the
+extension to scope-versus-scope collisions (untested -- only scope-versus-role
+was tried) both remain unverified, uncited assertions. Governance review
+(2026-08-10) separately confirmed neither is documented on Microsoft Learn.
+Treat the blockquote's example (`orders.invoke` colliding with `Orders.Invoke`)
+as plausible, not established.
+
 1. **Expose an API > Add a scope** for server 1. The scope's short name is the
    value the token carries in `scp`; choose a clear per-server name, e.g.
    `Orders.Invoke`. Record that string as `required_scope`. The
