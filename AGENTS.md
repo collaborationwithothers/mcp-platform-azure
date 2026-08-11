@@ -98,7 +98,12 @@ planning any work. Everything here is public and carries Hari's name.
 
 - ASCII punctuation only everywhere: no em dashes, no en dashes, no smart
   quotes. Metric units.
-- Docs land in the same PR as the code they describe. No code-only PRs.
+- Docs land in the same ticket as the code they describe. The default is
+  still one PR. A ticket may split into a code PR (the code plus any
+  COMPATIBILITY.md row it forces) and a docs PR (the remaining ADR, runbook,
+  diagram, and flow-doc updates) when the split helps the reader; the docs
+  PR is opened before the code PR merges, each links the other, and the
+  ticket is not done until both merge. No code-only tickets.
 - ADRs record real reasoning and rejected alternatives, not generic
   explanations.
 
@@ -197,6 +202,14 @@ doc and match its register; a concrete sample beats any adjective below.
 - Self-check before delivering any human-facing prose: reread it cold, as
   Hari would on a phone. Anything you would have to read twice, rewrite
   first.
+- Every PR description completes the template's "The concept" section (ten
+  lines max: the mental-model change, before and after, no file names) and
+  its "Reading order: core files first" section. The core list names the one
+  to three files that carry the concept; the supporting list names every
+  other file and the rule that pulled it in. This exists because the repo's
+  own rules make small concepts ship inside large diffs; the split keeps the
+  concept findable. A missing, padded, or file-listing concept section is a
+  review finding.
 
 Correction ratchet: when Hari corrects wording, tone, or structure in a
 session (asks for a simplification, an explanation of something already
