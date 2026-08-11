@@ -41,6 +41,9 @@ attribution label agent:claude.
   workflow defined in AGENTS.md as the claude agent.
 - /governance-review (.claude/commands/governance-review.md, Opus): runs the
   governance review workflow defined in AGENTS.md.
+- /teach (.claude/commands/teach.md, any model): Socratic walkthrough of a
+  merged PR for Hari's learning, ending with a note in his Obsidian vault.
+  Repo read-only; not part of the implementation or review tiers.
 
 ### Subagents
 
