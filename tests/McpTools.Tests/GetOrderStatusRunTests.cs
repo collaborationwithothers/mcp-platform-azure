@@ -62,7 +62,7 @@ public class GetOrderStatusRunTests
             auth_typ = "aad",
             claims = new[]
             {
-                new { typ = "scp", val = "user_impersonation" },
+                new { typ = "scp", val = "user_impersonation Orders.Read.AsUser" },
                 new { typ = "azp", val = "interactive-client-app-id" },
                 new { typ = "oid", val = "user-object-id" },
             },
@@ -104,7 +104,7 @@ public class GetOrderStatusRunTests
         var fakeClient = new FakeDownstreamOrdersClient(SampleDownstreamStatus);
         var tool = CreateTool(fakeClient);
         var context = ContextWithHeaders(WithPrincipal(
-            [("scp", "user_impersonation")],
+            [("scp", "user_impersonation Orders.Read.AsUser")],
             [("Authorization", "Bearer inbound-token")]));
 
         var result = await tool.Run(context, "CONTOSO-1001", CancellationToken.None);
@@ -113,6 +113,29 @@ public class GetOrderStatusRunTests
         Assert.Equal("CONTOSO-1001", fakeClient.LastOrderId);
         Assert.Equal(DownstreamAccessMode.OnBehalfOf, fakeClient.LastAccessMode);
         Assert.Equal("inbound-token", fakeClient.LastInboundUserAssertion);
+        Assert.Null(fakeClient.LastCaller);
+    }
+
+    [Fact]
+    public async Task Run_Delegated_WithoutRequiredScope_ReturnsDeterministic403_BeforeCheckingInboundToken_AndNeverCallsDownstream()
+    {
+        var fakeClient = new FakeDownstreamOrdersClient(SampleDownstreamStatus);
+        var tool = CreateTool(fakeClient);
+        var context = ContextWithHeaders(WithPrincipal(
+            [("scp", "user_impersonation")],
+            []));
+
+        var result = await tool.Run(context, "CONTOSO-1001", CancellationToken.None);
+
+        var error = Assert.IsType<CallToolResult>(result);
+        Assert.True(error.IsError);
+        var content = Assert.IsType<TextContentBlock>(Assert.Single(error.Content));
+        Assert.Equal(
+            "403 Forbidden: get_order_status requires the delegated scope 'Orders.Read.AsUser'.",
+            content.Text);
+        Assert.Null(fakeClient.LastOrderId);
+        Assert.Null(fakeClient.LastInboundUserAssertion);
+        Assert.Null(fakeClient.LastAccessMode);
         Assert.Null(fakeClient.LastCaller);
     }
 
@@ -216,7 +239,7 @@ public class GetOrderStatusRunTests
     private static Dictionary<string, string> Delegated(
         params (string Key, string Value)[] extraHeaders) =>
         WithPrincipal(
-            [("scp", "user_impersonation"), ("azp", "interactive-client-app-id"), ("oid", "user-object-id")],
+            [("scp", "user_impersonation Orders.Read.AsUser"), ("azp", "interactive-client-app-id"), ("oid", "user-object-id")],
             extraHeaders);
 
     private static Dictionary<string, string> AppContext(string role = "Orders.Read") =>

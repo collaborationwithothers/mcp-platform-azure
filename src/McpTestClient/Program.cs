@@ -31,6 +31,13 @@ string endpoint =
 // (local skeleton runs against the emulator), no Authorization header is sent.
 string? accessToken = Environment.GetEnvironmentVariable("MCP_ACCESS_TOKEN");
 string? expectedForbiddenRole = Environment.GetEnvironmentVariable("MCP_EXPECT_FORBIDDEN_ROLE");
+string? expectedForbiddenScope = Environment.GetEnvironmentVariable("MCP_EXPECT_FORBIDDEN_SCOPE");
+
+if (!string.IsNullOrEmpty(expectedForbiddenRole) && !string.IsNullOrEmpty(expectedForbiddenScope))
+{
+    throw new InvalidOperationException(
+        "Set either MCP_EXPECT_FORBIDDEN_ROLE or MCP_EXPECT_FORBIDDEN_SCOPE, not both.");
+}
 
 Console.WriteLine($"[McpTestClient] Target MCP endpoint: {endpoint}");
 Console.WriteLine($"[McpTestClient] Authorization header: {(string.IsNullOrEmpty(accessToken) ? "absent (unauthenticated)" : "present (Bearer)")}");
@@ -64,21 +71,23 @@ foreach (var tool in tools)
 }
 AssertToolListed(tools);
 
-if (!string.IsNullOrEmpty(expectedForbiddenRole))
+if (!string.IsNullOrEmpty(expectedForbiddenRole) || !string.IsNullOrEmpty(expectedForbiddenScope))
 {
     var forbidden = await client.CallToolAsync(
         ToolName,
         new Dictionary<string, object?> { ["orderId"] = KnownOrderId });
     var rendered = Render(forbidden);
-    var expected = $"403 Forbidden: get_order_status requires the application role '{expectedForbiddenRole}'.";
+    var expected = !string.IsNullOrEmpty(expectedForbiddenRole)
+        ? $"403 Forbidden: get_order_status requires the application role '{expectedForbiddenRole}'."
+        : $"403 Forbidden: get_order_status requires the delegated scope '{expectedForbiddenScope}'.";
     if (forbidden.IsError != true || !rendered.Contains(expected, StringComparison.Ordinal))
     {
         throw new InvalidOperationException(
-            $"Expected the deterministic missing-role error '{expected}', got IsError={forbidden.IsError}, "
+            $"Expected the deterministic authorization error '{expected}', got IsError={forbidden.IsError}, "
             + $"content={rendered}");
     }
 
-    Console.WriteLine($"[McpTestClient] Missing-role assertion passed: {expected}");
+    Console.WriteLine($"[McpTestClient] Authorization-denial assertion passed: {expected}");
     return;
 }
 

@@ -19,8 +19,10 @@ namespace McpTools.Tools;
 ///
 /// <list type="bullet">
 ///   <item><b>Delegated</b> (the validated principal carries an <c>scp</c>
-///   claim): a user-context caller, sourced from the synthetic downstream
-///   Orders API (src/DownstreamOrdersApi) via the Entra On-Behalf-Of exchange
+///   claim): requires the <c>Orders.Read.AsUser</c> delegated scope at the
+///   backend tool boundary before OBO. An authorized user-context caller is
+///   sourced from the synthetic downstream Orders API
+///   (src/DownstreamOrdersApi) via the Entra On-Behalf-Of exchange
 ///   (<see cref="IDownstreamOrdersClient"/>). The caller's inbound token is the
 ///   OBO user assertion.</item>
 ///   <item><b>App-context</b> (the principal has an app id and no <c>scp</c>;
@@ -140,6 +142,23 @@ public sealed class GetOrderStatus
         ClientPrincipal principal,
         CancellationToken cancellationToken)
     {
+        if (!DelegatedScopeAuthorization.HasScope(
+            principal, DelegatedScopeAuthorization.GetOrderStatusScope))
+        {
+            return new CallToolResult
+            {
+                IsError = true,
+                Content =
+                [
+                    new TextContentBlock
+                    {
+                        Text = "403 Forbidden: get_order_status requires the delegated scope "
+                            + $"'{DelegatedScopeAuthorization.GetOrderStatusScope}'.",
+                    },
+                ],
+            };
+        }
+
         if (!TryExtractInboundAccessToken(headers, out var inboundToken))
         {
             throw new InvalidOperationException(

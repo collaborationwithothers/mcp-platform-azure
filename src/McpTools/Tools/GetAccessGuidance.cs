@@ -43,16 +43,15 @@ namespace McpTools.Tools;
 /// WHY THE RESPONSE IS SHAPED THE WAY IT IS. RequiredEntitlements is total over
 /// tool TIMES identity mode, not over tools. get_order_status does not have one
 /// rule with an exception; it has two rules, one per mode. Its app-context path
-/// is authorized here, by the Orders.Read role. Its delegated path is not
-/// authorized here at all: the caller's own authority is carried to the
-/// downstream Orders API through the OBO exchange, and the downstream's
-/// appRoleAssignmentRequired gate decides at token-issuance time (docs/security.md,
-/// "Trusted-subsystem trade-off and backstop asymmetry"; established live
-/// 2026-07-22, AADSTS50105 at MSAL OnBehalfOfRequest.ExecuteAsync). A flat
-/// tool-to-role list would state one of those two and stay silent about the
-/// other, so the list carries an AppliesTo and a Mechanism per row and covers
-/// every combination. ToolEntitlementParityTests enforces that totality at
-/// build time; nothing else would.
+/// requires the Orders.Read application role. Its delegated path requires the
+/// Orders.Read.AsUser delegated scope before it starts the OBO exchange. The
+/// downstream Orders API also has an appRoleAssignmentRequired gate at token
+/// issuance time (docs/security.md, "Trusted-subsystem trade-off and backstop
+/// asymmetry"; established live 2026-07-22, AADSTS50105 at MSAL
+/// OnBehalfOfRequest.ExecuteAsync). A flat tool-to-role list would state one of
+/// those controls and stay silent about the others, so the list carries an
+/// AppliesTo and an AllOf per row. ToolEntitlementParityTests enforces that
+/// totality at build time; nothing else would.
 ///
 /// WHY THE SUMMARY CARRIES CAVEATS THE LIST DOES NOT. Governance review of
 /// issue 82 found the original summary stating the downstream assignment gate
@@ -116,13 +115,13 @@ public sealed class GetAccessGuidance
     internal const string AppliesToApplication = "application";
     internal const string AppliesToDelegated = "delegated";
 
-    // Authorization-mechanism vocabulary for a ToolEntitlement row. Deliberately
-    // NOT the gateway map's own three-way vocabulary (scope/role/unrestricted):
-    // these describe what the BACKEND does, and the backend has a mechanism the
-    // gateway has no word for, the downstream assignment gate on the OBO path.
-    internal const string MechanismApplicationRole = "applicationRole";
-    internal const string MechanismDownstreamAssignmentRequired = "downstreamAssignmentRequired";
-    internal const string MechanismUnrestricted = "unrestricted";
+    // Requirement vocabulary for a ToolEntitlement row. This intentionally
+    // describes the backend and downstream controls, not the gateway map.
+    internal const string RequirementKindApplicationRole = "applicationRole";
+    internal const string RequirementKindDelegatedScope = "delegatedScope";
+    internal const string RequirementKindDownstreamAssignmentRequired = "downstreamAssignmentRequired";
+    internal const string EnforcedAtBackendTool = "backendTool";
+    internal const string EnforcedAtDownstreamTokenIssuance = "downstreamTokenIssuance";
 
     internal const string DocsUrlValue = "https://github.com/collaborationwithothers/mcp-platform-azure";
 
@@ -139,15 +138,16 @@ public sealed class GetAccessGuidance
         + "ever disagree with the gateway's own authorization map, the map is "
         + "authoritative. SECOND, each tool is authorized independently, so holding "
         + "the entitlement for one tool does not grant another. "
-        + "requiredEntitlements lists every tool and, for each caller identity "
-        + "mode, the mechanism that authorizes it. An application-context caller "
+        + "requiredEntitlements lists every tool and identity mode. Each allOf "
+        + "array lists controls that must all pass. An application-context caller "
         + "(client credentials) is authorized by the named Entra application role. "
         + "A delegated (user-context) caller is authorized per tool: "
         + "get_service_info applies the same application-role check, while "
-        + "get_order_status carries the caller's own authority to the downstream "
-        + "Orders API, where that API's assignment-required setting governs whether "
-        + "a token is issued at all. Two limits on that last statement, because it "
-        + "is the least certain thing here. Microsoft documents the "
+        + "get_order_status first requires the delegated scope Orders.Read.AsUser "
+        + "at the backend tool, then carries the caller's authority to the downstream "
+        + "Orders API. That API's assignment-required setting governs whether an OBO "
+        + "token is issued at all. Two limits on that last statement, because it is "
+        + "the least certain thing here. Microsoft documents the "
         + "assignment-required gate for OAuth 2.0 access-token requests generally "
         + "and does not document it for the on-behalf-of token exchange "
         + "specifically; this deployment established that behaviour by its own live "
@@ -158,20 +158,15 @@ public sealed class GetAccessGuidance
         + "else: a valid token for this server, and the per-server entitlement "
         + "above, are both still required. To request an entitlement, see docsUrl.";
 
-    // The scope sentence covers BOTH places this response emits a role name, and
-    // says plainly that they do not carry the same guarantee. Issue 82's second
-    // governance review found this sentence still scoped to "the role names
-    // below", meaning requiredEntitlements, after the summary started naming two
-    // more. The content moved and the disclaimer did not, which is the failure
-    // this disclaimer exists to prevent in the first place.
+    // This distinguishes values taken from runtime authorization constants from
+    // the per-server values named in the summary. The latter are deployment
+    // configuration and this server deliberately cannot read them.
     internal const string DataDisclaimerValue =
         "This response is fixed guidance compiled into the server build. It reads no "
         + "configuration and names no deployed Azure resource, tenant, or principal. "
-        + "Every role name it emits is one of this public repository's demo role "
-        + "names, but the two kinds do not carry the same guarantee. The per-tool "
-        + "role names in requiredEntitlements come from the same constants this "
-        + "server checks at runtime, so they cannot name a role no code enforces. "
-        + "The two per-server role names in the summary are deployment "
+        + "Every per-tool entitlement value it emits comes from the same constants "
+        + "this server checks at runtime, so requiredEntitlements cannot name a value "
+        + "no code enforces. The two per-server role names in the summary are deployment "
         + "configuration this server never reads, so nothing in the build can "
         + "detect it if they go stale; the gateway's authorization map is "
         + "authoritative for those. The order data this server's get_order_status "
@@ -184,21 +179,31 @@ public sealed class GetAccessGuidance
     internal static readonly IReadOnlyList<ToolEntitlement> RequiredEntitlementsValue =
     [
         new ToolEntitlement(
-            GetOrderStatus.ToolName, AppliesToApplication, MechanismApplicationRole,
-            AppRoleAuthorization.RequiredRole),
+            GetOrderStatus.ToolName, AppliesToApplication,
+            [new AuthorizationRequirement(
+                RequirementKindApplicationRole, EnforcedAtBackendTool, AppRoleAuthorization.RequiredRole)]),
         new ToolEntitlement(
-            GetOrderStatus.ToolName, AppliesToDelegated, MechanismDownstreamAssignmentRequired,
-            null),
+            GetOrderStatus.ToolName, AppliesToDelegated,
+            [
+                new AuthorizationRequirement(
+                    RequirementKindDelegatedScope, EnforcedAtBackendTool,
+                    DelegatedScopeAuthorization.GetOrderStatusScope),
+                new AuthorizationRequirement(
+                    RequirementKindDownstreamAssignmentRequired,
+                    EnforcedAtDownstreamTokenIssuance, null),
+            ]),
         new ToolEntitlement(
-            GetServiceInfo.ToolName, AppliesToApplication, MechanismApplicationRole,
-            AppRoleAuthorization.ServiceInfoRole),
+            GetServiceInfo.ToolName, AppliesToApplication,
+            [new AuthorizationRequirement(
+                RequirementKindApplicationRole, EnforcedAtBackendTool, AppRoleAuthorization.ServiceInfoRole)]),
         new ToolEntitlement(
-            GetServiceInfo.ToolName, AppliesToDelegated, MechanismApplicationRole,
-            AppRoleAuthorization.ServiceInfoRole),
+            GetServiceInfo.ToolName, AppliesToDelegated,
+            [new AuthorizationRequirement(
+                RequirementKindApplicationRole, EnforcedAtBackendTool, AppRoleAuthorization.ServiceInfoRole)]),
         new ToolEntitlement(
-            ToolName, AppliesToApplication, MechanismUnrestricted, null),
+            ToolName, AppliesToApplication, []),
         new ToolEntitlement(
-            ToolName, AppliesToDelegated, MechanismUnrestricted, null),
+            ToolName, AppliesToDelegated, []),
     ];
 
     private readonly ILogger<GetAccessGuidance> _logger;
@@ -298,16 +303,20 @@ public sealed record AccessGuidance(
 /// <summary>
 /// One tool's authorization rule for one caller identity mode.
 ///
-/// RequiredRole is non-null if and only if Mechanism is "applicationRole". A
-/// null RequiredRole is therefore never a gap in the data: Mechanism always
-/// says which classification produced it. That invariant is the reason this row
-/// carries a Mechanism at all rather than a bare nullable role, and
-/// GetAccessGuidanceTests enforces it. It mirrors the Terraform-side validation
-/// on the gateway map (infra/terraform/modules/apim-mcp-server/variables.tf),
-/// which refuses an entry that sets none of scope, role, or unrestricted.
+/// AllOf lists every control that applies. An empty list means this tool has no
+/// per-tool control for that identity mode. It does not waive Easy Auth or the
+/// gateway's per-server control.
 /// </summary>
 public sealed record ToolEntitlement(
     [property: JsonPropertyName("tool")] string Tool,
     [property: JsonPropertyName("appliesTo")] string AppliesTo,
-    [property: JsonPropertyName("mechanism")] string Mechanism,
-    [property: JsonPropertyName("requiredRole")] string? RequiredRole);
+    [property: JsonPropertyName("allOf")] IReadOnlyList<AuthorizationRequirement> AllOf);
+
+/// <summary>
+/// One authorization control in a tool entitlement. RequiredValue is null only
+/// for a control that has no caller-provided value to name.
+/// </summary>
+public sealed record AuthorizationRequirement(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("enforcedAt")] string EnforcedAt,
+    [property: JsonPropertyName("requiredValue")] string? RequiredValue);
