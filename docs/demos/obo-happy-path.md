@@ -150,9 +150,21 @@ Use the same negative-arm token, but call the Function endpoint directly. Do not
 send this request through APIM. APIM denies the token first, so its `-32001`
 result cannot prove the backend check.
 
+Start in the repository root. Step 1 obtains the negative-arm token. Keep it in
+the current shell only. Before this call, inspect it in jwt.ms and confirm its
+redacted `scp` value is `Orders.Invoke` with no `Orders.Read.AsUser`.
+
 ```bash
-BACKEND_MCP_URL="$(terraform -chdir=infra/terraform/scenarios/s1-entra-mcp-server output -raw mcp_backend_base_url)/runtime/webhooks/mcp"
-MCP_ACCESS_TOKEN="<the negative-arm delegated token>" \
+cd "$(git rev-parse --show-toplevel)"
+
+# Copy the access token printed by step 1 for the negative-arm client.
+# Do not print, save, or commit this token.
+export NEGATIVE_TOKEN="<negative-arm access token>"
+
+# This must resolve to the Function URL, not the APIM URL.
+export BACKEND_MCP_URL="$(terraform -chdir=infra/terraform/scenarios/s1-entra-mcp-server output -raw mcp_backend_base_url)/runtime/webhooks/mcp"
+
+MCP_ACCESS_TOKEN="$NEGATIVE_TOKEN" \
 MCP_EXPECT_FORBIDDEN_SCOPE="Orders.Read.AsUser" \
   dotnet run --project src/McpTestClient -- "$BACKEND_MCP_URL"
 ```
@@ -178,12 +190,34 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <positive-arm
 
 ## Captured evidence
 
-### Pending: direct backend delegated-scope negative (issue #98)
+### Run 2026-08-11: direct backend delegated-scope negative (issue #98)
 
-No manual run has been captured for this check. When it is run, record the date,
-the redacted `scp` value (`Orders.Invoke` only), the direct Function endpoint,
-and the `McpTestClient` authorization-denial assertion. This evidence must show the
-tool-level 403, not the gateway's JSON-RPC `-32001` result.
+- **Deploy:** `ephemeral-env.yml` run
+  [31451865753](https://github.com/collaborationwithothers/mcp-platform-azure/actions/runs/31451865753)
+  deployed commit `0a7fd75` and was held alive with `skip_teardown=true` for
+  this manual check.
+- **Delegated token (redacted):** `scp` = `Orders.Invoke`.
+  `Orders.Read.AsUser` was absent.
+- **Endpoint:**
+  `https://mcp-tracer-func.azurewebsites.net/runtime/webhooks/mcp`.
+  This is the direct Function endpoint, not APIM.
+- **McpTestClient transcript:**
+
+  ```
+  [McpTestClient] Target MCP endpoint: https://mcp-tracer-func.azurewebsites.net/runtime/webhooks/mcp
+  [McpTestClient] Authorization header: present (Bearer)
+  [McpTestClient] initialize OK: protocol 2025-06-18, server Azure Functions MCP server.
+  [McpTestClient] tools/list returned 3 tool(s):
+    - get_access_guidance
+    - get_order_status
+    - get_service_info
+  [McpTestClient] Authorization-denial assertion passed: 403 Forbidden: get_order_status requires the delegated scope 'Orders.Read.AsUser'.
+  ```
+
+- **Interpretation:** the Function received a delegated caller without the
+  required scope and returned the deterministic tool-level 403. This is not
+  APIM's JSON-RPC `-32001` denial. The unit test covers that this branch exits
+  before OBO or a downstream call.
 
 ### Run 2026-07-19
 
