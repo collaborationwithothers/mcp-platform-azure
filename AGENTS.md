@@ -197,6 +197,14 @@ doc and match its register; a concrete sample beats any adjective below.
 - Self-check before delivering any human-facing prose: reread it cold, as
   Hari would on a phone. Anything you would have to read twice, rewrite
   first.
+- Every PR description completes the template's "The concept" section (ten
+  lines max: the mental-model change, before and after, no file names) and
+  its "Reading order: kernel, then fan-out" section. The kernel names the one
+  to three files that carry the concept; the fan-out names every other file
+  and the rule that pulled it in. This exists because the repo's own rules
+  make small concepts ship inside large diffs; the split keeps the concept
+  findable. A missing, padded, or file-listing concept section is a review
+  finding.
 
 Correction ratchet: when Hari corrects wording, tone, or structure in a
 session (asks for a simplification, an explanation of something already

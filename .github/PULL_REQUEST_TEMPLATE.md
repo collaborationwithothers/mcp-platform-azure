@@ -1,11 +1,36 @@
 <!-- Title: imperative, scoped, e.g. "Add apim-mcp-server azapi module" -->
 
-## What and why
+## The concept
 
-<!-- Two to four sentences. What changed, why, and the design decision if one
-was made. Link the spec section for rationale rather than restating it. -->
+<!-- Ten lines max. The one idea this PR adds, stated as a change to the
+reader's mental model: what was true of the system before this PR, what is
+true after, and the design decision if one was made. No file names here; the
+concept must make sense without the diff. Link the spec section for rationale
+rather than restating it. A reader who stops here must leave with the right
+idea. -->
+
+Before this PR:
+
+After this PR:
 
 Closes #
+
+## Reading order: kernel, then fan-out
+
+<!-- Split every changed file into two lists. Kernel: the files that carry
+the concept (aim for one to three). Fan-out: every other file, one line each
+naming the rule that pulled it in (docs land with code, COMPATIBILITY.md row,
+gate evidence, diagram honesty, runbook currency). Reading the kernel alone
+must be enough to understand the change; the fan-out list exists so its bulk
+stops hiding the concept. -->
+
+Kernel:
+
+-
+
+Fan-out:
+
+-
 
 ## Merge class
 
@@ -28,7 +53,8 @@ input, policy, or auth setting in this diff. UNVERIFIABLE claims do not ship. --
 
 - [ ] Review pass run on Opus 4.8
 - [ ] Azure capability claims verified via azure-docs-verifier (links above)
-- [ ] Docs land in this PR (no code-only change)
+- [ ] Docs land in this PR, or this is a kernel PR whose same-ticket docs PR
+      is linked in "The concept" (no code-only ticket)
 - [ ] COMPATIBILITY.md row added or updated for any new/changed pin, or N/A
 - [ ] No secrets, keys, connection strings, or tenant/subscription IDs
 - [ ] No terraform apply/destroy outside the gated live-test environment
