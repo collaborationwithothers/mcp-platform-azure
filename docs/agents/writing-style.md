@@ -82,3 +82,6 @@ the AGENTS.md rules above them.
   HISTORICAL EVIDENCE into distinct sections, not interleave "note added on
   <date>" patches into the procedure a reader is meant to follow today;
   historical evidence stays dated and undisturbed in its own section.
+- 2026-08-11: For a manual command procedure, start with the exact working
+  directory and show how to obtain every required input before the command that
+  uses it; never leave token acquisition or environment selection implicit.
