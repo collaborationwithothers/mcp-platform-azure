@@ -15,20 +15,20 @@ After this PR:
 
 Closes #
 
-## Reading order: kernel, then fan-out
+## Reading order: core files first
 
-<!-- Split every changed file into two lists. Kernel: the files that carry
-the concept (aim for one to three). Fan-out: every other file, one line each
-naming the rule that pulled it in (docs land with code, COMPATIBILITY.md row,
-gate evidence, diagram honesty, runbook currency). Reading the kernel alone
-must be enough to understand the change; the fan-out list exists so its bulk
-stops hiding the concept. -->
+<!-- Split every changed file into two lists. Core: the files that carry the
+concept (aim for one to three). Supporting: every other file, one line each
+naming the repo rule that pulled it in (docs land with code, COMPATIBILITY.md
+row, gate evidence, diagram honesty, runbook currency). Reading the core
+files alone must be enough to understand the change; the supporting list
+exists so its bulk stops hiding the concept. -->
 
-Kernel:
+Core:
 
 -
 
-Fan-out:
+Supporting:
 
 -
 
@@ -53,7 +53,7 @@ input, policy, or auth setting in this diff. UNVERIFIABLE claims do not ship. --
 
 - [ ] Review pass run on Opus 4.8
 - [ ] Azure capability claims verified via azure-docs-verifier (links above)
-- [ ] Docs land in this PR, or this is a kernel PR whose same-ticket docs PR
+- [ ] Docs land in this PR, or this is a code PR whose same-ticket docs PR
       is linked in "The concept" (no code-only ticket)
 - [ ] COMPATIBILITY.md row added or updated for any new/changed pin, or N/A
 - [ ] No secrets, keys, connection strings, or tenant/subscription IDs
