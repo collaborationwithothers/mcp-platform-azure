@@ -98,7 +98,12 @@ planning any work. Everything here is public and carries Hari's name.
 
 - ASCII punctuation only everywhere: no em dashes, no en dashes, no smart
   quotes. Metric units.
-- Docs land in the same PR as the code they describe. No code-only PRs.
+- Docs land in the same ticket as the code they describe. The default is
+  still one PR. A ticket may split into a kernel PR (the code plus any
+  COMPATIBILITY.md row it forces) and a docs PR (the remaining ADR, runbook,
+  diagram, and flow-doc fan-out) when the split helps the reader; the docs
+  PR is opened before the kernel PR merges, each links the other, and the
+  ticket is not done until both merge. No code-only tickets.
 - ADRs record real reasoning and rejected alternatives, not generic
   explanations.
 
