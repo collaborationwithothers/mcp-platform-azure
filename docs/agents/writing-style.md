@@ -89,3 +89,6 @@ the AGENTS.md rules above them.
 - 2026-08-11: For a manual command procedure, start with the exact working
   directory and show how to obtain every required input before the command that
   uses it; never leave token acquisition or environment selection implicit.
+- 2026-08-12: Describe the mechanic in one concrete sentence before naming a
+  decision about it; a reader who cannot picture the thing cannot make the
+  call. Never write "the X half of Y" before Y has been described plainly.
