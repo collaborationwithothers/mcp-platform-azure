@@ -51,7 +51,8 @@ planning any work. Everything here is public and carries Hari's name.
   Standard v2 outbound virtual network integration, and private DNS for the
   backend. It does not open scenario S4. APIM's own gateway host stays publicly
   reachable, APIM gets no inbound private endpoint, and no other gated scenario
-  is unlocked by this exception.
+  is unlocked by this exception. This exception is removed when epic 108
+  child (b) merges; removing it is part of closing that ticket.
 - One issue at a time. Finish or park the current issue before starting
   another. Branch per issue, PR references the issue.
 - Implementation sessions authenticate to GitHub as haripraghash-bot, never as
@@ -76,8 +77,12 @@ planning any work. Everything here is public and carries Hari's name.
   steps that must reach the private backend. Every other job in every other
   workflow stays on ubuntu-latest. The per-minute billing warning stands: keep
   the VNet-runner job as small as it can be, and never put a build or a test
-  compile in it.
+  compile in it. This exception is removed when epic 108 child (b) merges;
+  removing it is part of closing that ticket.
 - Never use pull_request_target with a checkout of PR head code.
+- Bot commits and PRs carry no Claude session deep links. The binding is
+  attribution.sessionUrl = false in .claude/settings.json (shared, checked
+  in); do not remove or override it.
 
 ### Merge classes
 
@@ -136,11 +141,10 @@ planning any work. Everything here is public and carries Hari's name.
   Hari, and is NEVER performed by the session or agent that authored the
   change. An implementation session never approves or merges its own PR
   regardless of model or agent; it requests review from Hari and stops.
-- The concrete tier-to-model bindings are tool-specific. Claude Code binds the
-  implementation tier to Sonnet 5 (effort high) and the review tier to
-  Opus 4.8 (effort high); see CLAUDE.md. Codex binds the implementation tier
-  in .codex/config.toml. If a governance review session is not on the review
-  tier's designated model, the session should say so before reviewing.
+- The concrete tier-to-model bindings are tool-specific and live in each
+  tool's own file (CLAUDE.md, .codex/config.toml). If a governance review
+  session is not on the review tier's designated model, the session should
+  say so before reviewing.
 
 ### Dual-agent operation (Claude Code primary, Codex fallback)
 
@@ -177,11 +181,11 @@ Handoff protocol (defined once here, implemented by each tool's shim):
   Restart-from-scratch is an operator override, not the default.
 
 Governance review under dual-agent operation:
-- Governance review remains Claude/Opus-only for ALL bot PRs, including
-  Codex-authored or Codex-resumed ones. It does NOT fail over to Codex. If
-  Claude usage is exhausted, review waits for quota reset. Review consistency
-  is worth more than continuity; implementation continuity is what the Codex
-  fallback exists to provide, and it does not extend to review.
+- Governance review remains Claude-only on the review tier for ALL bot PRs,
+  including Codex-authored or Codex-resumed ones. It does NOT fail over to
+  Codex. If Claude usage is exhausted, review waits for quota reset. Review
+  consistency is worth more than continuity; implementation continuity is what
+  the Codex fallback exists to provide, and it does not extend to review.
 - Mixed-agent PRs (two agent:* labels, i.e. one agent started and the other
   resumed) warrant a harder review pass: the reviewer treats the seam between
   the two agents' work as a place where intent or convention may have drifted.
@@ -253,13 +257,13 @@ If none exists, say so and stop; do not select any other issue.
 
 Handoff first: before implementing, apply the acting agent's in-progress label
 and, if the ticket already carries the other agent's in-progress label, follow
-the takeover steps in "Dual-agent operation" above (read the diff, swap the
-label, add your agent:* label, resume on the same branch, record the takeover).
+the takeover steps in "Dual-agent operation" above.
 
 Read, in order, before writing anything: AGENTS.md (this file; Claude Code loads
 it via CLAUDE.md's @AGENTS.md import), the issue in full (including its
 acceptance checklist and out-of-scope list), and the spec sections the issue
-links (docs/specs/v1-tracer-bullet.md).
+links. The issue's links are the authority on which spec applies; do not
+substitute another spec document.
 
 First action: any issue-start verification step the ticket defines (AVM
 capability checks, ARM API version re-verification, package pins), using the
@@ -287,15 +291,15 @@ Hard stops:
 
 ### Governance review workflow
 
-Executed by the review-tier agent only. In this repo that is Claude Code on
-Opus 4.8; Codex does not perform governance review (see "Dual-agent operation").
-The reviewing session is read-only: it does not modify files, merge, approve on
-GitHub, or post to GitHub; the findings are for Hari, who acts on them himself.
+Executed by the review-tier agent only; Codex does not perform governance
+review (see "Dual-agent operation"). The reviewing session is read-only: it
+does not modify files, merge, approve on GitHub, or post to GitHub; the
+findings are for Hari, who acts on them himself.
 
 Identify the issue the PR references (from the PR body). Read, in order:
 AGENTS.md, the issue in full (acceptance checklist and out-of-scope list), the
-spec sections the issue links (docs/specs/v1-tracer-bullet.md), the PR review
-summary, and the full diff (gh pr diff).
+spec sections the issue links, the PR review summary, and the full diff
+(gh pr diff).
 
 Then:
 1. Run the code-review pass on the diff.
@@ -322,16 +326,8 @@ Output: a verdict (APPROVE or REQUEST CHANGES) followed by a numbered findings
 list ordered by severity, each finding citing the file and line or claim it
 concerns. Separate a final short section: "For Hari to check by hand", naming
 the one or two highest-leverage things a human should verify directly (a
-registry page, a doc paragraph, a design judgement).
-
-The review tier's tool may additionally render this same output as a scannable
-report page for Hari; the binding lives in the tool's command shim, not here.
-The rendering is presentation only: it carries exactly the verdict, findings,
-and claim results of the text output, ordered the same way, and may not soften,
-summarise away, or omit any of them. The text output remains the source of
-truth. Producing the report page in a temporary location outside the repository
-does not breach the read-only hard stop below; that stop governs repository
-files and GitHub.
+registry page, a doc paragraph, a design judgement). The output is delivered
+in chat only.
 
 Hard stops:
 - Do not merge, approve on GitHub, or post to GitHub; the findings are for Hari.
@@ -358,58 +354,42 @@ docs/agents/domain.md.
 
 ### Continuous integration
 
-.github/workflows/ci.yml runs on every pull_request and on push to main. Two of
-its jobs are required status checks and their names must stay stable:
-terraform-checks (fmt, per-directory init -backend=false + validate, tflint with
-the root .tflint.hcl, checkov) and dotnet-build (build + test). A third required
-status check, compat-sync, lives in its own workflow
-.github/workflows/compat-sync.yml (issue #64): it fails any `dependencies`-
-labelled PR that does not also update COMPATIBILITY.md, naming the pin row to
-refresh, and so keeps a Dependabot bump in lockstep with its "Pinned versions"
-row. It carries a stable job name (compat-sync) for the same branch-protection
-reason and runs on its own pull_request triggers (incl. labeled/unlabeled) so a
-label change does not re-run the heavier jobs. It is promoted to required in
-branch protection by Hari; the workflow ships the check, the promotion is Hari's
-step. Non-required jobs: mcp-parity (scripts/check-mcp-parity), drift-agent-tests
-(issue #4 harness), compatibility-drift-structure (issue #100, validates the
-extracted COMPATIBILITY.md doc-link structure), and compat-sync-tests (the
-compat-sync guard's unit tests);
-Hari may promote any of these in branch protection. There are no trigger-level
-path filters, so the required jobs always run; instead each step guards itself
-with find and prints SKIPPED until real .tf / .csproj files land. Pinned
-toolchain, verified 2026-07-11: Terraform 1.15.8 (checkpoint-api.hashicorp.com),
-.NET 10 LTS (Functions 4.x isolated worker per Microsoft Learn), tflint-ruleset-
-azurerm 0.32.0. When infra adds a required_version, keep it in step with the
-setup-terraform pin here.
+Rules that bind agents; design history and harness detail live in
+docs/agents/ci.md.
+
+- Required status checks with stable job names: terraform-checks and
+  dotnet-build (both in .github/workflows/ci.yml), and compat-sync (its own
+  workflow, .github/workflows/compat-sync.yml). Never rename these jobs.
+- compat-sync fails any dependencies-labelled PR that does not also update
+  COMPATIBILITY.md; a Dependabot bump and its "Pinned versions" row move in
+  lockstep.
+- There are no trigger-level path filters; each step guards itself with find
+  and prints SKIPPED until real .tf / .csproj files land. Preserve this
+  pattern when editing workflows.
+- Toolchain pins live in ci.yml and .terraform-version. When infra adds a
+  required_version, keep it in step with the setup-terraform pin.
+- Non-required jobs (mcp-parity, drift-agent-tests,
+  compatibility-drift-structure, compat-sync-tests) may be promoted to
+  required only by Hari.
 
 ### Drift verification agent
 
-`.github/workflows/compat-drift.yml` is a weekly, read-only agent (issue #4) that
-re-checks the `Re-check trigger:` notes in COMPATIBILITY.md against current
-Microsoft Learn docs and opens one `drift-candidate` issue (labelled
-`needs-triage`) per row whose documented contract appears to have changed. It
-flags CANDIDATES for a human to verify; it never asserts drift as fact and never
-edits COMPATIBILITY.md. Design: docs/specs/compat-drift-agent.md and ADR-008.
+.github/workflows/compat-drift.yml is a weekly, read-only agent (issue #4) that
+re-checks COMPATIBILITY.md "Re-check trigger:" notes against current Microsoft
+Learn docs and opens drift-candidate issues for a human to verify. Rules that
+bind agents:
 
-Split so no side effect is in the model's hands: a deterministic Python harness
-(`scripts/drift/extract_triggers.py`, `apply_verdicts.py`) extracts triggers and
-does dedup, a 5-issue-per-run cap, issue creation, and a fail-loud completeness
-gate; the model (Opus 4.8, via `anthropics/claude-code-action@v1` with only the
-`microsoft-learn` MCP server and file read/write, no `gh`) only judges each
-trigger to a JSON file. The harness is unit-tested by the non-required
-`drift-agent-tests` CI job (stdlib `unittest`, dependency-free like mcp-parity).
+- It flags CANDIDATES only. It never asserts drift as fact and never edits
+  COMPATIBILITY.md. Do not modify its workflow, harness, or prompts as part
+  of any other ticket.
+- Seam with issue #64 (Dependabot): the drift agent owns semantic doc drift
+  (the documented behaviour of a fixed pin changing, including ARM
+  api-version strings embedded in azapi bodies that Dependabot cannot see);
+  #64 owns registry drift (a newer version of a pinned package published).
+  They are complementary and must not overlap.
 
-Seam with issue #64 (Dependabot): this agent owns *semantic doc drift* (the
-documented behaviour of a fixed pin changing, including ARM api-version strings
-embedded in azapi bodies that Dependabot cannot see); #64 owns *registry drift*
-(a newer version of a pinned package published). They are complementary and must
-not overlap.
-
-Operational note: the judge step needs `ANTHROPIC_API_KEY` in the protected
-`drift-agent` GitHub Environment (Hari-provisioned). This static LLM key is a
-deliberate, ADR-008-recorded exception to the OIDC-only preference; it grants no
-Azure access. The workflow is `workflow_dispatch`-able for first validation once
-the key lands.
+Design, harness split, model binding, and the ANTHROPIC_API_KEY environment
+note live in docs/specs/compat-drift-agent.md, ADR-008, and docs/agents/ci.md.
 
 ### Skills
 
