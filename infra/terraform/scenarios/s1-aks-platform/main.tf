@@ -36,6 +36,18 @@ module "aks" {
   log_analytics_workspace_id = local.log_analytics_workspace_id
 }
 
+# AKS uses its cluster identity, rather than the kubelet identity, to manage
+# the internal load balancer. Microsoft Learn requires Network Contributor on
+# the virtual network. That documented scope covers both the node and Istio
+# ingress subnets that the load balancer uses.
+resource "azurerm_role_assignment" "aks_network_contributor" {
+  scope                            = module.network.vnet_id
+  role_definition_name             = "Network Contributor"
+  principal_id                     = module.aks.cluster_identity_principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
 module "registry" {
   source = "../../modules/container-registry"
 

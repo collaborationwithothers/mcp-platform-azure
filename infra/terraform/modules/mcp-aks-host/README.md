@@ -83,6 +83,12 @@ annotating that `Service` after cluster creation
 this Terraform module can set. That step lives in the deploy-and-bootstrap
 workflow (issue 110 task 8), not here.
 
+The scenario composition, rather than this reusable module, grants the
+cluster identity Network Contributor on the platform VNet. This cross-module
+relationship joins the identity this module owns to the network scope owned
+by `private-network`. AKS uses the cluster identity to manage the internal
+load balancer. The kubelet identity only pulls workload images.
+
 ## Node resource group
 
 The Istio ingress gateway's load balancer and public IP resources (if any)

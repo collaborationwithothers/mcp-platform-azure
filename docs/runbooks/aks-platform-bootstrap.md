@@ -55,6 +55,9 @@ From the repository's **Actions** tab, run **Deploy AKS platform**,
    minutes for AKS to create the fixed-name Service
    `aks-istio-ingressgateway-internal` and for it to report that exact IP.
    A timeout prints the Service, gateway pods, deployments, and recent events.
+   Terraform creates the Network Contributor assignment the AKS cluster
+   identity needs on the platform VNet before this step. The cluster identity
+   manages the load balancer. It is not the kubelet identity that pulls images.
 4. Installs the pinned `argo-cd` Helm chart and applies the app-of-apps
    (`infra/argocd/bootstrap-app-of-apps.yaml`), which points Argo CD at the
    separate `mcp-platform-kubernetes-manifests` repository.
