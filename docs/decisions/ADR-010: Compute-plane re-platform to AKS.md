@@ -24,6 +24,14 @@ deployed and serving exactly as ADR-002 describes until child (b4) (issue
 actually works is a placeholder container, not the real MCP server; the
 real server rewrite is child (b2), issue #115.
 
+![This child's provisioned platform: a spoke VNet (10.20.0.0/16) with
+separate subnets for the APIM outbound integration, the AKS node pool, and
+the Istio internal ingress gateway; the AKS cluster with its Istio add-on,
+Argo CD, and container registry; and the one-sided peering to the existing
+GitHub Actions VNet runner network. APIM does not yet route MCP client
+traffic here -- the Functions-hosted server stays the live backend until
+child (b4), issue #117, cuts over.](../diagrams/aks-platform.drawio.svg)
+
 ## Decision
 
 **Host is AKS, not Container Apps.** Container Apps was tested first,

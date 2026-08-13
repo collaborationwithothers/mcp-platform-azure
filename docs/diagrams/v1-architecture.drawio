@@ -88,19 +88,19 @@
         <mxCell id="p2-subtitle" value="Provisioned by epic 108 child (b) (issue #110) | Terraform-applied infra; not yet the MCP traffic path" style="text;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=13;fontColor=#666666;strokeColor=none;fillColor=none;" vertex="1" parent="1">
           <mxGeometry x="50" y="50" width="900" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="p2-banner" value="APIM does not yet route MCP client traffic to this platform. The Functions-hosted server (see the &quot;v1 architecture&quot; page) remains the live backend until the cutover in issue #117. This page shows only infrastructure that epic 108 child (b) actually provisions now." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9cc;strokeColor=#d6b656;fontColor=#000000;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+        <mxCell id="p2-banner" value="APIM does not yet route MCP client traffic to this platform. The Functions-hosted server (see the &quot;v1 architecture&quot; page) remains the live backend until the cutover in issue #117.&#10;This page shows only infrastructure that epic 108 child (b) actually provisions now. See ADR-010." style="rounded=1;fillColor=#fff9cc;strokeColor=#d6b656;fontColor=#000000;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
           <mxGeometry x="50" y="80" width="1460" height="55" as="geometry" />
         </mxCell>
-        <mxCell id="p2-vnet" value="Spoke VNet - 10.20.0.0/16&#10;(private-network module)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingTop=10;spacingLeft=12;fontStyle=1;fontColor=#3b5a80;fontSize=13;strokeWidth=4;" vertex="1" parent="1">
+        <mxCell id="p2-vnet" value="Spoke VNet - 10.20.0.0/16&#10;(private-network module)" style="rounded=0;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;align=left;spacingTop=10;spacingLeft=12;fontStyle=1;fontColor=#3b5a80;fontSize=13;strokeWidth=4;" vertex="1" parent="1">
           <mxGeometry x="280" y="180" width="880" height="560" as="geometry" />
         </mxCell>
-        <mxCell id="p2-subnet-apim" value="APIM outbound integration subnet&#10;10.20.0.0/24" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef5fc;strokeColor=#6c8ebf;verticalAlign=top;align=center;spacingTop=8;fontStyle=1;fontColor=#3b5a80;fontSize=11;strokeWidth=2;dashed=1;dashPattern=8 8;" vertex="1" parent="1">
+        <mxCell id="p2-subnet-apim" value="APIM outbound integration subnet&#10;10.20.0.0/24" style="rounded=1;fillColor=#eef5fc;strokeColor=#6c8ebf;verticalAlign=top;align=center;spacingTop=8;fontStyle=1;fontColor=#3b5a80;fontSize=11;strokeWidth=2;dashed=1;dashPattern=8 8;" vertex="1" parent="1">
           <mxGeometry x="310" y="240" width="260" height="460" as="geometry" />
         </mxCell>
-        <mxCell id="p2-subnet-aks" value="AKS node subnet&#10;10.20.1.0/24" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef5fc;strokeColor=#6c8ebf;verticalAlign=top;align=center;spacingTop=8;fontStyle=1;fontColor=#3b5a80;fontSize=11;strokeWidth=2;dashed=1;dashPattern=8 8;" vertex="1" parent="1">
+        <mxCell id="p2-subnet-aks" value="AKS node subnet&#10;10.20.1.0/24" style="rounded=1;fillColor=#eef5fc;strokeColor=#6c8ebf;verticalAlign=top;align=center;spacingTop=8;fontStyle=1;fontColor=#3b5a80;fontSize=11;strokeWidth=2;dashed=1;dashPattern=8 8;" vertex="1" parent="1">
           <mxGeometry x="590" y="240" width="260" height="460" as="geometry" />
         </mxCell>
-        <mxCell id="p2-subnet-ingress" value="Istio ingress gateway subnet&#10;10.20.2.0/28" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef5fc;strokeColor=#6c8ebf;verticalAlign=top;align=center;spacingTop=8;fontStyle=1;fontColor=#3b5a80;fontSize=11;strokeWidth=2;dashed=1;dashPattern=8 8;" vertex="1" parent="1">
+        <mxCell id="p2-subnet-ingress" value="Istio ingress gateway subnet&#10;10.20.2.0/28" style="rounded=1;fillColor=#eef5fc;strokeColor=#6c8ebf;verticalAlign=top;align=center;spacingTop=8;fontStyle=1;fontColor=#3b5a80;fontSize=11;strokeWidth=2;dashed=1;dashPattern=8 8;" vertex="1" parent="1">
           <mxGeometry x="870" y="240" width="260" height="460" as="geometry" />
         </mxCell>
         <mxCell id="p2-apim" value="API Management&#10;(private-backend profile)&#10;Standard v2; gateway host stays public" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/app_services/API_Management_Services.svg;" vertex="1" parent="1">
@@ -121,7 +121,7 @@
         <mxCell id="p2-repo" value="GitHub: mcp-platform-kubernetes-manifests&#10;public repo; no stored credential" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];aspect=fixed;image;fontSize=11;fontColor=#23272E;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;image=img/lib/azure2/general/TFS_VC_Repository.svg;" vertex="1" parent="1">
           <mxGeometry x="688" y="790" width="64" height="64" as="geometry" />
         </mxCell>
-        <mxCell id="p2-runner-vnet" value="GitHub Actions VNet runner network&#10;(existing infra; not managed by this repo)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;verticalAlign=top;align=center;spacingTop=8;fontStyle=1;fontColor=#444444;fontSize=11;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+        <mxCell id="p2-runner-vnet" value="GitHub Actions VNet runner network&#10;(existing infra; not managed by this repo)" style="rounded=1;fillColor=#f5f5f5;strokeColor=#666666;verticalAlign=top;align=center;spacingTop=8;fontStyle=1;fontColor=#444444;fontSize=11;strokeWidth=2;dashed=1;" vertex="1" parent="1">
           <mxGeometry x="1200" y="520" width="260" height="140" as="geometry" />
         </mxCell>
         <mxCell id="p2-e1" value="outbound VNet integration&#10;(private-backend profile)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=classic;dashed=1;strokeColor=#6c8ebf;strokeWidth=2;fontSize=11;labelBackgroundColor=#ffffff;fontColor=#1a1a1a;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p2-apim" target="p2-subnet-apim">
