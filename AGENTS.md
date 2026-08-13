@@ -36,13 +36,22 @@ planning any work. Everything here is public and carries Hari's name.
 
 ### Scope
 
-- Active scope is v1 only: scenarios S1 (Entra-secured .NET Functions MCP
-  server), S2 (multi-tenant APIM MCP gateway, public-demo profile), S3
+- Active scope is v1 only: scenarios S1 (Entra-secured .NET MCP server,
+  re-platforming from Azure Functions to AKS under epic 108; the deployed
+  backend is still Functions until child (b4) cuts over), S2 (multi-tenant
+  APIM MCP gateway, public-demo profile), S3
   (Terraform modules incl azapi modules for APIM MCP server and API Center),
   plus their docs and demo.
 - Never create issues, branches, or code for gated or later-phase scenarios
   (private platform, Foundry, Python variant, evals, EMA). If work seems to
   require them, stop and comment on the issue instead.
+- Exception, added 2026-08-13, scoped to epic 108 child (b) only: the private
+  network path between APIM and the migrated MCP server backend is in v1 scope.
+  That covers a virtual network, an AKS internal ingress gateway, APIM
+  Standard v2 outbound virtual network integration, and private DNS for the
+  backend. It does not open scenario S4. APIM's own gateway host stays publicly
+  reachable, APIM gets no inbound private endpoint, and no other gated scenario
+  is unlocked by this exception.
 - One issue at a time. Finish or park the current issue before starting
   another. Branch per issue, PR references the issue.
 - Implementation sessions authenticate to GitHub as haripraghash-bot, never as
@@ -59,6 +68,15 @@ planning any work. Everything here is public and carries Hari's name.
 - Workflows you author run on runs-on: ubuntu-latest only. Never reference
   the org VNet runner group; those runners bill per minute and reach private
   networks. Only Hari adds jobs targeting that group.
+- Exception, added 2026-08-13, scoped to epic 108 child (b) only: once the MCP
+  backend sits behind an internal ingress gateway, a ubuntu-latest runner
+  cannot reach it at all, so the live-test gate's direct-to-backend assertions
+  need a runner inside the virtual network. An agent may author jobs targeting
+  the VNet runner group in the ephemeral live-test gate only, and only for the
+  steps that must reach the private backend. Every other job in every other
+  workflow stays on ubuntu-latest. The per-minute billing warning stands: keep
+  the VNet-runner job as small as it can be, and never put a build or a test
+  compile in it.
 - Never use pull_request_target with a checkout of PR head code.
 
 ### Merge classes

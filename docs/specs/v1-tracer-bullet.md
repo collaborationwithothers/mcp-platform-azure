@@ -404,7 +404,11 @@ seam and the existing static Terraform seam. No new seams are invented.
   429 demo (S2 thickening).
 - Content safety policy on tool-call arguments (S2 thickening).
 - REST-to-MCP export path and external MCP proxy path (S6, post-v1).
-- The private-network module and the private profile (v1.1).
+- The private-network module and the private profile (v1.1). Amended 2026-08-13
+  for epic #108 child (b): the private path between APIM and the migrated
+  backend moves into v1, which fills in the private-network module and adds a
+  second deployment_profile named private-backend. The full private platform
+  (S4) and an APIM inbound private endpoint stay out of scope.
 - The observability module: Log Analytics workbook, alerts, KQL dashboards (v1.2).
 - Any gated or later-phase scenario: Python self-hosted SDK variant, Foundry agent,
   Container Apps private ingress, eval harness, EMA. Never create issues, branches,
