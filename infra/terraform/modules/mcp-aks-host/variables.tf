@@ -1,8 +1,7 @@
-# Thick interface: every input a later thickening of this platform needs
-# (a second node pool, a canary Istio revision, a different Gateway API
-# installation state) is present even though the placeholder workload this
-# child proves (issue 110, task 9) exercises only the minimum. See
-# docs/specs/v1-tracer-bullet.md, Delivery shape.
+# Thick interface: every input a later thickening of this platform needs (a
+# second node pool, a canary Istio revision) is present even though the
+# placeholder workload this child proves (issue 110, task 9) exercises only
+# the minimum. See docs/specs/v1-tracer-bullet.md, Delivery shape.
 
 variable "name" {
   type        = string

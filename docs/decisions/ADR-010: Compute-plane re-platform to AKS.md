@@ -120,10 +120,11 @@ pin.** AKS supports an `n-2` revision only until six weeks after revision
 `n` STARTS rolling out to all regions (not "finishes," which an earlier
 draft of this platform's planning notes had backwards), and keeps at least
 two revisions alive at any time. `mcp-aks-host`'s `istio_revision` variable
-defaults to `asm-1-27`: it clears the `asm-1-26` floor Managed Gateway API
-needs, one revision below the newest AKS-released revision at issue-start
-verification (`asm-1-28`, itself close to or past its documented expected
-end-of-life window). That default is a point-in-time choice. The module's
+defaults to `asm-1-27`: one revision below the newest AKS-released revision
+at issue-start verification (`asm-1-28`, itself close to or past its
+documented expected end-of-life window), chosen for headroom. This platform
+does not use Managed Gateway API (see above), which would otherwise need at
+least `asm-1-26`. That default is a point-in-time choice. The module's
 own variable description and COMPATIBILITY.md both say to re-run
 `az aks mesh get-revisions --location <region> -o table` immediately before
 any live apply rather than trust the default.
