@@ -131,17 +131,6 @@ variable "ingress_gateway_private_ip" {
   }
 }
 
-# No default: the runner VNet's resource ID is real infrastructure Hari owns
-# outside this repo (a different resource group than anything this module
-# creates) and must never be a literal in this repo (AGENTS.md hard safety
-# rule: no subscription or tenant ids committed; an ARM resource ID embeds the
-# subscription id). Supplied out of band as TF_VAR_runner_vnet_id on the
-# live-test GitHub Environment, the same pattern
-# shared_observability_application_insights_id already uses in apim-gateway.
-# This module creates only the SPOKE side of the peering link (the resource
-# below); the reverse link inside the runner's own resource group is Hari's
-# step or a change where that VNet is actually managed, not this repo's
-# blast radius.
 variable "log_analytics_workspace_id" {
   type        = string
   nullable    = false
@@ -153,6 +142,18 @@ variable "log_analytics_workspace_id" {
   }
 }
 
+# No default: the runner VNet's resource ID is real infrastructure Hari owns
+# outside this repo (a different resource group than anything this module
+# creates, though the same subscription -- see main.tf for why that makes
+# the reverse peering link this module's blast radius, not an external one)
+# and must never be a literal in this repo (AGENTS.md hard safety rule: no
+# subscription or tenant ids committed; an ARM resource ID embeds the
+# subscription id). Supplied out of band as TF_VAR_runner_vnet_id on the
+# live-test GitHub Environment, the same pattern
+# shared_observability_application_insights_id already uses in apim-gateway.
+# This module creates BOTH sides of the peering link (main.tf,
+# to_runner_network and from_runner_network): the runner's resource group
+# and VNet name are parsed out of this value, not passed separately.
 variable "runner_vnet_id" {
   type        = string
   description = "ARM resource ID of the existing GitHub Actions VNet runner network to peer this spoke to, so the live-test gate's VNet-runner job (AGENTS.md hard safety rules, epic 108 child (b) exception) can reach the private backend once #117 wires the gate itself. Never a literal default; supplied out of band."

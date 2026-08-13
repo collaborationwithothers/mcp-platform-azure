@@ -27,7 +27,7 @@ real server rewrite is child (b2), issue #115.
 ![This child's provisioned platform: a spoke VNet (10.20.0.0/16) with
 separate subnets for the APIM outbound integration, the AKS node pool, and
 the Istio internal ingress gateway; the AKS cluster with its Istio add-on,
-Argo CD, and container registry; and the one-sided peering to the existing
+Argo CD, and container registry; and the two-sided peering to the existing
 GitHub Actions VNet runner network. APIM does not yet route MCP client
 traffic here -- the Functions-hosted server stays the live backend until
 child (b4), issue #117, cuts over.](../diagrams/aks-platform.drawio.svg)
@@ -59,13 +59,12 @@ two workflows and their cleanup sweeps never collide.
 https://learn.microsoft.com/azure/aks/use-system-pools#system-and-user-node-pools
 https://learn.microsoft.com/azure/aks/start-stop-cluster
 
-**Ingress is the AKS Istio add-on, internal gateway, driven by Gateway
-API.** `infra/terraform/modules/mcp-aks-host` wraps
-`Azure/avm-res-containerservice-managedcluster/azurerm` 0.8.1, which is
-itself azapi-backed (its own "Provider Dependencies" name `azapi ~> 2.9`).
-That matters beyond convenience: it is why this module can express
-`service_mesh_profile` and `ingress_profile.gateway_api` at all without
-waiting on the classic `azurerm_kubernetes_cluster` HCL resource's own
+**Ingress is the AKS Istio add-on, internal gateway.** `infra/terraform/
+modules/mcp-aks-host` wraps `Azure/avm-res-containerservice-managedcluster/
+azurerm` 0.8.1, which is itself azapi-backed (its own "Provider
+Dependencies" name `azapi ~> 2.9`). That matters beyond convenience: it is
+why this module can express `service_mesh_profile` at all without waiting
+on the classic `azurerm_kubernetes_cluster` HCL resource's own
 provider-schema lag -- the same lag pattern already documented for
 `apim-mcp-server`'s `2025-09-01-preview` pin. `network_profile` is Azure CNI
 Overlay with the Cilium dataplane (`network_plugin = "azure"`,
@@ -78,25 +77,43 @@ left unset: Cilium enforces policy through the dataplane itself, and
 https://learn.microsoft.com/azure/aks/azure-cni-powered-by-cilium
 https://learn.microsoft.com/azure/aks/istio-about
 
-**Managed Gateway API is a preview ARM surface, accepted as a live-gate
-risk, not a local one.** `ingressProfile.gatewayAPI.installation` (enum
-`Disabled` | `Standard`) exists only from
-`Microsoft.ContainerService/managedClusters` api-version
-`2025-10-02-preview` onward -- it is absent from the newest STABLE
-api-version, `2025-05-01`, at issue-start verification (2026-08-13). This
-module sets it anyway, the same risk-acceptance pattern `apim-mcp-server`
-already uses for its own preview pin: whether the underlying AVM module
-actually reaches a preview-capable api-version is that module's own
-internal choice, and ARM acceptance is proven at the live gate, not
-asserted locally. Separately, Microsoft Learn's own pages currently
-disagree with each other on whether Gateway API ingress for the add-on is
-GA: `istio-gateway-api` presents it as an ordinary supported feature with no
-preview banner, while `istio-about`'s own Limitations section still lists it
-as "currently under active development." Both are recorded, not reconciled,
-in COMPATIBILITY.md.
-https://learn.microsoft.com/azure/templates/microsoft.containerservice/2026-04-02-preview/managedclusters
+**Ingress uses Istio's own API, not the Kubernetes Gateway API standard.**
+An earlier draft of this module enabled `ingressProfile.gatewayAPI.
+installation` (Managed Gateway API), reasoned about only as an ARM
+preview-risk question. Verification found that risk framing itself wrong in
+two ways -- the property graduated to stable at `Microsoft.
+ContainerService/managedClusters` api-version `2026-02-01` and persists
+through `2026-04-01`, the newest stable version at issue-start verification,
+so it was never a live-gate-only preview risk by the time this was checked
+closely -- and, more importantly, found a real design problem underneath
+the preview question: Microsoft's own AKS Istio ingress docs
+(`istio-deploy-ingress`) describe the persistent, cluster-level ingress
+gateway component this module configures
+(`service_mesh_profile.istio.components.ingress_gateways`, the Service
+`deploy-aks-platform.yml` pins to a fixed private IP) as reachable through
+Istio's own `Gateway`/`VirtualService` CRDs (`networking.istio.io`) with no
+Gateway API flag needed at all. Managed Gateway API's own docs
+(`istio-gateway-api`) describe a DIFFERENT "automated deployment model":
+applying a Kubernetes-standard `Gateway` object with `gatewayClassName:
+istio` causes AKS to provision a NEW, separate proxy Deployment/Service per
+`Gateway` object, not to bind to the already-pinned component gateway. Using
+both mechanisms together risks two competing ingress gateway deployments,
+with the manifests repo's actual traffic path reaching the unpinned one
+instead of the one this platform pins. This module sets
+`ingress_profile.gateway_api.installation = "Disabled"` rather than resolve
+that ambiguity (set explicitly, not omitted, to work around a separate AVM
+module validation defect -- see Consequences), and the manifests repo uses
+Istio's own `Gateway`/`VirtualService` objects, targeting the pinned
+component gateway's Service directly by selector. No preview surface is
+involved either way. Microsoft Learn's own pages also
+disagree with each other on whether the add-on supports Gateway API at all
+(`istio-gateway-api` says yes; `concepts-network-ingress` says "The Istio
+add-on currently doesn't support Gateway API for Istio ingress traffic") --
+one more reason to avoid depending on it here. Recorded in COMPATIBILITY.md.
+https://learn.microsoft.com/azure/aks/istio-deploy-ingress
 https://learn.microsoft.com/azure/aks/istio-gateway-api
-https://learn.microsoft.com/azure/aks/istio-about
+https://learn.microsoft.com/azure/aks/concepts-network-ingress
+https://learn.microsoft.com/azure/aks/managed-gateway-api
 
 **Istio add-on revision is a standing maintenance obligation, not a fixed
 pin.** AKS supports an `n-2` revision only until six weeks after revision
@@ -237,19 +254,23 @@ cleanup sweeps never collide. This reuse is a deliberate operational
 choice, not an oversight; it is named here as the thing for governance
 review to scrutinise by hand, alongside the runner-VNet-peering item below.
 
-**The spoke's VNet runner peering is created now, one-sided, ahead of the
-child that will use it.** Hari's decision, 2026-08-13: `private-network`
-creates the spoke-side `azurerm_virtual_network_peering` link to the
-existing GitHub Actions VNet runner network now, even though issue #110's
-own task list and out-of-scope section never mention it, and the live-test
-gate that will actually need it (once the backend sits behind this internal
-ingress gateway, a `ubuntu-latest` runner cannot reach it at all) is child
-(b4), issue #117's job, per the AGENTS.md hard-safety-rules exception dated
-the same day. The reverse peering link, inside the runner's own resource
-group (`rg-dv-gh-actions-neu`), is outside this repo's blast radius
-entirely and is not created here -- Hari's step, or a change wherever that
-network is actually managed. Until it exists, this peering sits
-half-connected (Azure permits the one-sided create; no traffic flows). The
+**The VNet runner peering is created now, both sides, ahead of the child
+that will use it.** Hari's decision, 2026-08-13: `private-network` creates
+the spoke-side `azurerm_virtual_network_peering` link to the existing GitHub
+Actions VNet runner network now, even though issue #110's own task list and
+out-of-scope section never mention it, and the live-test gate that will
+actually need it (once the backend sits behind this internal ingress
+gateway, a `ubuntu-latest` runner cannot reach it at all) is child (b4),
+issue #117's job, per the AGENTS.md hard-safety-rules exception dated the
+same day. The reverse link, inside the runner's own resource group
+(`rg-dv-gh-actions-neu`), is created by the same module (a same-day
+correction to this ADR's original one-sided design): that resource group
+sits outside anything else this repo provisions, but inside the same
+subscription, and the live-test environment's OIDC-federated identity
+already carries RBAC there, so this is this module's blast radius, not an
+external one, once that was confirmed. Without both links, peering sits
+half-connected (Azure permits a one-sided create; no traffic flows) -- with
+both, it is fully connected as soon as this child's Terraform applies. The
 runner network's own address space (`172.16.0.0/24`) and resource id are
 never literals in this repo -- an ARM resource id embeds a real
 subscription id, which AGENTS.md's hard safety rules forbid committing to
@@ -268,10 +289,14 @@ with no default, supplied out of band.
   provider-schema-lag problem this platform is trying to avoid (the
   provider's documented internal API-Providers pin,
   `Microsoft.ContainerService - 2025-10-01`, is six releases behind the
-  newest stable ARM version at issue-start verification,
-  `2026-04-01`), and would need a hand-authored `azapi_update_resource` for
-  Managed Gateway API instead of the AVM module's native
-  `ingress_profile.gateway_api` input.
+  newest stable ARM version at issue-start verification, `2026-04-01`), and
+  would need a hand-authored `azapi_update_resource` for `service_mesh_
+  profile` instead of the AVM module's native input.
+- **Kubernetes Gateway API (`ingressProfile.gatewayAPI.installation`),
+  instead of Istio's own Gateway/VirtualService API.** Rejected; see
+  Decision ("Ingress uses Istio's own API, not the Kubernetes Gateway API
+  standard") -- its "automated deployment model" risks a second, unpinned
+  ingress gateway deployment alongside the one this platform pins.
 - **APIM Premium v2 injection, or classic Developer, for the private-backend
   profile.** Not reconsidered here; ADR-003 already covers this trade-off
   for the private platform variant generally, and this child changes
@@ -290,13 +315,14 @@ with no default, supplied out of band.
   moves to Accepted, matching how ADR-002 itself only reached Accepted at
   the v1 tag once its own live proof existed.
 - `avm-res-containerservice-managedcluster` 0.8.1 has a validation defect:
-  `terraform validate` fails with a `coalesce` error if
-  `ingress_profile.web_app_routing` is left unset. Worked around in
-  `mcp-aks-host/main.tf` by setting it to a real, intentional `Disabled`
-  value (App Routing, a separate AKS ingress add-on this platform does not
-  use, really is disabled) rather than filing this as a blocking issue;
-  the module README records this as a known upstream defect, not this
-  repo's bug.
+  `terraform validate` fails with a `coalesce` error if EITHER
+  `ingress_profile.web_app_routing` OR `ingress_profile.gateway_api` is left
+  unset (confirmed both trigger it independently). Worked around in
+  `mcp-aks-host/main.tf` by setting both to real, intentional `Disabled`
+  values (App Routing and Managed Gateway API, neither of which this
+  platform uses, really are disabled) rather than filing this as a blocking
+  issue; the module README records this as a known upstream defect, not
+  this repo's bug.
 - The private-backend `deployment_profile` value is now accepted by BOTH
   `s1-entra-mcp-server` and `s2-apim-mcp-gateway`'s variable validation, for
   contract consistency, but only changes `s2`'s behaviour (APIM's SKU and
@@ -305,10 +331,11 @@ with no default, supplied out of band.
   backend it provisions does not change shape until child (b4) cuts over.
 - COMPATIBILITY.md grows several new rows this PR: the AKS
   `managedClusters` ARM api-versions, the Istio add-on revision policy and
-  its wording correction, the Managed Gateway API preview-surface finding
-  and its Learn-vs-Learn GA disagreement, the `argo-cd` chart pin and its
-  `redis-ha`/`extraObjects` corrections, and the re-verified APIM Standard
-  v2 outbound integration tier list and subnet delegation requirement.
+  its wording correction, the decision not to use Managed Gateway API and
+  its Learn-vs-Learn disagreement on whether the add-on even supports it,
+  the `argo-cd` chart pin and its `redis-ha`/`extraObjects` corrections, and
+  the re-verified APIM Standard v2 outbound integration tier list and
+  subnet delegation requirement.
 
 ## References
 

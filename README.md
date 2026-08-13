@@ -74,7 +74,7 @@ The Azure Functions MCP extension is UNVERIFIED for MCP protocol revision
 clear that ceiling. This child ships the platform only, proven by a
 placeholder workload, not the real server rewrite: a spoke virtual network
 ([`infra/terraform/modules/private-network`](infra/terraform/modules/private-network)),
-an AKS cluster with the Istio add-on and Gateway API
+an AKS cluster with the Istio add-on and its own internal ingress gateway
 ([`infra/terraform/modules/mcp-aks-host`](infra/terraform/modules/mcp-aks-host)),
 a container registry
 ([`infra/terraform/modules/container-registry`](infra/terraform/modules/container-registry)),

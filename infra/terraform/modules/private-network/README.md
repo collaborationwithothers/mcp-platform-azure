@@ -27,21 +27,25 @@ does not create a hub. If a hub network is added later, its CIDR must avoid
 `10.20.0.0/24` + `10.20.1.0/24` + `10.20.2.0/28` all fall inside
 `10.20.0.0/16` with no overlap between them.
 
-## The runner peering is spoke-side only
+## The runner peering is two-sided
 
-The module creates one `azurerm_virtual_network_peering` from this spoke to
-the existing GitHub Actions VNet runner network (`var.runner_vnet_id`), added
-now per Hari's 2026-08-13 decision so #117 (which owns the live-test gate
+The module creates both `azurerm_virtual_network_peering` links between this
+spoke and the existing GitHub Actions VNet runner network (`var.runner_vnet_id`):
+`to_runner_network` (spoke side) and `from_runner_network` (runner side).
+Azure VNet peering is symmetric -- a link on one side alone does not pass
+traffic -- so both are needed for the peering to actually connect, added now
+per Hari's 2026-08-13 decision so #117 (which owns the live-test gate
 rewrite, per issue 110's out-of-scope list) only has to consume it rather
 than create it.
 
-Azure VNet peering is symmetric: a link on one side alone does not pass
-traffic. The matching link back from the runner VNet to this spoke has to be
-created inside the runner's own resource group, which this repo does not own
-or manage -- that is Hari's step, or a change in whatever manages that
-network, not this module's blast radius. Until that reverse link exists, this
-peering sits in a half-connected state (Azure permits the create; traffic
-does not flow).
+The runner VNet sits in a different resource group than anything else this
+module creates, but the same subscription, and the live-test environment's
+OIDC-federated identity already carries RBAC there -- Hari's 2026-08-13
+correction to this module's original spoke-side-only design, made once that
+was confirmed. The runner's resource group and VNet name are parsed out of
+`var.runner_vnet_id` (main.tf, `local.runner_resource_group` /
+`local.runner_virtual_network`) rather than passed as separate variables, so
+there is exactly one place the runner network's identity can be wrong.
 
 `var.runner_vnet_id` has no default and is never a literal in this repo: it
 is an ARM resource ID, which embeds a real subscription id, and AGENTS.md's

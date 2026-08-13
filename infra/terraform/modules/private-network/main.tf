@@ -7,8 +7,9 @@
 # exists (Azure/avm-res-network-virtualnetwork/azurerm 0.22.1, confirmed via
 # the Terraform registry at issue start), but this module's shape -- three
 # purpose-specific subnets, one with a service delegation, one carrying a
-# caller-pinned address, plus a single spoke-side peering link -- is small
-# enough that a raw azurerm_virtual_network/azurerm_subnet pair is the whole
+# caller-pinned address, plus a two-sided peering link to the runner VNet --
+# is small enough that a raw azurerm_virtual_network/azurerm_subnet pair is
+# the whole
 # module, not a fraction of one. The general fallback policy
 # (docs/specs/v1-tracer-bullet.md, Terraform and state) treats dropping AVM
 # from a whole module as an ADR moment only when AVM cannot express what the
@@ -105,22 +106,45 @@ resource "azurerm_subnet_network_security_group_association" "apim_outbound" {
   network_security_group_id = azurerm_network_security_group.apim_outbound.id
 }
 
-# Spoke-side peering link only. Azure VNet peering is symmetric: a working
-# connection needs a matching link created on the runner VNet pointing back at
-# this one, and that link lives in the runner's own resource group, which this
-# repo does not own or manage (see variables.tf, runner_vnet_id). Until that
-# reverse link exists, this resource alone leaves the peering in a
-# "PeeringState: Initiated" / half-connected state -- Azure allows it to be
-# created, it just does not pass traffic yet. allow_forwarded_traffic is true
-# because the runner's outbound path to the AKS ingress gateway may traverse
-# more than one hop inside the runner's own network; allow_gateway_transit and
-# use_remote_gateways are both false because neither network is a gateway
-# transit hub (no ExpressRoute/VPN gateway on either side of this peering).
+# Azure VNet peering is symmetric: a working connection needs a matching link
+# on each side. Both sides are created by this module (Hari, 2026-08-13,
+# correcting this module's original one-sided design): the runner VNet is in
+# the same subscription as this platform, and the live-test environment's
+# OIDC-federated identity already carries RBAC on that subscription, so there
+# is no ownership boundary stopping this module from also managing the
+# reverse link -- unlike a genuinely external subscription, which would be a
+# real blast-radius violation. The runner's resource group and VNet name are
+# parsed out of runner_vnet_id (already regex-validated in variables.tf)
+# rather than taken as separate variables, so there is exactly one place a
+# caller can get the runner network's identity wrong.
+#
+# allow_forwarded_traffic is true both ways because either side's path to the
+# other may traverse more than one hop inside its own network;
+# allow_gateway_transit and use_remote_gateways are both false because
+# neither network is a gateway transit hub (no ExpressRoute/VPN gateway on
+# either side of this peering).
+locals {
+  runner_vnet_id_parts   = split("/", var.runner_vnet_id)
+  runner_resource_group  = local.runner_vnet_id_parts[4]
+  runner_virtual_network = local.runner_vnet_id_parts[8]
+}
+
 resource "azurerm_virtual_network_peering" "to_runner_network" {
   name                         = "${var.name_prefix}-peer-to-github-actions-runner"
   resource_group_name          = data.azurerm_resource_group.this.name
   virtual_network_name         = azurerm_virtual_network.this.name
   remote_virtual_network_id    = var.runner_vnet_id
+  allow_virtual_network_access = true
+  allow_forwarded_traffic      = true
+  allow_gateway_transit        = false
+  use_remote_gateways          = false
+}
+
+resource "azurerm_virtual_network_peering" "from_runner_network" {
+  name                         = "peer-to-${var.name_prefix}-spoke"
+  resource_group_name          = local.runner_resource_group
+  virtual_network_name         = local.runner_virtual_network
+  remote_virtual_network_id    = azurerm_virtual_network.this.id
   allow_virtual_network_access = true
   allow_forwarded_traffic      = true
   allow_gateway_transit        = false

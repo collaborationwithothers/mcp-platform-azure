@@ -98,10 +98,12 @@ variable "pod_cidr" {
   default     = "192.168.0.0/16"
 }
 
-# asm-1-27: satisfies the asm-1-26 minimum Managed Gateway API requires, one
-# revision below the newest AKS-released revision at issue-start verification
-# (asm-1-28, itself close to or past its documented expected EOL window) --
-# chosen for headroom, not because asm-1-28 is unusable. Istio revisions move
+# asm-1-27: one revision below the newest AKS-released revision at
+# issue-start verification (asm-1-28, itself close to or past its documented
+# expected EOL window) -- chosen for headroom, not because asm-1-28 is
+# unusable. This platform does not use Managed Gateway API (see ADR-010,
+# COMPATIBILITY.md), which would otherwise need at least asm-1-26. Istio
+# revisions move
 # on their own release cadence, independent of every other pin in this module
 # (COMPATIBILITY.md, "Istio revision support is a standing maintenance
 # obligation"); re-verify with `az aks mesh get-revisions --location <region>
@@ -110,24 +112,4 @@ variable "istio_revision" {
   type        = string
   description = "Istio add-on control plane revision (e.g. \"asm-1-27\"). Re-verify against `az aks mesh get-revisions` before any live apply; this default is a point-in-time choice, not a standing recommendation."
   default     = "asm-1-27"
-}
-
-# 'Standard' | 'Disabled' (default). Gateway API CRDs are not bundled with the
-# Istio add-on itself; this is what actually installs them. The ARM property
-# behind this input, ingressProfile.gatewayAPI.installation, exists only from
-# api-version 2025-10-02-preview onward -- it is ABSENT from the newest stable
-# managedClusters api-version (2025-05-01) at issue-start verification. This
-# module accepts that risk the same way apim-mcp-server accepts
-# 2025-09-01-preview: the wrapped AVM module's own azapi/ARM pin decides which
-# api-version this input actually reaches, and ARM acceptance is proven at the
-# live gate, not asserted here. See COMPATIBILITY.md.
-variable "gateway_api_installation" {
-  type        = string
-  description = "Managed Gateway API installation state for the cluster's ingress profile."
-  default     = "Standard"
-
-  validation {
-    condition     = contains(["Standard", "Disabled"], var.gateway_api_installation)
-    error_message = "gateway_api_installation must be \"Standard\" or \"Disabled\" (Microsoft.ContainerService/managedClusters ingressProfile.gatewayAPI.installation enum)."
-  }
 }

@@ -7,10 +7,10 @@
 # Unlike mcp-function-host and apim-gateway's AVM wrappers, this module's
 # inputs mirror the Microsoft.ContainerService/managedClusters ARM body
 # almost field-for-field (service_mesh_profile.mode, ingress_profile.
-# gateway_api.installation, and so on): the module is itself azapi-backed
-# (Terraform Registry "Provider Dependencies": azapi ~> 2.9, modtm, random),
-# which is why it can expose the Istio and Gateway API surfaces below without
-# waiting on the classic azurerm_kubernetes_cluster resource to catch up.
+# web_app_routing, and so on): the module is itself azapi-backed (Terraform
+# Registry "Provider Dependencies": azapi ~> 2.9, modtm, random), which is
+# why it can expose the Istio surface below without waiting on the classic
+# azurerm_kubernetes_cluster resource to catch up.
 
 data "azurerm_resource_group" "this" {
   name = var.resource_group_name
@@ -103,24 +103,39 @@ module "aks" {
     }
   }
 
-  # Gateway API CRDs are not bundled with the Istio add-on; this installs
-  # them. See variables.tf for the preview-ARM-surface risk this input
-  # carries (COMPATIBILITY.md).
+  # gateway_api.installation = "Disabled" is a real, intentional value, not a
+  # dummy: this module deliberately does not enable Managed Gateway API
+  # (ingressProfile.gatewayAPI.installation). Ingress is the Istio add-on's
+  # own Gateway/VirtualService API (networking.istio.io) against the
+  # ingress_gateways component above, not the Kubernetes Gateway API
+  # standard -- see ADR-010, "Ingress uses Istio's own API, not the
+  # Kubernetes Gateway API standard", for why: Microsoft's own docs describe
+  # Gateway API's "automated deployment model" as provisioning a NEW proxy
+  # Deployment/Service per Gateway object, separate from the persistent
+  # ingress_gateways component this module configures and the
+  # deploy-and-bootstrap workflow pins to a fixed private IP. Enabling both
+  # mechanisms risks two competing gateway deployments, with traffic
+  # possibly routed through the unpinned one.
+  #
+  # It must be set explicitly, though, not omitted: the SAME
+  # avm-res-containerservice-managedcluster 0.8.1 validation defect that
+  # forces web_app_routing below to be explicit also fires here --
+  # `terraform validate` fails with "Call to function coalesce failed: no
+  # non-null, non-empty-string arguments" when gateway_api is left unset,
+  # because the module's own input validation coalesces a null try() result
+  # with an empty string. Confirmed by re-running validate with this block
+  # omitted before adding it back explicitly.
   #
   # web_app_routing is a SEPARATE AKS add-on (the "Application Routing"
   # ingress controller) this module does not use -- ingress here is the Istio
-  # gateway above, not App Routing. It is set explicitly, not left null, to
-  # work around a validation defect in avm-res-containerservice-managedcluster
-  # 0.8.1: `terraform validate` fails with "Call to function coalesce failed:
-  # no non-null, non-empty-string arguments" when web_app_routing is left
-  # unset, because the module's own input validation coalesces a null try()
-  # result with an empty string. Filing upstream is tracked as a follow-up;
-  # the explicit "Disabled" mode below is a real, intentional value (App
-  # Routing's own Gateway API implementation is off), not a dummy worked
-  # around the bug -- it happens to also be what avoids it.
+  # gateway above, not App Routing. Filing both instances of the defect
+  # upstream is tracked as a follow-up; the explicit "Disabled" values below
+  # are real, intentional values (App Routing's own Gateway API
+  # implementation is off, same as Managed Gateway API), not dummies chosen
+  # only to dodge the crash -- it happens to also be what avoids it.
   ingress_profile = {
     gateway_api = {
-      installation = var.gateway_api_installation
+      installation = "Disabled"
     }
 
     web_app_routing = {
