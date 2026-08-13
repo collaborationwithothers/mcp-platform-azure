@@ -83,3 +83,18 @@ variable "placeholder_service_account_name" {
   description = "Name of the placeholder workload's Kubernetes ServiceAccount."
   default     = "mcp-platform-placeholder"
 }
+
+# Same shared, out-of-band resource s1-entra-mcp-server and
+# s2-apim-mcp-gateway already read (docs/runbooks/observability-bootstrap.md).
+# This composition derives its WorkspaceResourceId for the AKS cluster, the
+# container registry, and the spoke network's NSGs' diagnostic settings
+# (issue 75's discovery-based pattern, extended to this child's resources).
+variable "shared_observability_application_insights_id" {
+  type        = string
+  description = "ARM resource ID of the out-of-band workspace-based Application Insights resource shared by every scenario. Supplied as TF_VAR_shared_observability_application_insights_id on the live-test GitHub Environment; never committed."
+
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Ii]nsights/components/[^/]+$", var.shared_observability_application_insights_id))
+    error_message = "shared_observability_application_insights_id must be a valid Microsoft.Insights/components ARM resource ID."
+  }
+}

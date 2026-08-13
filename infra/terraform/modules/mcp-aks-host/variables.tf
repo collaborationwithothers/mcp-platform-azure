@@ -30,6 +30,17 @@ variable "node_subnet_id" {
   description = "ARM resource ID of the AKS node subnet (private-network module's aks_node_subnet_id output)."
 }
 
+variable "log_analytics_workspace_id" {
+  type        = string
+  nullable    = false
+  description = "ARM resource ID of the out-of-band Log Analytics workspace the cluster's diagnostic settings send logs and metrics to (issue 75's discovery-based pattern, extended to this child's resources)."
+
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Oo]perational[Ii]nsights/workspaces/[^/]+$", var.log_analytics_workspace_id))
+    error_message = "log_analytics_workspace_id must be a valid Microsoft.OperationalInsights/workspaces ARM resource ID."
+  }
+}
+
 # 2 is the floor, not a default a caller is expected to raise casually: an AKS
 # system node pool requires at least two nodes (issue 110 section 2, "An AKS
 # system node pool requires at least two nodes, so idling by node count is

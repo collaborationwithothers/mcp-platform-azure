@@ -142,6 +142,17 @@ variable "ingress_gateway_private_ip" {
 # below); the reverse link inside the runner's own resource group is Hari's
 # step or a change where that VNet is actually managed, not this repo's
 # blast radius.
+variable "log_analytics_workspace_id" {
+  type        = string
+  nullable    = false
+  description = "ARM resource ID of the out-of-band Log Analytics workspace the three NSGs' diagnostic settings send logs to (issue 75's discovery-based pattern, extended to this child's resources). Not wired to the virtual network resource itself; see main.tf for why."
+
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Oo]perational[Ii]nsights/workspaces/[^/]+$", var.log_analytics_workspace_id))
+    error_message = "log_analytics_workspace_id must be a valid Microsoft.OperationalInsights/workspaces ARM resource ID."
+  }
+}
+
 variable "runner_vnet_id" {
   type        = string
   description = "ARM resource ID of the existing GitHub Actions VNet runner network to peer this spoke to, so the live-test gate's VNet-runner job (AGENTS.md hard safety rules, epic 108 child (b) exception) can reach the private backend once #117 wires the gate itself. Never a literal default; supplied out of band."
