@@ -28,7 +28,15 @@ module "aks" {
 
   kubernetes_version = var.kubernetes_version
 
+  # sku.name is REQUIRED by ARM at apply time (confirmed live: PUT fails with
+  # "Required property 'name' not found in 'sku'" if omitted), even though
+  # the AVM module's own variable and the ARM template reference both mark
+  # it optional in their schema tables -- a live-vs-doc gap, not something
+  # terraform validate/plan catches. "Base" is the standard (non-Automatic)
+  # managed cluster SKU name; "Automatic" is a different cluster management
+  # model this module does not use. See COMPATIBILITY.md.
   sku = {
+    name = "Base"
     tier = var.sku_tier
   }
 
