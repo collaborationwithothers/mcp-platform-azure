@@ -51,7 +51,10 @@ From the repository's **Actions** tab, run **Deploy AKS platform**,
    (creates or updates the VNet, AKS cluster, registry, and the placeholder
    workload's user-assigned identity -- idempotent on re-run).
 3. Pins the Istio internal ingress gateway's load balancer to the chosen
-   private IP and the dedicated ingress subnet.
+   private IP and the dedicated ingress subnet. The workflow waits up to 15
+   minutes for AKS to create the fixed-name Service
+   `aks-istio-ingressgateway-internal` and for it to report that exact IP.
+   A timeout prints the Service, gateway pods, deployments, and recent events.
 4. Installs the pinned `argo-cd` Helm chart and applies the app-of-apps
    (`infra/argocd/bootstrap-app-of-apps.yaml`), which points Argo CD at the
    separate `mcp-platform-kubernetes-manifests` repository.
