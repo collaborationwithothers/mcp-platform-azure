@@ -1,0 +1,40 @@
+# The app-of-apps root Application (issue 110 task 7). Applied by
+# .github/workflows/deploy-aks-platform.yml AFTER the argo-cd Helm chart
+# install, as a separate step: the chart's own values.yaml can embed this via
+# extraObjects (verified at issue start, argo-cd chart 10.3.2), but this repo
+# follows the two-step design Hari's 2026-08-13 planning session recorded
+# ("Bootstrap is two steps, not one apply") rather than relying on that. See
+# docs/decisions/ADR-010, "Argo CD bootstrap: two steps, not one" for why that
+# discrepancy is recorded rather than silently resolved by using extraObjects.
+#
+# spec.source points at the public, credential-free manifests repository
+# (collaborationwithothers/mcp-platform-kubernetes-manifests); Argo CD then
+# reconciles everything under argocd/apps/ in that repo, including the
+# placeholder workload's own Application (issue 110 task 9). This repo
+# (mcp-platform-azure) commits only this bootstrap pointer, never the
+# workloads it points at.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mcp-platform-app-of-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/collaborationwithothers/mcp-platform-kubernetes-manifests.git
+    targetRevision: main
+    path: argocd/apps
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

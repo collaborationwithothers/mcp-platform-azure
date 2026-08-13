@@ -46,6 +46,38 @@ variable "publisher_email" {
   description = "Email address of the API Management publisher."
 }
 
+# "None" (the module default) keeps the public-demo profile unchanged.
+# private-backend sets this to "External" -- outbound-only VNet integration,
+# so APIM's own gateway host stays publicly reachable while it can reach a
+# backend isolated inside the virtual network. "Internal" (classic VNet
+# injection) is deliberately not this variable's private-backend value: the
+# AGENTS.md scope carve-out for epic 108 child (b) is explicit that "APIM's
+# own gateway host stays publicly reachable" and "APIM gets no inbound
+# private endpoint" -- "Internal" would violate both, and is documented as
+# rejected for Standard v2 specifically (COMPATIBILITY.md, "APIM Standard v2
+# outbound VNet integration").
+variable "virtual_network_type" {
+  type        = string
+  description = "Virtual network configuration type for this API Management service. \"None\" (default, public-demo) or \"External\" (private-backend: outbound-only integration, gateway host stays public)."
+  default     = "None"
+
+  validation {
+    condition     = contains(["None", "External"], var.virtual_network_type)
+    error_message = "virtual_network_type must be \"None\" or \"External\" (this module never sets \"Internal\": that is classic VNet injection, out of scope per AGENTS.md's epic 108 child (b) carve-out, and documented as rejected for Standard v2)."
+  }
+}
+
+variable "virtual_network_subnet_id" {
+  type        = string
+  description = "ARM resource ID of the delegated subnet for outbound VNet integration (private-network module's apim_outbound_subnet_id output). Required when virtual_network_type is \"External\"; null for public-demo."
+  default     = null
+
+  validation {
+    condition     = var.virtual_network_type != "External" || var.virtual_network_subnet_id != null
+    error_message = "virtual_network_subnet_id is required when virtual_network_type is \"External\"."
+  }
+}
+
 # tenant_id is a required input of this module's thick interface per the
 # issue-3 apim-gateway interface spec, even though nothing in the tracer
 # consumes it yet (Entra token validation is owned by apim-mcp-server's

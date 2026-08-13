@@ -67,6 +67,28 @@ the Python variant, and Foundry integration remain out of scope for this repo's
 current milestone; see
 [docs/specs/v1-tracer-bullet.md, Out of Scope](docs/specs/v1-tracer-bullet.md#out-of-scope).
 
+### AKS platform re-platform (epic #108 child (b1), issue #110)
+
+The Azure Functions MCP extension is UNVERIFIED for MCP protocol revision
+2026-07-28 (issue #106); this platform re-hosts the S1 server on AKS to
+clear that ceiling. This child ships the platform only, proven by a
+placeholder workload, not the real server rewrite: a spoke virtual network
+([`infra/terraform/modules/private-network`](infra/terraform/modules/private-network)),
+an AKS cluster with the Istio add-on and Gateway API
+([`infra/terraform/modules/mcp-aks-host`](infra/terraform/modules/mcp-aks-host)),
+a container registry
+([`infra/terraform/modules/container-registry`](infra/terraform/modules/container-registry)),
+and a new
+[`infra/terraform/scenarios/s1-aks-platform`](infra/terraform/scenarios/s1-aks-platform)
+composition wiring them together. APIM gains a `private-backend`
+deployment profile (Standard v2, outbound-only VNet integration; its
+gateway host stays public). The Functions-hosted backend on page 1 of the
+architecture diagram above stays the live, routed backend until epic 108
+child (b4) (issue #117) repoints APIM at this new platform -- see
+[ADR-010](docs/decisions/ADR-010:%20Compute-plane%20re-platform%20to%20AKS.md)
+for the full reasoning, including why this platform persists rather than
+running apply-call-destroy like S1/S2.
+
 ### Resource-level platform diagnostics (issue 75)
 
 S1 and S2 route selected Azure Monitor resource logs and exportable platform
@@ -120,9 +142,31 @@ quoting these figures anywhere else.
 | Azure Functions Flex Consumption (S1) | under 5 USD/month at demo traffic (pay per execution and GB-s) |
 | API Center | free tier exists at the tracer's scale; verify tier mapping at build time |
 
-The tracer is ephemeral by design (apply -> call -> destroy in the gated
-live-test run only); nothing here runs continuously, so these are per-run
-figures, not a standing monthly bill.
+S1 and S2 stay ephemeral by design: apply -> call -> destroy, in the gated
+live-test run only, so the figures above are per-run costs, not a standing
+bill.
+
+**The AKS platform (epic 108 child (b), issue #110) is not ephemeral, and
+this repo no longer claims nothing here runs continuously.** Its cluster
+persists between demo runs and is cost-controlled by stopping and starting
+it (`.github/workflows/deploy-aks-platform.yml`, `idle-stop`/`idle-start`),
+not by destroying and recreating it: an AKS system node pool cannot idle to
+zero nodes the way S1/S2's ephemeral resource groups can be destroyed
+outright. That means it carries a standing cost baseline whenever it exists,
+even stopped, not just while a demo is running.
+
+This README does not yet publish a per-component estimate for the AKS
+platform (node VM SKU, container registry tier, disks, the internal load
+balancer) -- that pricing pass has not been done, and this repo does not
+invent a figure it has not checked against the Azure pricing calculator.
+What IS established, and tracked honestly rather than guessed at: Microsoft
+Learn's own pages disagree with each other on what continues to bill while
+the cluster is stopped (compute savings are documented; whether attached
+disks still bill is not consistently stated across pages), and this repo
+does not repeat a blanket "nothing bills while stopped" claim as a result.
+The first live bootstrap and idle cycle will measure the real numbers; see
+COMPATIBILITY.md, "AKS `az aks stop`/`az aks start` billing during idle,"
+which stays marked UNMEASURED until that run records them.
 
 Resource-level diagnostic ingestion has no published workload estimate. Measure
 billable volume after a representative gated deployment before making a cost

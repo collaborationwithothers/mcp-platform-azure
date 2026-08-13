@@ -1,0 +1,111 @@
+# Placeholder image pipeline for the epic 108 child (b) AKS platform (issue
+# 110 task 9). Manual only, workflow_dispatch, never triggered by
+# pull_request or push: this is a deliberate action for a placeholder proof,
+# not part of the fast PR CI loop. runs-on: ubuntu-latest, OIDC-only auth (no
+# client secret, no stored Azure credential) -- same auth pattern as
+# deploy-aks-platform.yml and ephemeral-env.yml.
+#
+# This workflow builds nothing (issue 110's out-of-scope list: no application
+# code, src/McpTools and src/DownstreamOrdersApi stay untouched). It re-pushes
+# a small, already-published public image into this repo's own registry,
+# retagged with the git commit SHA (issue 110 section 2, "Images are... tagged
+# by git commit"), so Argo CD can pull a known artifact from a registry this
+# platform controls rather than from an external one. No Dockerfile, no build
+# step.
+#
+# docker pull/tag/push, not `az acr import`: `az acr import` does a
+# server-side copy and needs no local docker daemon, which reads as the more
+# Azure-native choice at first glance. It is rejected here because the CI
+# identity's only grant on the target registry is the AcrPush role (see
+# infra/terraform/scenarios/s1-aks-platform/main.tf, acr_push_principal_ids,
+# and container-registry/outputs.tf's login_server output comment, which
+# already names this workflow's intended pattern as "az acr login / docker
+# push"), and this session could not re-check against Microsoft Learn whether
+# AcrPush alone covers the importImage data-plane action `az acr import`
+# needs, or whether it needs a broader role such as Contributor. docker push
+# only needs the push/pull data actions AcrPush already grants, the
+# well-established mechanism this repo documents elsewhere
+# (container-registry-authentication). Revisit `az acr import` once that
+# permission question is verified.
+#
+# Environment gate: this job declares `environment: live-test`, the same
+# GitHub Environment deploy-aks-platform.yml and ephemeral-env.yml use. A
+# registry push is not a Terraform apply/destroy and is not itself a billable
+# infrastructure change, so cost gating alone would not require it. It is
+# declared anyway for a harder reason: the only OIDC federated credential
+# this repo has configured trusts the Environment-scoped subject
+# `repo:<org>/<repo>:environment:live-test` (ephemeral-env.yml's own header
+# comment), and deploy-aks-platform.yml's idle-stop/idle-start jobs -- plain
+# `az aks stop`/`az aks start` calls, not Terraform applies either -- already
+# reuse live-test for that same reason, not because they are cost-gated
+# actions in their own right. Provisioning a second, differently-scoped
+# federated credential is a Hari-only step and out of scope here, so this
+# workflow follows that precedent instead of inventing a new environment or
+# attempting an OIDC login whose subject would not match the existing trust.
+#
+# Base image: mcr.microsoft.com/oss/nginx/nginx, Microsoft's own mirror of
+# nginx, pinned by the `source_image` input's default below rather than
+# `:latest`. This session picked that default tag from its own general
+# knowledge of Microsoft's container mirrors, not by re-checking the live
+# Microsoft Container Registry listing (this task's instructions scoped
+# verification to files already in this repo). Confirm the tag still exists,
+# and update the default or override it at dispatch time, before the first
+# real run.
+
+name: Build AKS placeholder image
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_image:
+        description: "Public image to re-push, as registry/repository:tag. Must not be :latest. Defaults to Microsoft's own nginx mirror; override if the pinned default has gone stale."
+        required: false
+        type: string
+        default: "mcr.microsoft.com/oss/nginx/nginx:1.25.3"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  push-placeholder-image:
+    name: push-placeholder-image
+    runs-on: ubuntu-latest
+    environment: live-test
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: az acr login
+        shell: bash
+        run: az acr login --name "${{ vars.AKS_PLATFORM_REGISTRY_NAME }}"
+
+      # TARGET_IMAGE's host is built the same way
+      # container-registry/outputs.tf's login_server output is: "<registry
+      # name>.azurecr.io", never read from a terraform output, because that
+      # output only exists after a terraform init against this platform's
+      # remote state, and this workflow has no other reason to carry that
+      # weight.
+      - name: Pull, retag by commit SHA, and push
+        shell: bash
+        env:
+          SOURCE_IMAGE: ${{ inputs.source_image }}
+          TARGET_IMAGE: ${{ vars.AKS_PLATFORM_REGISTRY_NAME }}.azurecr.io/mcp-platform-placeholder:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker pull "${SOURCE_IMAGE}"
+          docker tag "${SOURCE_IMAGE}" "${TARGET_IMAGE}"
+          docker push "${TARGET_IMAGE}"
+          echo "Pushed ${TARGET_IMAGE}"
+          {
+            echo "## Placeholder image pushed"
+            echo ""
+            echo "\`${TARGET_IMAGE}\`"
+            echo ""
+            echo "Update this tag in the placeholder workload's Deployment manifest in"
+            echo "the mcp-platform-kubernetes-manifests repo so Argo CD syncs it."
+          } >> "$GITHUB_STEP_SUMMARY"

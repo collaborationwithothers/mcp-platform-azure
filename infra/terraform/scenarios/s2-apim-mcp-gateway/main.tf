@@ -29,10 +29,13 @@ data "azapi_resource" "shared_observability_application_insights" {
 }
 
 locals {
-  # Only "public-demo" exists in v1 scope (see variables.tf validation); the
-  # map exists so a later profile is an added entry, not a restructure.
+  # Standard v2 for private-backend: outbound VNet integration needs it
+  # (Basic v2 does not support it; verified at issue start, COMPATIBILITY.md,
+  # "APIM Standard v2 outbound VNet integration"). The map exists so a later
+  # profile is an added entry, not a restructure.
   profile_sku = {
-    "public-demo" = "BasicV2_1"
+    "public-demo"     = "BasicV2_1"
+    "private-backend" = "StandardV2_1"
   }
 
   mcp_backend_base_url = data.terraform_remote_state.s1.outputs.mcp_backend_base_url
@@ -131,6 +134,12 @@ module "apim_gateway" {
   publisher_email = var.publisher_email
   tenant_id       = var.entra_validation.tenant_id
   prm             = local.prm
+
+  # "External" (outbound-only) only for private-backend; public-demo passes
+  # the module's own "None" default. See apim-gateway/variables.tf for why
+  # this is never "Internal".
+  virtual_network_type      = var.deployment_profile == "private-backend" ? "External" : "None"
+  virtual_network_subnet_id = var.deployment_profile == "private-backend" ? var.apim_outbound_subnet_id : null
 
   shared_observability_application_insights_id = var.shared_observability_application_insights_id
   log_analytics_workspace_id                   = data.azapi_resource.shared_observability_application_insights.output.properties.WorkspaceResourceId

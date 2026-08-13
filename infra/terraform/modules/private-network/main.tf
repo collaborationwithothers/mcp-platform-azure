@@ -1,0 +1,128 @@
+# Spoke virtual network for the epic 108 child (b) private-backend profile:
+# an AKS node subnet, a dedicated subnet for the Istio internal ingress
+# gateway, and a delegated subnet for APIM Standard v2 outbound VNet
+# integration. See README.md for the address plan and its reasoning.
+#
+# Hand-authored azurerm (not an AVM wrapper): avm-res-network-virtualnetwork
+# exists (Azure/avm-res-network-virtualnetwork/azurerm 0.22.1, confirmed via
+# the Terraform registry at issue start), but this module's shape -- three
+# purpose-specific subnets, one with a service delegation, one carrying a
+# caller-pinned address, plus a single spoke-side peering link -- is small
+# enough that a raw azurerm_virtual_network/azurerm_subnet pair is the whole
+# module, not a fraction of one. The general fallback policy
+# (docs/specs/v1-tracer-bullet.md, Terraform and state) treats dropping AVM
+# from a whole module as an ADR moment only when AVM cannot express what the
+# module needs; here it is a deliberate size choice, not a capability gap.
+
+data "azurerm_resource_group" "this" {
+  name = var.resource_group_name
+}
+
+resource "azurerm_virtual_network" "this" {
+  name                = "${var.name_prefix}-vnet"
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.this.name
+  address_space       = var.address_space
+  tags                = var.tags
+}
+
+# One network security group per subnet, default rules only (no custom allow
+# rules). AKS and the APIM outbound integration both manage the connectivity
+# they need through Azure-managed control-plane paths, not through rules this
+# module would author; an NSG with only Azure's defaults still satisfies the
+# "every subnet has an NSG" posture check and gives a future PR a named place
+# to add a rule instead of starting from nothing.
+resource "azurerm_network_security_group" "aks_nodes" {
+  name                = "${var.name_prefix}-nsg-aks-nodes"
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.this.name
+  tags                = var.tags
+}
+
+resource "azurerm_network_security_group" "istio_ingress" {
+  name                = "${var.name_prefix}-nsg-istio-ingress"
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.this.name
+  tags                = var.tags
+}
+
+resource "azurerm_network_security_group" "apim_outbound" {
+  name                = "${var.name_prefix}-nsg-apim-outbound"
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.this.name
+  tags                = var.tags
+}
+
+resource "azurerm_subnet" "aks_nodes" {
+  name                 = "${var.name_prefix}-snet-aks-nodes"
+  resource_group_name  = data.azurerm_resource_group.this.name
+  virtual_network_name = azurerm_virtual_network.this.name
+  address_prefixes     = [var.node_subnet_cidr]
+}
+
+resource "azurerm_subnet_network_security_group_association" "aks_nodes" {
+  subnet_id                 = azurerm_subnet.aks_nodes.id
+  network_security_group_id = azurerm_network_security_group.aks_nodes.id
+}
+
+# No delegation: the Istio internal ingress gateway's load balancer is a
+# standard Azure internal load balancer, not a delegated PaaS integration.
+resource "azurerm_subnet" "istio_ingress" {
+  name                 = "${var.name_prefix}-snet-istio-ingress"
+  resource_group_name  = data.azurerm_resource_group.this.name
+  virtual_network_name = azurerm_virtual_network.this.name
+  address_prefixes     = [var.ingress_gateway_subnet_cidr]
+}
+
+resource "azurerm_subnet_network_security_group_association" "istio_ingress" {
+  subnet_id                 = azurerm_subnet.istio_ingress.id
+  network_security_group_id = azurerm_network_security_group.istio_ingress.id
+}
+
+# Delegated to Microsoft.Web/serverFarms: APIM's Standard v2/Premium v2
+# outbound VNet integration reuses the same App Service network integration
+# mechanism as Azure Functions/App Service VNet integration, and delegates its
+# subnet the same way (Microsoft Learn, integrate-vnet-outbound prerequisites,
+# verified at issue start; see COMPATIBILITY.md).
+resource "azurerm_subnet" "apim_outbound" {
+  name                 = "${var.name_prefix}-snet-apim-outbound"
+  resource_group_name  = data.azurerm_resource_group.this.name
+  virtual_network_name = azurerm_virtual_network.this.name
+  address_prefixes     = [var.apim_outbound_subnet_cidr]
+
+  delegation {
+    name = "apim-outbound-integration"
+
+    service_delegation {
+      name    = "Microsoft.Web/serverFarms"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
+    }
+  }
+}
+
+resource "azurerm_subnet_network_security_group_association" "apim_outbound" {
+  subnet_id                 = azurerm_subnet.apim_outbound.id
+  network_security_group_id = azurerm_network_security_group.apim_outbound.id
+}
+
+# Spoke-side peering link only. Azure VNet peering is symmetric: a working
+# connection needs a matching link created on the runner VNet pointing back at
+# this one, and that link lives in the runner's own resource group, which this
+# repo does not own or manage (see variables.tf, runner_vnet_id). Until that
+# reverse link exists, this resource alone leaves the peering in a
+# "PeeringState: Initiated" / half-connected state -- Azure allows it to be
+# created, it just does not pass traffic yet. allow_forwarded_traffic is true
+# because the runner's outbound path to the AKS ingress gateway may traverse
+# more than one hop inside the runner's own network; allow_gateway_transit and
+# use_remote_gateways are both false because neither network is a gateway
+# transit hub (no ExpressRoute/VPN gateway on either side of this peering).
+resource "azurerm_virtual_network_peering" "to_runner_network" {
+  name                         = "${var.name_prefix}-peer-to-github-actions-runner"
+  resource_group_name          = data.azurerm_resource_group.this.name
+  virtual_network_name         = azurerm_virtual_network.this.name
+  remote_virtual_network_id    = var.runner_vnet_id
+  allow_virtual_network_access = true
+  allow_forwarded_traffic      = true
+  allow_gateway_transit        = false
+  use_remote_gateways          = false
+}
