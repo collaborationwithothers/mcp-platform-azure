@@ -24,6 +24,12 @@ module "apim" {
     system_assigned = true
   }
 
+  # "None" (public-demo default) or "External" (private-backend: outbound-
+  # only VNet integration to the delegated subnet). See variables.tf for why
+  # this module never sets "Internal".
+  virtual_network_type      = var.virtual_network_type
+  virtual_network_subnet_id = var.virtual_network_subnet_id
+
   tags = var.tags
 }
 

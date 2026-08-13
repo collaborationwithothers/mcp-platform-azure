@@ -4,10 +4,17 @@
 # mcp-function-host instance; sizing varies only by var.deployment_profile.
 
 locals {
-  # Only "public-demo" exists in v1 scope (see variables.tf validation); the
-  # map exists so a later profile is an added entry, not a restructure.
+  # private-backend maps to the SAME sizing as public-demo (see variables.tf:
+  # this composition's own resources do not change for private-backend,
+  # since the Functions backend stays deployed and serving until epic 108
+  # child (b4) cuts over). The map exists so a later profile is an added
+  # entry, not a restructure.
   profile_flex_consumption = {
     "public-demo" = {
+      instance_memory_mb     = 2048
+      maximum_instance_count = 40
+    }
+    "private-backend" = {
       instance_memory_mb     = 2048
       maximum_instance_count = 40
     }

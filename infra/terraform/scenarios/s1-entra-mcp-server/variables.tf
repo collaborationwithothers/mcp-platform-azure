@@ -30,12 +30,12 @@ variable "name_prefix" {
 
 variable "deployment_profile" {
   type        = string
-  description = "Selects a named sizing profile for this composition. Only \"public-demo\" is in v1 scope; the variable exists so a later profile (e.g. a private-network variant in v1.1) is additive, not a restructure."
+  description = "Selects a named sizing profile for this composition. \"private-backend\" (epic 108 child (b)) is accepted here so the shared deployment_profile contract stays consistent across compositions; it does not change this composition's own sizing, because the Functions-hosted backend s1 provisions stays deployed and serving until epic 108 child (b4) cuts over to the AKS-hosted server (AGENTS.md GOVERNANCE, Scope). The variable exists so a later profile is an additive map entry, not a restructure."
   default     = "public-demo"
 
   validation {
-    condition     = contains(["public-demo"], var.deployment_profile)
-    error_message = "deployment_profile must be \"public-demo\": the only profile in v1 scope (docs/specs/v1-tracer-bullet.md, Out of Scope)."
+    condition     = contains(["public-demo", "private-backend"], var.deployment_profile)
+    error_message = "deployment_profile must be \"public-demo\" or \"private-backend\" (docs/specs/v1-tracer-bullet.md, Out of Scope)."
   }
 }
 

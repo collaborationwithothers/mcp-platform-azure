@@ -1,8 +1,20 @@
 # ADR-002: MCP server hosting selection
 
-Status: Accepted (v1 tag, 2026-07-22)
+Status: Accepted (v1 tag, 2026-07-22); superseded 2026-08-13 by ADR-010
+(epic 108 child (b), issue #110)
 Date: 2026-07-08
 Accepted: 2026-07-22
+
+## Superseded 2026-08-13
+
+Issue #106 found the Azure Functions MCP extension UNVERIFIED for MCP
+protocol revision 2026-07-28, the revision this repo would need to adopt
+next. ADR-010 records the re-platform to AKS this forces. This ADR's
+Acceptance section below stays exactly as written: it is still the accurate
+record of what v1.0.0 actually proved and shipped, and the Functions-hosted
+backend it describes stays deployed and serving until epic 108 child (b4)
+(issue #117) repoints APIM at the AKS-hosted replacement. Nothing below this
+note is retracted; ADR-010 is the current decision going forward.
 
 ## Acceptance (v1 tag, 2026-07-22)
 

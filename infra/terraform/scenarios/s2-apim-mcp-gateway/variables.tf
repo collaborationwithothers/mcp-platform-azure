@@ -21,12 +21,25 @@ variable "tags" {
 
 variable "deployment_profile" {
   type        = string
-  description = "Selects a named profile for this composition. Only \"public-demo\" is in v1 scope; public-demo selects the Basic v2 APIM SKU and public endpoints from the same modules. The variable exists so a later profile (e.g. the v1.1 private-network variant) is additive, not a restructure."
+  description = "Selects a named profile for this composition. \"public-demo\" selects the Basic v2 APIM SKU and public endpoints; \"private-backend\" (epic 108 child (b)) selects Standard v2 with outbound VNet integration to apim_outbound_subnet_id, so APIM can reach a backend on the private AKS ingress gateway while its own gateway host stays publicly reachable. The variable exists so each profile is an additive map entry, not a restructure."
   default     = "public-demo"
 
   validation {
-    condition     = contains(["public-demo"], var.deployment_profile)
-    error_message = "deployment_profile must be \"public-demo\": the only profile in v1 scope (docs/specs/v1-tracer-bullet.md, Out of Scope)."
+    condition     = contains(["public-demo", "private-backend"], var.deployment_profile)
+    error_message = "deployment_profile must be \"public-demo\" or \"private-backend\" (docs/specs/v1-tracer-bullet.md, Out of Scope)."
+  }
+}
+
+# Required only when deployment_profile is "private-backend" (validated
+# below); null for public-demo, which sets no outbound VNet integration.
+variable "apim_outbound_subnet_id" {
+  type        = string
+  description = "ARM resource ID of the delegated APIM outbound VNet integration subnet (private-network module's apim_outbound_subnet_id output). Required when deployment_profile is \"private-backend\"."
+  default     = null
+
+  validation {
+    condition     = var.deployment_profile != "private-backend" || var.apim_outbound_subnet_id != null
+    error_message = "apim_outbound_subnet_id is required when deployment_profile is \"private-backend\"."
   }
 }
 

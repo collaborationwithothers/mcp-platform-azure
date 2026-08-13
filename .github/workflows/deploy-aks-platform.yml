@@ -1,0 +1,256 @@
+# Deploy-and-bootstrap workflow for the epic 108 child (b) AKS platform
+# (issue 110 task 8). Manual only, workflow_dispatch, never triggered by
+# pull_request or push. runs-on: ubuntu-latest, OIDC-only auth (no client
+# secret, no stored Azure credential) -- same auth pattern as
+# ephemeral-env.yml.
+#
+# Design note this repo's CONTEXT.md defines "Live-test environment" as "The
+# single gated environment in which terraform apply and destroy may run" --
+# singular. This workflow reuses THAT SAME GitHub Environment (live-test)
+# and its existing OIDC federated credential (subject
+# repo:<org>/<repo>:environment:live-test) rather than introducing a second
+# gated environment, even though its lifecycle differs from
+# ephemeral-env.yml's apply-call-destroy pattern: this platform is created or
+# resumed, never destroyed by this workflow. Reusing the existing trust
+# avoids asking Hari to provision a second federated credential for a
+# workflow with the same hard-safety posture (OIDC-only, no secret,
+# environment-gated); the resource group this workflow manages
+# (AKS_PLATFORM_RESOURCE_GROUP) is a stable, non-ephemeral group, distinct
+# from ephemeral-env.yml's per-run rg-mcp-tracer-<run id> groups, so the two
+# workflows never collide on state or on the cleanup sweep's expiry tag.
+#
+# Three actions, chosen at dispatch time:
+# - bootstrap: terraform apply (create-or-update the persistent platform),
+#   pin the Istio ingress gateway's load balancer, install Argo CD, apply
+#   the app-of-apps.
+# - idle-stop: az aks stop. Idles the cluster; disk/storage billing may
+#   continue (COMPATIBILITY.md, "AKS stop/start billing" -- Learn's own
+#   pages disagree on what still bills, so no blanket claim is made here).
+# - idle-start: az aks start. Learn documents a 15-30 minute settle window
+#   after stop before start succeeds; this workflow does not wait for you,
+#   because that wait is exactly what makes stop-then-immediately-start a
+#   guard, not a retry loop (issue 110 section 5, edge cases).
+#
+# The image build/push pipeline (issue 110 task 9) is a separate workflow,
+# build-aks-placeholder-image.yml: pushing a placeholder image is not an
+# infrastructure apply and does not need this workflow's cluster-lifecycle
+# gate.
+
+name: Deploy AKS platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do."
+        required: true
+        type: choice
+        options:
+          - bootstrap
+          - idle-stop
+          - idle-start
+      confirm:
+        description: "Type the action name exactly (e.g. \"bootstrap\") to confirm you understand this affects a real, persistent Azure cluster."
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-aks-platform
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the action typed back exactly
+        shell: bash
+        run: |
+          if [ "${{ inputs.confirm }}" != "${{ inputs.action }}" ]; then
+            echo "::error::confirm must exactly match action ('${{ inputs.action }}'). This workflow affects a real, persistent Azure cluster; the input exists so nobody triggers it by accident."
+            exit 1
+          fi
+
+  bootstrap:
+    name: bootstrap
+    if: inputs.action == 'bootstrap'
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      AKS_PLATFORM_STATE_KEY: s1-aks-platform.tfstate
+      TF_VAR_resource_group_name: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
+      TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+      TF_VAR_cluster_name: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
+      TF_VAR_registry_name: ${{ vars.AKS_PLATFORM_REGISTRY_NAME }}
+      # Non-secret resource id (see private-network/README.md); a GitHub
+      # Environment variable, never a literal in this repo.
+      TF_VAR_runner_vnet_id: ${{ vars.AKS_PLATFORM_RUNNER_VNET_ID }}
+      TF_VAR_ingress_gateway_private_ip: ${{ vars.AKS_PLATFORM_INGRESS_PRIVATE_IP }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # Same reasoning and placement as ephemeral-env.yml's identical step:
+      # the cached OIDC assertion azure/login used is only valid ~5 minutes,
+      # and the apply below routinely runs longer than that.
+      - name: Look up the OIDC principal's object id (for AcrPush)
+        id: principal
+        shell: bash
+        run: |
+          object_id="$(az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" --query id -o tsv)"
+          echo "object_id=${object_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Ensure the platform resource group exists
+        shell: bash
+        run: |
+          az group create \
+            --name "${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}" \
+            --location "${{ vars.LIVE_TEST_LOCATION }}" \
+            --tags scenario=aks-platform persistent=true
+
+      - name: terraform init and apply - s1-aks-platform
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        env:
+          TF_VAR_acr_push_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
+        run: |
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${AKS_PLATFORM_STATE_KEY}"
+          terraform apply -input=false -auto-approve
+
+      - name: kubelogin and az aks get-credentials
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks get-credentials \
+            --resource-group "${TF_VAR_resource_group_name}" \
+            --name "$(terraform output -raw cluster_name)" \
+            --overwrite-existing
+          az aks install-cli --only-show-errors || true
+          kubelogin convert-kubeconfig -l azurecli
+
+      # Pins the Istio ingress gateway's Kubernetes Service to the
+      # predetermined private IP and dedicated subnet (issue 110 task 5;
+      # mcp-aks-host/README.md, "The ingress gateway's load balancer IP is
+      # not this module's job" -- this is that Kubernetes-object-level step).
+      # The Service name/namespace follow AKS's own Istio add-on convention
+      # (aks-istio-ingress namespace, aks-istio-ingressgateway-internal-
+      # <revision> Service name); verify the exact name against the live
+      # cluster if the add-on's naming ever changes (COMPATIBILITY.md).
+      - name: Pin the Istio ingress gateway's load balancer
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$(kubectl get pods -n aks-istio-ingress -l istio=aks-istio-ingressgateway-internal -o jsonpath='{.items[0].metadata.labels.istio\.io/rev}')"
+          service_name="aks-istio-ingressgateway-internal-${revision}"
+          kubectl annotate service "${service_name}" -n aks-istio-ingress --overwrite \
+            service.beta.kubernetes.io/azure-load-balancer-ipv4="$(terraform output -raw ingress_gateway_private_ip)" \
+            service.beta.kubernetes.io/azure-load-balancer-internal-subnet="$(terraform output -raw istio_ingress_subnet_name)"
+          kubectl rollout restart deployment "aks-istio-ingressgateway-internal-${revision}" -n aks-istio-ingress
+
+      # Two steps, not one apply (issue 110 task 7 and section 5): the argo-cd
+      # chart's own extraObjects value CAN embed the root Application (see
+      # ADR-010, "Argo CD bootstrap"), but this repo follows the two-step
+      # design Hari's planning session recorded. redis-ha.enabled is left at
+      # the chart's own default (false; verified at issue start, chart
+      # 10.3.2) -- the ticket's stated reason for setting it explicitly (a
+      # 2-node system pool cannot schedule Redis HA) no longer matches the
+      # current chart, which ships HA off by default; see ADR-010 for that
+      # correction. It is still passed explicitly here so the intent is not
+      # implicit and does not silently regress if a future chart bump flips
+      # the default.
+      - name: Install Argo CD (pinned chart)
+        shell: bash
+        run: |
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update argo
+          helm upgrade --install argocd argo/argo-cd \
+            --version 10.3.2 \
+            --namespace argocd \
+            --create-namespace \
+            --set redis-ha.enabled=false \
+            --wait --timeout 10m
+
+      - name: Apply the app-of-apps
+        shell: bash
+        run: kubectl apply -f infra/argocd/bootstrap-app-of-apps.yaml
+
+      - name: Report readiness
+        shell: bash
+        run: |
+          kubectl get applications -n argocd
+          kubectl get pods -n aks-istio-ingress
+          echo "Platform bootstrap complete. Argo CD will reconcile the placeholder workload from the manifests repo asynchronously; check 'kubectl get applications -n argocd' for sync status."
+
+  idle-stop:
+    name: idle-stop
+    if: inputs.action == 'idle-stop'
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: live-test
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: az aks stop
+        shell: bash
+        run: |
+          az aks stop \
+            --resource-group "${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}" \
+            --name "${{ vars.AKS_PLATFORM_CLUSTER_NAME }}"
+          echo "::notice::Stopped. Wait 15-30 minutes (Microsoft Learn, undocumented exact SLA) before running idle-start -- see docs/runbooks/aks-platform-bootstrap.md. Record the measured Istio add-on and pinned-IP behaviour across this cycle in COMPATIBILITY.md with this run's id."
+
+  idle-start:
+    name: idle-start
+    if: inputs.action == 'idle-start'
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: live-test
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: az aks start
+        shell: bash
+        run: |
+          az aks start \
+            --resource-group "${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}" \
+            --name "${{ vars.AKS_PLATFORM_CLUSTER_NAME }}"
+          echo "::notice::Started. Confirm the Istio add-on and the ingress gateway's pinned IP both survived, and record the result in COMPATIBILITY.md with this run's id (issue 110 acceptance criteria)."
