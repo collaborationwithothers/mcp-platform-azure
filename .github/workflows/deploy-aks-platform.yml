@@ -98,6 +98,14 @@ jobs:
       # Environment variable, never a literal in this repo.
       TF_VAR_runner_vnet_id: ${{ vars.AKS_PLATFORM_RUNNER_VNET_ID }}
       TF_VAR_ingress_gateway_private_ip: ${{ vars.AKS_PLATFORM_INGRESS_PRIVATE_IP }}
+      # Same shared, out-of-band Application Insights resource every other
+      # scenario reads (s1-entra-mcp-server, s2-apim-mcp-gateway via
+      # ephemeral-env.yml); this env var was already present on live-test
+      # before this workflow existed. Missing here until this fix -- s1-aks-
+      # platform's own diagnostics wiring needs it to resolve the shared Log
+      # Analytics workspace id (main.tf, shared_observability_application_
+      # insights_id).
+      TF_VAR_shared_observability_application_insights_id: ${{ vars.TF_VAR_shared_observability_application_insights_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
