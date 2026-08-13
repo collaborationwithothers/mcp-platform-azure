@@ -103,6 +103,14 @@ variable "apim_outbound_subnet_cidr" {
 # passes the same value to the gateway's
 # service.beta.kubernetes.io/azure-load-balancer-ipv4 annotation, and this
 # module never defaults it, because pinning is the point.
+# This module's own resources never read the value -- the annotation itself
+# is a Kubernetes-object-level step the deploy-and-bootstrap workflow
+# performs, not a Terraform resource here (see mcp-aks-host/README.md, "The
+# ingress gateway's load balancer IP is not this module's job"). Declaring
+# it here anyway is deliberate: it is the one place the caller's chosen IP
+# gets checked against the subnet it must live in, before anything
+# downstream consumes it.
+# tflint-ignore: terraform_unused_declarations
 variable "ingress_gateway_private_ip" {
   type        = string
   description = "Predetermined private IPv4 address for the Istio internal ingress gateway's load balancer, inside ingress_gateway_subnet_cidr."
