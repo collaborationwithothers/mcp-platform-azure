@@ -97,10 +97,14 @@ variable "pod_cidr" {
   default     = "192.168.0.0/16"
 }
 
-# asm-1-27: one revision below the newest AKS-released revision at
-# issue-start verification (asm-1-28, itself close to or past its documented
-# expected EOL window) -- chosen for headroom, not because asm-1-28 is
-# unusable. This platform does not use Managed Gateway API (see ADR-010,
+# asm-1-29: one revision below the newest AKS-released revision at
+# 2026-08-13 live-apply re-verification (asm-1-30) -- chosen for headroom,
+# not because asm-1-30 is unusable. Superseded the prior default, asm-1-27,
+# which aged out of swedencentral's meshRevisionProfiles entirely between
+# issue-start and the first live apply (confirmed via `az rest` against the
+# same api-version, 2026-03-01, the azapi resource uses); the AKS create
+# failed with "Revision asm-1-27 is not supported by the service mesh
+# add-on." This platform does not use Managed Gateway API (see ADR-010,
 # COMPATIBILITY.md), which would otherwise need at least asm-1-26. Istio
 # revisions move
 # on their own release cadence, independent of every other pin in this module
@@ -109,6 +113,6 @@ variable "pod_cidr" {
 # -o table` immediately before any live apply, not from this default.
 variable "istio_revision" {
   type        = string
-  description = "Istio add-on control plane revision (e.g. \"asm-1-27\"). Re-verify against `az aks mesh get-revisions` before any live apply; this default is a point-in-time choice, not a standing recommendation."
-  default     = "asm-1-27"
+  description = "Istio add-on control plane revision (e.g. \"asm-1-29\"). Re-verify against `az aks mesh get-revisions` before any live apply; this default is a point-in-time choice, not a standing recommendation."
+  default     = "asm-1-29"
 }

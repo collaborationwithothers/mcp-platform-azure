@@ -21,10 +21,16 @@ role-assignment-write at these scopes before the run:
 - **API Center instance** -- `api-center-registry` grants **Azure API Center
   Data Reader** there to each principal in `data_reader_principal_ids` (the poll
   principal) for authenticated data-plane read.
+- **AKS platform VNet** -- `s1-aks-platform` grants the AKS cluster identity
+  **Network Contributor** there so AKS can manage the internal ingress load
+  balancer. This assignment is at the VNet scope, not the AKS-managed node
+  resource group.
 
-If the composition instead grants these roles out of band, set
-`assign_apim_reader_role = false` and/or pass `data_reader_principal_ids = []`,
-and the deploying principal does not need role-assignment-write.
+The APIM and API Center alternatives are configurable: set
+`assign_apim_reader_role = false` and/or pass `data_reader_principal_ids = []`
+when those roles are granted out of band. The AKS platform VNet assignment has
+no equivalent switch. If it already exists, import it before the live run rather
+than creating a duplicate assignment.
 
 Amendment recorded 2026-07-12 (ticket 4, PR #21) so ticket 5's integration run
 does not fail at the gate on a missing grant.

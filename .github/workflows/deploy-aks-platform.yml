@@ -169,21 +169,86 @@ jobs:
       # predetermined private IP and dedicated subnet (issue 110 task 5;
       # mcp-aks-host/README.md, "The ingress gateway's load balancer IP is
       # not this module's job" -- this is that Kubernetes-object-level step).
-      # The Service name/namespace follow AKS's own Istio add-on convention
-      # (aks-istio-ingress namespace, aks-istio-ingressgateway-internal-
-      # <revision> Service name); verify the exact name against the live
-      # cluster if the add-on's naming ever changes (COMPATIBILITY.md).
+      # AKS uses the stable Service name below. The revision suffix belongs
+      # to the gateway Deployment, not its Service (COMPATIBILITY.md).
       - name: Pin the Istio ingress gateway's load balancer
         working-directory: infra/terraform/scenarios/s1-aks-platform
         shell: bash
         run: |
           set -euo pipefail
-          revision="$(kubectl get pods -n aks-istio-ingress -l istio=aks-istio-ingressgateway-internal -o jsonpath='{.items[0].metadata.labels.istio\.io/rev}')"
-          service_name="aks-istio-ingressgateway-internal-${revision}"
-          kubectl annotate service "${service_name}" -n aks-istio-ingress --overwrite \
-            service.beta.kubernetes.io/azure-load-balancer-ipv4="$(terraform output -raw ingress_gateway_private_ip)" \
-            service.beta.kubernetes.io/azure-load-balancer-internal-subnet="$(terraform output -raw istio_ingress_subnet_name)"
-          kubectl rollout restart deployment "aks-istio-ingressgateway-internal-${revision}" -n aks-istio-ingress
+          service_name="aks-istio-ingressgateway-internal"
+          namespace="aks-istio-ingress"
+          expected_ip="$(terraform output -raw ingress_gateway_private_ip)"
+          expected_subnet="$(terraform output -raw istio_ingress_subnet_name)"
+          expected_internal="true"
+          timeout_seconds=900
+          deadline=$((SECONDS + timeout_seconds))
+          observed_service_uid=""
+          ready_observations=0
+
+          report_gateway_state() {
+            kubectl --request-timeout=10s get service -n "${namespace}" "${service_name}" -o wide || true
+            kubectl --request-timeout=10s get deployments -n "${namespace}" -l istio=aks-istio-ingressgateway-internal -o wide || true
+            kubectl --request-timeout=10s get pods -n "${namespace}" -l istio=aks-istio-ingressgateway-internal -o wide || true
+            kubectl --request-timeout=10s get events -n "${namespace}" --sort-by=.lastTimestamp | tail -n 40 || true
+          }
+
+          while true; do
+            if (( SECONDS >= deadline )); then
+              echo "::error::Timed out after ${timeout_seconds}s waiting for Istio ingress Service ${namespace}/${service_name} to keep its load-balancer annotations and report ${expected_ip}."
+              report_gateway_state
+              exit 1
+            fi
+
+            service_state="$(kubectl --request-timeout=10s get service "${service_name}" -n "${namespace}" -o jsonpath='{.metadata.uid}{"|"}{.metadata.annotations.service\.beta\.kubernetes\.io/azure-load-balancer-internal}{"|"}{.metadata.annotations.service\.beta\.kubernetes\.io/azure-load-balancer-ipv4}{"|"}{.metadata.annotations.service\.beta\.kubernetes\.io/azure-load-balancer-internal-subnet}{"|"}{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+            service_uid=""
+            configured_internal=""
+            configured_ip=""
+            configured_subnet=""
+            actual_ip=""
+
+            if [ -n "${service_state}" ]; then
+              IFS="|" read -r service_uid configured_internal configured_ip configured_subnet actual_ip <<< "${service_state}"
+
+              if [ "${service_uid}" != "${observed_service_uid}" ]; then
+                if [ -n "${observed_service_uid}" ]; then
+                  echo "Detected replacement of Istio ingress Service ${namespace}/${service_name}; reconciling the replacement."
+                else
+                  echo "Discovered Istio ingress Service ${namespace}/${service_name}; applying its load-balancer configuration."
+                fi
+                observed_service_uid="${service_uid}"
+                ready_observations=0
+              fi
+
+              if [ "${configured_internal}" != "${expected_internal}" ] || [ "${configured_ip}" != "${expected_ip}" ] || [ "${configured_subnet}" != "${expected_subnet}" ]; then
+                echo "Ensuring the Istio ingress Service uses ${expected_ip} in ${expected_subnet}."
+                if ! kubectl --request-timeout=10s annotate service "${service_name}" -n "${namespace}" --overwrite \
+                  service.beta.kubernetes.io/azure-load-balancer-internal="${expected_internal}" \
+                  service.beta.kubernetes.io/azure-load-balancer-ipv4="${expected_ip}" \
+                  service.beta.kubernetes.io/azure-load-balancer-internal-subnet="${expected_subnet}"; then
+                  echo "::warning::Could not annotate Istio ingress Service ${namespace}/${service_name}; retrying while the 15-minute budget remains."
+                fi
+              fi
+
+              if [ "${configured_internal}" = "${expected_internal}" ] && [ "${configured_ip}" = "${expected_ip}" ] && [ "${configured_subnet}" = "${expected_subnet}" ] && [ "${actual_ip}" = "${expected_ip}" ]; then
+                ready_observations=$((ready_observations + 1))
+                if (( ready_observations == 3 )); then
+                  break
+                fi
+              else
+                ready_observations=0
+              fi
+            fi
+
+            if (( SECONDS >= deadline )); then
+              echo "::error::Timed out after ${timeout_seconds}s waiting for Istio ingress Service ${namespace}/${service_name} to keep its load-balancer annotations and report ${expected_ip}; current value: ${actual_ip:-<pending>}."
+              report_gateway_state
+              exit 1
+            fi
+            sleep 10
+          done
+
+          kubectl --request-timeout=10s get service "${service_name}" -n "${namespace}" -o wide
 
       # Two steps, not one apply (issue 110 task 7 and section 5): the argo-cd
       # chart's own extraObjects value CAN embed the root Application (see

@@ -36,6 +36,18 @@ module "aks" {
   log_analytics_workspace_id = local.log_analytics_workspace_id
 }
 
+# AKS uses its cluster identity, rather than the kubelet identity, to manage
+# the internal load balancer. Microsoft Learn requires Network Contributor on
+# the virtual network. That documented scope covers both the node and Istio
+# ingress subnets that the load balancer uses.
+resource "azurerm_role_assignment" "aks_network_contributor" {
+  scope                            = module.network.vnet_id
+  role_definition_name             = "Network Contributor"
+  principal_id                     = module.aks.cluster_identity_principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
 module "registry" {
   source = "../../modules/container-registry"
 
@@ -72,10 +84,18 @@ resource "azurerm_user_assigned_identity" "placeholder_workload" {
 }
 
 resource "azurerm_federated_identity_credential" "placeholder_workload" {
-  name                = "${var.name_prefix}-placeholder-workload-fic"
-  resource_group_name = var.resource_group_name
-  parent_id           = azurerm_user_assigned_identity.placeholder_workload.id
-  issuer              = module.aks.oidc_issuer_url
-  subject             = "system:serviceaccount:${var.placeholder_namespace}:${var.placeholder_service_account_name}"
-  audience            = ["api://AzureADTokenExchange"]
+  # resource_group_name deliberately omitted: azurerm provider ~> 4.80
+  # (this repo's pin) warns "This field is no longer used and will be
+  # removed in the next major version of the Azure Provider" -- confirmed
+  # live (Hari's bootstrap apply, 2026-08-13), not from static docs, since
+  # the Terraform Registry's rendered docs for this resource already show
+  # only the next-major argument shape (user_assigned_identity_id) and do
+  # not preserve this provider line's exact deprecated-vs-required argument
+  # set. parent_id alone already fully identifies the resource group and
+  # parent identity.
+  name      = "${var.name_prefix}-placeholder-workload-fic"
+  parent_id = azurerm_user_assigned_identity.placeholder_workload.id
+  issuer    = module.aks.oidc_issuer_url
+  subject   = "system:serviceaccount:${var.placeholder_namespace}:${var.placeholder_service_account_name}"
+  audience  = ["api://AzureADTokenExchange"]
 }
