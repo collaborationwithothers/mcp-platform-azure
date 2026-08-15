@@ -32,3 +32,11 @@ This routing provides platform resource telemetry. It is not application
 instrumentation and does not complete distributed request or dependency
 correlation. Workbooks and alerts remain deferred by ADR-004. The diagram above
 is the human-exported editable SVG; its Draw.io source remains alongside it.
+
+## Shared observability after issue 124
+
+[The editable Draw.io source](diagrams/issue-124-shared-observability.drawio)
+shows the core and metrics state boundary, the AKS metrics path, and the
+Argo CD-owned scrape configuration. It is source material for the human-owned
+SVG export. The SVG must be exported from Draw.io and embedded here before this
+topology change is complete.

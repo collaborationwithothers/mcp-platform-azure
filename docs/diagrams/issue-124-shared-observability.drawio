@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio-mcp" modified="2026-08-15T16:39:09.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+  <diagram name="issue-124-shared-observability" id="87a2aff89b55">
+    <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" background="#FFFFFF" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="Shared observability workflow&lt;br&gt;Dashboard JSON and OIDC import" style="shape=image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;fontColor=#1A1A1A;image=img/lib/azure2/devops/Azure_DevOps.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50" y="290" width="400.0" height="110" />
+        </mxCell>
+        <mxCell id="3" value="Argo CD-owned configuration&lt;br&gt;ConfigMap and ServiceMonitors" style="shape=image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;fontColor=#1A1A1A;image=img/lib/azure2/containers/Kubernetes_Services.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50" y="140" width="400.0" height="110" />
+        </mxCell>
+        <mxCell id="4" value="Shared observability metrics&lt;br&gt;Azure Monitor workspace" style="shape=image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;fontColor=#1A1A1A;image=img/lib/azure2/management_governance/Monitor.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="770" y="140" width="180" height="110" />
+        </mxCell>
+        <mxCell id="5" value="AKS managed Prometheus&lt;br&gt;Native DCE and DCR" style="shape=image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;fontColor=#1A1A1A;image=img/lib/azure2/containers/Kubernetes_Services.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="490" y="140" width="180" height="110" />
+        </mxCell>
+        <mxCell id="6" value="Azure Managed Grafana&lt;br&gt;Managed identity reader" style="shape=image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;fontColor=#1A1A1A;image=img/lib/azure2/other/Grafana.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1050" y="140" width="180" height="110" />
+        </mxCell>
+        <mxCell id="7" value="S1 and S2 consumers&lt;br&gt;Function hosts and APIM" style="shape=image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;fontColor=#1A1A1A;image=img/lib/azure2/compute/Function_Apps.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50" y="440" width="400.0" height="110" />
+        </mxCell>
+        <mxCell id="8" value="Shared observability core&lt;br&gt;Log Analytics and App Insights" style="shape=image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;fontColor=#1A1A1A;image=img/lib/azure2/analytics/Log_Analytics_Workspaces.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="490" y="290" width="180" height="110" />
+        </mxCell>
+        <mxCell id="9" value="core lifecycle" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" edge="1" source="2" target="8">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="10" value="metrics lifecycle" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" edge="1" source="2" target="4">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="240" y="200" />
+              <mxPoint x="860" y="200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="11" value="diagnostics and audit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" edge="1" source="7" target="8">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="580" y="440" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="12" value="ConfigMap and ServiceMonitors" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" edge="1" source="3" target="5">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="13" value="Prometheus metrics" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" edge="1" source="5" target="4">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="14" value="PromQL data" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" edge="1" source="4" target="6">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="15" value="OIDC dashboard import" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" edge="1" source="2" target="6">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="260" y="200" />
+              <mxPoint x="1140" y="200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="16" value="Issue 124 shared observability topology" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=20;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50" y="590" width="400.0" height="30.0" />
+        </mxCell>
+        <mxCell id="17" value="Core state is durable. Metrics state can be recreated after AKS collection is detached." style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=14;fontColor=#666666;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50" y="660" width="400.0" height="20.0" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
