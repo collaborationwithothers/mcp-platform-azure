@@ -37,6 +37,7 @@ is the human-exported editable SVG; its Draw.io source remains alongside it.
 
 [The editable Draw.io source](diagrams/issue-124-shared-observability.drawio)
 shows the core and metrics state boundary, the AKS metrics path, and the
-Argo CD-owned scrape configuration. It is source material for the human-owned
-SVG export. The SVG must be exported from Draw.io and embedded here before this
-topology change is complete.
+Argo CD-owned scrape configuration. The human-exported editable SVG below
+includes a copy of that source.
+
+![Issue 124 shared observability topology](diagrams/issue-124-shared-observability.drawio.svg)
