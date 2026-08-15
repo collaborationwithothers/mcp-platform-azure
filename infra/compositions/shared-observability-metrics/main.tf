@@ -27,7 +27,7 @@ resource "azurerm_monitor_workspace" "this" {
 }
 
 resource "azurerm_dashboard_grafana" "this" {
-  name                  = "mcp-shared-grafana-${local.name_suffix}"
+  name                  = "mcp-grafana-${local.name_suffix}"
   location              = var.location
   resource_group_name   = data.azurerm_resource_group.shared_observability.name
   sku                   = "Standard"
