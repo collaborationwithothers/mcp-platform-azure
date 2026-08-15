@@ -32,12 +32,29 @@ variable "node_subnet_id" {
 variable "log_analytics_workspace_id" {
   type        = string
   nullable    = false
-  description = "ARM resource ID of the out-of-band Log Analytics workspace the cluster's diagnostic settings send logs and metrics to (issue 75's discovery-based pattern, extended to this child's resources)."
+  description = "ARM resource ID of the core-state Log Analytics workspace the cluster's diagnostic settings send logs and metrics to (issue 75's discovery-based pattern, extended to this child's resources)."
 
   validation {
     condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Oo]perational[Ii]nsights/workspaces/[^/]+$", var.log_analytics_workspace_id))
     error_message = "log_analytics_workspace_id must be a valid Microsoft.OperationalInsights/workspaces ARM resource ID."
   }
+}
+
+variable "azure_monitor_workspace_id" {
+  type        = string
+  nullable    = false
+  description = "ARM resource ID of the Azure Monitor workspace that stores managed Prometheus metrics."
+
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Mm]onitor/accounts/[^/]+$", var.azure_monitor_workspace_id))
+    error_message = "azure_monitor_workspace_id must be a valid Microsoft.Monitor/accounts ARM resource ID."
+  }
+}
+
+variable "managed_prometheus_enabled" {
+  type        = bool
+  description = "Whether the AKS managed Prometheus add-on and its Azure Monitor collection resources are enabled."
+  default     = true
 }
 
 # 2 is the floor, not a default a caller is expected to raise casually: an AKS

@@ -51,9 +51,7 @@ there is exactly one place the runner network's identity can be wrong.
 is an ARM resource ID, which embeds a real subscription id, and AGENTS.md's
 hard safety rules forbid committing subscription or tenant ids to this public
 repo. It is supplied out of band as `TF_VAR_runner_vnet_id` on the live-test
-GitHub Environment, the same pattern `apim-gateway`'s
-`shared_observability_application_insights_id` already uses for a
-non-secret-but-real resource reference.
+GitHub Environment.
 
 ## What this module does not do
 

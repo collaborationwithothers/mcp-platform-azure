@@ -202,9 +202,13 @@ variable "registry_deployment" {
   default     = {}
 }
 
-variable "shared_observability_application_insights_id" {
-  type        = string
-  description = "ARM resource ID of the out-of-band workspace-based Application Insights resource shared by the scenarios. The composition derives its WorkspaceResourceId for APIM diagnostic settings and passes the resource ID to apim-gateway for its Application Insights ConnectionString lookup. Supplied as TF_VAR_shared_observability_application_insights_id on the live-test GitHub Environment; never committed."
+variable "shared_observability_core_remote_state" {
+  type = object({
+    storage_account_name = string
+    container_name       = string
+    key                  = string
+  })
+  description = "AzureRM backend coordinates for shared-observability-core state. This scenario reads the shared Application Insights and Log Analytics resource IDs through OIDC-authenticated remote state."
 }
 
 variable "data_reader_principal_ids" {

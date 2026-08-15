@@ -130,7 +130,7 @@ param(
     # check (c)'s by the Event Hub consumer's tool-name filter.
     [string]$EventHubWarmupToolName = 'issue18_eventhub_warmup',
     # ARM resource ID of the shared Log Analytics workspace underlying the
-    # out-of-band workspace-based Application Insights resource (Terraform
+    # core-state workspace-based Application Insights resource (Terraform
     # output shared_observability_workspace_id).
     # No longer queried by this script (see EventHubNamespaceFqdn/EventHubName
     # below for the check that gates pass/fail) -- the policy's <trace>

@@ -13,6 +13,20 @@ placeholder workload in issue 110 task 9, not this module.
 No deployment happens in this ticket: the module is proven by `terraform
 fmt`, `init -backend=false`, `validate`, and `checkov` only.
 
+## Managed Prometheus attachment
+
+Issue 124 adds Azure Monitor managed Prometheus as an optional module input.
+It defaults to enabled. The AVM module sets the AKS add-on flag. This wrapper
+creates the Azure Monitor data collection endpoint, rule, and cluster
+associations because the AVM onboarding path would also enable Container
+Insights, which this platform does not add.
+
+The scenario passes the Azure Monitor workspace ID from the separate metrics
+state. Setting `managed_prometheus_enabled` to `false` removes the add-on flag
+and these scenario-owned collection resources. The shared observability teardown
+workflow uses that setting before it destroys metrics state. A normal AKS
+bootstrap reattaches collection after metrics state is recreated.
+
 ## Issue-start AVM capability check (2026-08-13)
 
 Verified directly against the module's published documentation (Terraform

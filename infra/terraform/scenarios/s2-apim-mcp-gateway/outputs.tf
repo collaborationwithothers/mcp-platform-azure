@@ -40,7 +40,7 @@ output "tool_authorization_map_keys" {
 
 output "shared_observability_workspace_id" {
   value       = module.apim_gateway.shared_observability_workspace_id
-  description = "ARM resource ID of the shared Log Analytics workspace derived from the out-of-band workspace-based Application Insights resource. The live gate passes it to the discovery script as a durable observability-trail pointer."
+  description = "ARM resource ID of the shared Log Analytics workspace read from shared-observability-core state. The live gate passes it to the discovery script as a durable observability-trail pointer."
 }
 
 output "eventhub_namespace_fqdn" {

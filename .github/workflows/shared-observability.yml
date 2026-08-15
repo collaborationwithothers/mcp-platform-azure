@@ -1,0 +1,507 @@
+# Shared observability lifecycle for issue 124. Core state is deliberately not
+# destroyed here. Metrics teardown is a controlled operation because it first
+# detaches the AKS collector and restores the root Argo CD Application to main.
+name: Shared observability
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do."
+        required: true
+        type: choice
+        options:
+          - bootstrap
+          - teardown
+          - verify
+      confirm:
+        description: "For bootstrap or teardown, type the action name exactly. Verify needs no confirmation."
+        required: false
+        type: string
+      companion_revision:
+        description: "Immutable 40-character SHA from the companion manifests PR. Required for teardown's pre-destroy exercise."
+        required: false
+        type: string
+
+concurrency:
+  group: live-test
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate dispatch inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          action="${{ inputs.action }}"
+          confirm="${{ inputs.confirm }}"
+          revision="${{ inputs.companion_revision }}"
+
+          if [ "${action}" = "bootstrap" ] || [ "${action}" = "teardown" ]; then
+            if [ "${confirm}" != "${action}" ]; then
+              echo "::error::confirm must exactly match action for ${action}."
+              exit 1
+            fi
+          fi
+
+          if [ "${action}" = "teardown" ] && ! [[ "${revision}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::teardown requires companion_revision to be a lowercase, 40-character Git commit SHA."
+            exit 1
+          fi
+
+  bootstrap:
+    name: bootstrap
+    if: inputs.action == 'bootstrap'
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
+      SHARED_OBSERVABILITY_METRICS_STATE_KEY: shared-observability-metrics.tfstate
+      TF_VAR_resource_group_name: ${{ vars.SHARED_OBSERVABILITY_RESOURCE_GROUP }}
+      TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+      GRAFANA_ADMIN_PRINCIPAL_IDS: ${{ vars.GRAFANA_ADMIN_PRINCIPAL_IDS }}
+      GRAFANA_VIEWER_PRINCIPAL_IDS: ${{ vars.GRAFANA_VIEWER_PRINCIPAL_IDS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Confirm the shared observability resource group exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          az group show --name "${TF_VAR_resource_group_name}" --query name -o tsv >/dev/null
+
+      - name: terraform init and apply - shared-observability-core
+        working-directory: infra/compositions/shared-observability-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_CORE_STATE_KEY}"
+          terraform apply -input=false -auto-approve
+
+      - name: terraform init and apply - shared-observability-metrics
+        working-directory: infra/compositions/shared-observability-metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_METRICS_STATE_KEY}"
+          if [ -n "${GRAFANA_ADMIN_PRINCIPAL_IDS}" ]; then
+            export TF_VAR_grafana_admin_principal_ids="${GRAFANA_ADMIN_PRINCIPAL_IDS}"
+          fi
+          if [ -n "${GRAFANA_VIEWER_PRINCIPAL_IDS}" ]; then
+            export TF_VAR_grafana_viewer_principal_ids="${GRAFANA_VIEWER_PRINCIPAL_IDS}"
+          fi
+          terraform apply -input=false -auto-approve
+
+      - name: Refresh Azure login for Grafana import
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create the Grafana folder and import the dashboard
+        working-directory: infra/compositions/shared-observability-metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          az extension add --name amg --version 2.8.0 --yes
+          grafana_name="$(terraform output -raw grafana_name)"
+          resource_group="${TF_VAR_resource_group_name}"
+
+          if ! az grafana folder show --name "${grafana_name}" --resource-group "${resource_group}" --folder "MCP Platform" >/dev/null 2>&1; then
+            az grafana folder create --name "${grafana_name}" --resource-group "${resource_group}" --title "MCP Platform"
+          fi
+
+          for attempt in $(seq 1 10); do
+            if az grafana dashboard import \
+              --name "${grafana_name}" \
+              --resource-group "${resource_group}" \
+              --folder "MCP Platform" \
+              --definition "${GITHUB_WORKSPACE}/observability/grafana/aks-platform-overview.json" \
+              --overwrite true; then
+              exit 0
+            fi
+            if [ "${attempt}" -lt 10 ]; then
+              echo "Grafana Editor assignment or workspace is not ready yet. Retrying in 30 seconds."
+              sleep 30
+            fi
+          done
+
+          echo "::error::Could not import the repository dashboard after Grafana role propagation retries."
+          exit 1
+
+      - name: Summarize bootstrap
+        working-directory: infra/compositions/shared-observability-metrics
+        shell: bash
+        run: |
+          {
+            echo "## Shared observability bootstrap"
+            echo
+            echo "Core state: ${SHARED_OBSERVABILITY_CORE_STATE_KEY}"
+            echo "Metrics state: ${SHARED_OBSERVABILITY_METRICS_STATE_KEY}"
+            echo "Grafana: $(terraform output -raw grafana_name)"
+            echo "Dashboard: MCP Platform / AKS Platform Overview"
+            echo
+            echo "Run Deploy AKS platform with action bootstrap next. That workflow owns the managed Prometheus attachment."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    name: verify
+    if: inputs.action == 'verify'
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      SHARED_OBSERVABILITY_METRICS_STATE_KEY: shared-observability-metrics.tfstate
+      TF_VAR_resource_group_name: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
+      TF_VAR_cluster_name: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Read the metrics state
+        id: metrics
+        working-directory: infra/compositions/shared-observability-metrics
+        shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ vars.SHARED_OBSERVABILITY_RESOURCE_GROUP }}
+          TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+        run: |
+          set -euo pipefail
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_METRICS_STATE_KEY}"
+          echo "workspace_id=$(terraform output -raw azure_monitor_workspace_id)" >> "$GITHUB_OUTPUT"
+          echo "grafana_name=$(terraform output -raw grafana_name)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the dashboard and managed Prometheus attachment
+        id: verify
+        shell: bash
+        env:
+          AZURE_MONITOR_WORKSPACE_ID: ${{ steps.metrics.outputs.workspace_id }}
+          GRAFANA_NAME: ${{ steps.metrics.outputs.grafana_name }}
+          GRAFANA_RESOURCE_GROUP: ${{ vars.SHARED_OBSERVABILITY_RESOURCE_GROUP }}
+        run: |
+          set -euo pipefail
+          az extension add --name amg --version 2.8.0 --yes
+          az grafana folder show --name "${GRAFANA_NAME}" --resource-group "${GRAFANA_RESOURCE_GROUP}" --folder "MCP Platform" --query title -o tsv | grep -Fx "MCP Platform"
+          az grafana dashboard show --name "${GRAFANA_NAME}" --resource-group "${GRAFANA_RESOURCE_GROUP}" --dashboard aks-platform-overview --query title -o tsv | grep -Fx "AKS Platform Overview"
+          az aks show --resource-group "${TF_VAR_resource_group_name}" --name "${TF_VAR_cluster_name}" --query azureMonitorProfile.metrics.enabled -o tsv | grep -Fx "true"
+
+          endpoint="$(az monitor account show --ids "${AZURE_MONITOR_WORKSPACE_ID}" --query properties.metricsQueryEndpoint -o tsv)"
+          token="$(az account get-access-token --resource https://prometheus.monitor.azure.com --query accessToken -o tsv)"
+
+          query_prometheus() {
+            curl --fail --silent --show-error --get "${endpoint%/}/api/v1/query" \
+              --header "Authorization: Bearer ${token}" \
+              --data-urlencode "query=$1" | jq -e '.status == "success"'
+          }
+
+          up="$(query_prometheus 'up')"
+          cluster_label="$(jq -r '[.data.result[] | .metric.cluster // empty] | unique | .[0] // empty' <<< "${up}")"
+          test -n "${cluster_label}"
+          query_prometheus "kube_node_status_condition{cluster=\"${cluster_label}\",condition=\"Ready\",status=\"true\"}" | jq -e '.data.result | length > 0' >/dev/null
+          query_prometheus "argocd_app_info{cluster=\"${cluster_label}\"}" | jq -e '.data.result | length > 0' >/dev/null
+          query_prometheus "pilot_info{cluster=\"${cluster_label}\"}" | jq -e '.data.result | length > 0' >/dev/null
+          query_prometheus "istio_requests_total{cluster=\"${cluster_label}\"}" >/dev/null
+          query_prometheus "istio_request_duration_milliseconds_bucket{cluster=\"${cluster_label}\"}" >/dev/null
+          echo "cluster_label=${cluster_label}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Argo CD-owned scrape resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks get-credentials --resource-group "${TF_VAR_resource_group_name}" --name "${TF_VAR_cluster_name}" --overwrite-existing
+          az aks install-cli --only-show-errors || true
+          kubelogin convert-kubeconfig -l azurecli
+          kubectl get application mcp-platform-app-of-apps -n argocd
+          kubectl get application mcp-platform-observability -n argocd
+          kubectl get configmap ama-metrics-settings-configmap -n kube-system
+          kubectl get servicemonitor mcp-argocd-controller-metrics -n kube-system
+          kubectl get servicemonitor mcp-argocd-repo-server-metrics -n kube-system
+          kubectl get servicemonitor mcp-argocd-api-server-metrics -n kube-system
+
+      - name: Summarize verification
+        shell: bash
+        run: |
+          {
+            echo "## Shared observability verification"
+            echo
+            echo "Cluster label discovered from live Prometheus data: \`${{ steps.verify.outputs.cluster_label }}\`."
+            echo "Dashboard, managed Prometheus attachment, Kubernetes, Argo CD, and Istio control-plane queries passed."
+            echo "Istio traffic queries returned a valid response. They may have no samples because this workflow creates no traffic."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  teardown:
+    name: teardown
+    if: inputs.action == 'teardown'
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      AKS_PLATFORM_STATE_KEY: s1-aks-platform.tfstate
+      SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
+      SHARED_OBSERVABILITY_METRICS_STATE_KEY: shared-observability-metrics.tfstate
+      TF_VAR_resource_group_name: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
+      TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+      TF_VAR_cluster_name: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
+      TF_VAR_registry_name: ${{ vars.AKS_PLATFORM_REGISTRY_NAME }}
+      TF_VAR_runner_vnet_id: ${{ vars.AKS_PLATFORM_RUNNER_VNET_ID }}
+      TF_VAR_ingress_gateway_private_ip: ${{ vars.AKS_PLATFORM_INGRESS_PRIVATE_IP }}
+      TF_VAR_shared_observability_core_remote_state: >-
+        {"storage_account_name":"${{ vars.TF_STATE_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_STATE_CONTAINER }}","key":"shared-observability-core.tfstate"}
+      TF_VAR_shared_observability_metrics_remote_state: >-
+        {"storage_account_name":"${{ vars.TF_STATE_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_STATE_CONTAINER }}","key":"shared-observability-metrics.tfstate"}
+      COMPANION_REVISION: ${{ inputs.companion_revision }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Look up the OIDC principal's object id (for AcrPush state parity)
+        id: principal
+        shell: bash
+        run: |
+          object_id="$(az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" --query id -o tsv)"
+          echo "object_id=${object_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Exercise the companion revision and restore main
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks get-credentials --resource-group "${TF_VAR_resource_group_name}" --name "${TF_VAR_cluster_name}" --overwrite-existing
+          az aks install-cli --only-show-errors || true
+          kubelogin convert-kubeconfig -l azurecli
+
+          root_application="mcp-platform-app-of-apps"
+          root_namespace="argocd"
+          revision_changed=false
+
+          restore_main() {
+            if [ "${revision_changed}" != "true" ]; then
+              return 0
+            fi
+            echo "Restoring ${root_namespace}/${root_application} to main."
+            kubectl patch application "${root_application}" -n "${root_namespace}" --type merge -p '{"spec":{"source":{"targetRevision":"main"},"syncPolicy":{"automated":{"selfHeal":true}}}}'
+            for attempt in $(seq 1 60); do
+              observed="$(kubectl get application "${root_application}" -n "${root_namespace}" -o jsonpath='{.spec.source.targetRevision}')"
+              state="$(kubectl get application "${root_application}" -n "${root_namespace}" -o jsonpath='{.status.sync.status}|{.status.health.status}')"
+              if [ "${observed}" = "main" ] && [ "${state}" = "Synced|Healthy" ]; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "::error::The root Application was not restored to main and Synced|Healthy. Do not destroy metrics. Recover manually with: kubectl patch application ${root_application} -n ${root_namespace} --type merge -p '{\"spec\":{\"source\":{\"targetRevision\":\"main\"},\"syncPolicy\":{\"automated\":{\"selfHeal\":true}}}}'."
+            return 1
+          }
+
+          trap 'status=$?; restore_main || exit 1; exit "$status"' EXIT
+
+          current_revision="$(kubectl get application "${root_application}" -n "${root_namespace}" -o jsonpath='{.spec.source.targetRevision}')"
+          current_self_heal="$(kubectl get application "${root_application}" -n "${root_namespace}" -o jsonpath='{.spec.syncPolicy.automated.selfHeal}')"
+          if [ "${current_revision}" != "main" ] || [ "${current_self_heal}" != "true" ]; then
+            echo "::error::The root Application must start at main with self-healing enabled. Found revision=${current_revision}, selfHeal=${current_self_heal}. Refusing the companion revision exercise."
+            exit 1
+          fi
+
+          kubectl patch application "${root_application}" -n "${root_namespace}" --type merge -p "{\"spec\":{\"source\":{\"targetRevision\":\"${COMPANION_REVISION}\"},\"syncPolicy\":{\"automated\":{\"selfHeal\":false}}}}"
+          revision_changed=true
+
+          for attempt in $(seq 1 60); do
+            if kubectl get application mcp-platform-observability -n argocd >/dev/null 2>&1; then
+              break
+            fi
+            if [ "${attempt}" = "60" ]; then
+              echo "::error::The root Application did not create mcp-platform-observability from the companion revision."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          # The child Application normally tracks main after merge. During this
+          # pre-merge exercise it must instead fetch the same immutable SHA as
+          # the root. Root self-healing is disabled above only for this window.
+          kubectl patch application mcp-platform-observability -n argocd --type merge -p "{\"spec\":{\"source\":{\"targetRevision\":\"${COMPANION_REVISION}\"}}}"
+
+          for attempt in $(seq 1 90); do
+            state="$(kubectl get application mcp-platform-observability -n argocd -o jsonpath='{.status.sync.status}|{.status.health.status}' 2>/dev/null || true)"
+            child_revision="$(kubectl get application mcp-platform-observability -n argocd -o jsonpath='{.spec.source.targetRevision}' 2>/dev/null || true)"
+            if [ "${state}" = "Synced|Healthy" ] && [ "${child_revision}" = "${COMPANION_REVISION}" ]; then
+              break
+            fi
+            if [ "${attempt}" = "90" ]; then
+              echo "::error::The companion revision did not reconcile mcp-platform-observability to Synced and Healthy. Last state: ${state:-missing}."
+              exit 1
+            fi
+            sleep 10
+          done
+
+          kubectl get configmap ama-metrics-settings-configmap -n kube-system
+          kubectl get servicemonitor mcp-argocd-controller-metrics -n kube-system
+          kubectl get servicemonitor mcp-argocd-repo-server-metrics -n kube-system
+          kubectl get servicemonitor mcp-argocd-api-server-metrics -n kube-system
+
+          terraform -chdir=infra/compositions/shared-observability-metrics init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_METRICS_STATE_KEY}"
+          workspace_id="$(terraform -chdir=infra/compositions/shared-observability-metrics output -raw azure_monitor_workspace_id)"
+          endpoint="$(az monitor account show --ids "${workspace_id}" --query properties.metricsQueryEndpoint -o tsv)"
+          token="$(az account get-access-token --resource https://prometheus.monitor.azure.com --query accessToken -o tsv)"
+
+          query_prometheus() {
+            curl --fail --silent --show-error --get "${endpoint%/}/api/v1/query" \
+              --header "Authorization: Bearer ${token}" \
+              --data-urlencode "query=$1" | jq -e '.status == "success"'
+          }
+
+          for attempt in $(seq 1 90); do
+            argo="$(query_prometheus 'argocd_app_info')"
+            istio="$(query_prometheus 'pilot_info')"
+            query_prometheus 'up' >/dev/null
+            if jq -e '.data.result | length > 0' <<< "${argo}" >/dev/null && jq -e '.data.result | length > 0' <<< "${istio}" >/dev/null; then
+              break
+            fi
+            if [ "${attempt}" = "90" ]; then
+              echo "::error::The companion revision reconciled, but its Argo CD or Istio metrics did not arrive within 15 minutes."
+              exit 1
+            fi
+            sleep 10
+          done
+
+          restore_main
+          trap - EXIT
+          echo "companion_revision=${COMPANION_REVISION}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Plan the intended managed Prometheus detachment
+        id: detach-plan
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        env:
+          TF_VAR_acr_push_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
+        run: |
+          set -euo pipefail
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${AKS_PLATFORM_STATE_KEY}"
+          terraform plan -input=false -out=managed-prometheus-off.tfplan -var='managed_prometheus_enabled=false'
+          terraform show -json managed-prometheus-off.tfplan > managed-prometheus-off.json
+          allowed='^module\\.aks\\.(module\\.aks\\.azapi_resource\\.this|azurerm_monitor_data_collection_(endpoint|rule|rule_association)\\.managed_prometheus)'
+          unexpected="$(jq -r --arg allowed "${allowed}" '.resource_changes[] | select(.change.actions != ["no-op"]) | select(.address | test($allowed) | not) | .address' managed-prometheus-off.json)"
+          if [ -n "${unexpected}" ]; then
+            echo "::error::Refusing metrics teardown because the AKS plan contains unrelated changes: ${unexpected}."
+            exit 1
+          fi
+          terraform apply -input=false -auto-approve managed-prometheus-off.tfplan
+
+      - name: Verify collection detachment
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks show --resource-group "${TF_VAR_resource_group_name}" --name "${TF_VAR_cluster_name}" --query azureMonitorProfile.metrics.enabled -o tsv | grep -Fx "false"
+          if terraform -chdir=infra/terraform/scenarios/s1-aks-platform state list | grep -E 'azurerm_monitor_data_collection_(endpoint|rule|rule_association)\.managed_prometheus'; then
+            echo "::error::Managed Prometheus data collection resources remain in AKS Terraform state."
+            exit 1
+          fi
+
+      - name: Destroy only shared-observability-metrics
+        working-directory: infra/compositions/shared-observability-metrics
+        shell: bash
+        env:
+          TF_VAR_resource_group_name: ${{ vars.SHARED_OBSERVABILITY_RESOURCE_GROUP }}
+          TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+        run: |
+          set -euo pipefail
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_METRICS_STATE_KEY}"
+          terraform destroy -input=false -auto-approve
+
+      - name: Summarize teardown and recovery order
+        shell: bash
+        run: |
+          {
+            echo "## Shared observability metrics teardown"
+            echo
+            echo "Tested companion revision: \`${COMPANION_REVISION}\`. The root Argo CD Application was restored to \`main\` with self-healing enabled before metrics teardown."
+            echo "Only shared-observability-metrics was destroyed. shared-observability-core remains intact."
+            echo
+            echo "Recovery order: run this workflow with action bootstrap, then run Deploy AKS platform with action bootstrap, then run this workflow with action verify."
+          } >> "$GITHUB_STEP_SUMMARY"

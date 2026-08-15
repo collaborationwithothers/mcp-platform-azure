@@ -33,3 +33,8 @@ output "kubelet_identity" {
   value       = module.aks.kubelet_identity
   description = "The kubelet identity of the managed cluster (clientId, objectId, resourceId per the AVM module's own description), for the composition's AcrPull role assignment to the container registry."
 }
+
+output "managed_prometheus_data_collection_rule_id" {
+  value       = try(azurerm_monitor_data_collection_rule.managed_prometheus[0].id, null)
+  description = "ARM resource ID of the managed Prometheus data collection rule, or null when managed Prometheus is disabled."
+}

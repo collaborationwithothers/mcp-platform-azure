@@ -1,61 +1,107 @@
 # Observability
 
-## Current platform diagnostic routing
+The platform has two shared observability states. Core state holds the Log
+Analytics workspace and workspace-based Application Insights resource used by
+S1 and S2. Metrics state holds the Azure Monitor workspace and Azure Managed
+Grafana used by AKS. Destroying metrics state must not destroy the core state.
 
-Issue 75 configures required Azure Monitor diagnostic settings for 16 supported
-resource-level targets. The two S1 Function App instances each contribute seven
-Function-host targets: the Function App, App Service plan, storage account, and
-Blob, File, Queue, and Table service scopes. S2 contributes the APIM service
-and Event Hubs namespace.
+## Shared resources and consumers
 
-Each target discovers its logs, category groups, and metric categories at apply
-time. The setting uses `allLogs` when Azure offers it. Otherwise it enables each
-returned log category and every returned metric category. This is broad
-collection of what the target reports as selectable, not a claim that Azure
-exports platform metrics it marks non-exportable. Azure documents the category
-and metric limits in [Diagnostic settings in Azure
-Monitor](https://learn.microsoft.com/azure/azure-monitor/platform/diagnostic-settings).
+`infra/compositions/shared-observability-core` creates a Log Analytics
+workspace and a workspace-based Application Insights resource. Both have a
+30-day retention setting and a 5 GB daily cap. The cap is a guardrail. It is
+not a cost estimate. Reaching it stops collection and leaves an unrecoverable
+gap until the next day.
 
-The destination is the Log Analytics workspace behind the durable,
-workspace-based Application Insights resource. S1 and S2 receive only
-`shared_observability_application_insights_id`. They read that resource's
-`WorkspaceResourceId` property to derive the workspace ARM ID. The value is
-supplied out of band as
-`TF_VAR_shared_observability_application_insights_id`, never committed.
+The core Log Analytics workspace disables local authentication. The Application
+Insights resource keeps local authentication enabled because APIM's existing
+managed-identity logger reads its connection string at deployment time. Both
+resources allow public ingestion and query for the public-demo profile.
 
-The first attempted destination type is `Dedicated`, which produces
-resource-specific tables where Azure accepts it. A specific target can switch to
-`AzureDiagnostics` only after a gated live deployment returns an Azure error
-proving that `Dedicated` is not accepted for that target. Microsoft describes
-resource-specific and `AzureDiagnostics` collection modes in [Resource logs in
-Azure Monitor](https://learn.microsoft.com/azure/azure-monitor/platform/resource-logs#collection-mode).
+S1 and S2 read the core state through OIDC-authenticated Terraform remote
+state. S1 uses the Log Analytics workspace ID for Function-host diagnostic
+settings. S2 also reads the Application Insights ID for the existing APIM audit
+logger. The former direct input
+`TF_VAR_shared_observability_application_insights_id` is removed.
 
-## Boundaries and proof
+`infra/compositions/shared-observability-metrics` creates an Azure Monitor
+workspace and an Azure Managed Grafana workspace. Azure Monitor workspaces
+store Prometheus metrics and are different from Log Analytics workspaces, which
+store logs and traces. The Grafana workspace runs on Standard X1, uses Grafana
+12, has a public endpoint, and uses a system-assigned managed identity with
+`Monitoring Data Reader` only on the Azure Monitor workspace. Microsoft
+documents that Grafana can query managed Prometheus through this integration in
+[Azure Monitor and Prometheus](https://learn.microsoft.com/azure/azure-monitor/metrics/prometheus-metrics-overview).
 
-The setting fails before creation if a supported target has neither returned
-logs nor metrics. API Center remains the APIM-linked registry, but it is not a
-diagnostic target. Gated run 31162622718 proved Azure Monitor diagnostic
-settings are unsupported for API Center. There is no API Center fallback and no
-capability registry.
+The GitHub Actions workload identity receives `Grafana Editor` only on the
+Grafana workspace. It imports the repository dashboard without an API key,
+service account token, or personal access token. Human Grafana Admin and Viewer
+principal IDs are optional Terraform inputs supplied outside the repository.
 
-Storage diagnostics include the whole existing or created account and its Blob,
-File, Queue, and Table service scopes. Existing-account mode therefore requires
-permission to write diagnostic settings on the caller-supplied account. It does
-not restrict collection to the `deploymentpackage` container. The service-scope
-shape is documented in [Azure Storage diagnostic settings](https://learn.microsoft.com/azure/azure-monitor/platform/resource-manager-diagnostic-settings#diagnostic-setting-for-azure-storage).
+## AKS collection and scrape limits
 
-The Event Hubs target is the namespace, not an Event Hub entity. Its categories
-are discovered at apply time. The [Event Hubs monitoring
-reference](https://learn.microsoft.com/azure/event-hubs/monitor-event-hubs-reference)
-is re-checked when that target changes.
+The AKS composition reads both shared states. It enables the Azure Monitor
+managed Prometheus add-on and creates the endpoint, rule, and associations that
+send metrics to the Azure Monitor workspace. Its
+`managed_prometheus_enabled` input defaults to `true`. Setting it to `false`
+removes the add-on attachment and the scenario-owned collection resources. The
+normal AKS bootstrap restores the attachment after metrics state is recreated.
 
-Issue 18's narrow per-tool deny audit is unchanged. Its APIM Application
-Insights logger and ephemeral Event Hubs gate path are independent of these
-resource-level settings. Platform diagnostics do not complete ADR-004's
-application request or dependency correlation. They also do not create a
-workbook, alert, or telemetry-ingestion assertion.
+The managed Prometheus add-on keeps Microsoft's minimal ingestion profile for
+default Kubernetes targets. Argo CD and Istio are separate, limited targets in
+the companion manifests repository:
 
-`allLogs` can expand when Azure adds a category to the group. That can increase
-ingestion without a Terraform diff. The first successful gated apply proves
-Azure accepts the settings. It does not measure cost or prove telemetry arrival.
-Follow the dated procedure in `docs/cost.md` after deployment.
+- Three ServiceMonitors scrape only the Argo CD controller, repository server,
+  and API server every 60 seconds. Their keep lists contain only the Argo
+  metrics used by the dashboard and verification checks, plus `up`.
+- Pod annotation scraping is limited to `aks-istio-system` and
+  `aks-istio-ingress`, also every 60 seconds. It does not scrape the MCP
+  workload namespace. Its keep list contains only the selected Istio control
+  plane and ingress traffic metrics, plus `up`.
+
+Azure Monitor installs the ServiceMonitor custom resource definition when the
+managed Prometheus add-on is enabled. The companion manifests PR therefore
+merges only after this infrastructure PR is deployed. Microsoft documents the
+Argo CD ServiceMonitor shape in [Collect Argo CD metrics](https://learn.microsoft.com/azure/azure-monitor/containers/prometheus-argo-cd-integration)
+and the Istio namespace setting in [Collect Istio metrics](https://learn.microsoft.com/azure/azure-monitor/containers/prometheus-istio-integration).
+
+## Dashboard and proof
+
+The repository dashboard is
+`observability/grafana/aks-platform-overview.json`. Bootstrap imports it into
+the `MCP Platform` folder with UID `aks-platform-overview` and title `AKS
+Platform Overview`. It has four sections: Collection health, Kubernetes, Argo
+CD, and Istio. The hidden Prometheus data-source selector avoids committing a
+Grafana data-source UID. The visible cluster selector discovers the actual
+cluster label from the data source.
+
+Status panels use colors only for factual states, such as a scrape target being
+down or a pod being unready. CPU, memory, request rate, error ratio, and
+duration charts have no warning or failure thresholds. The dashboard defaults
+to the last six hours and refreshes each minute. Those are display defaults,
+not retention or service commitments.
+
+The verification workflow checks the Grafana folder and dashboard, the managed
+Prometheus attachment, live Kubernetes, Argo CD, and Istio control-plane
+queries, and the Argo CD-owned resources. It also records the cluster label it
+observed. It does not generate traffic. Istio request-rate, error-ratio, and
+duration queries can return no samples while still loading successfully.
+
+The Prometheus API requires a Microsoft Entra token and `Monitoring Data
+Reader` access to the Azure Monitor workspace. The workflow uses the workspace
+query endpoint and the `/api/v1/query` API documented in [Query Prometheus
+metrics using the API and PromQL](https://learn.microsoft.com/azure/azure-monitor/metrics/prometheus-api-promql).
+
+## Boundaries
+
+This work does not add application request, tool-call, token, dependency, or
+latency metrics. It does not add alerts, action groups, paging, private
+endpoints, Azure Monitor Private Link Scope, private DNS, management locks, or
+synthetic traffic. Issue 18's per-tool deny audit remains unchanged.
+
+Grafana and the Azure Monitor workspace remain provisioned while AKS is
+stopped. They have their own lifecycle and may continue to incur charges. The
+platform does not publish a monthly cost because it has not measured one. See
+[docs/cost.md](cost.md) for the measurement procedure and
+[docs/runbooks/observability-bootstrap.md](runbooks/observability-bootstrap.md)
+for the operator sequence.

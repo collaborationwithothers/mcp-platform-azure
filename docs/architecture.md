@@ -3,16 +3,15 @@
 ## Observability routing after issue 75
 
 The live-test compositions are ephemeral. The shared observability resources
-are not. Hari provisions a workspace-based Application Insights resource and
-its Log Analytics workspace in a stable resource group outside the cleanup
-sweep. The GitHub `live-test` Environment supplies the Application Insights ARM
-resource ID as `TF_VAR_shared_observability_application_insights_id`.
+are not. The `shared-observability-core` Terraform state creates the
+workspace-based Application Insights resource and its Log Analytics workspace
+in a stable resource group outside the cleanup sweep. S1 and S2 read the core
+state through OIDC-authenticated Terraform remote state.
 
-Both S1 and S2 read `properties.WorkspaceResourceId` from that Application
-Insights resource. They pass the derived workspace ARM ID to the modules that
-own the target resources. Those modules add resource-level diagnostic settings
-for the current target set and route the selected exportable logs and metrics to
-the shared workspace.
+S1 reads the Log Analytics workspace ID from core state. S2 reads that ID and
+the Application Insights resource ID from the same state. The modules that own
+the target resources add resource-level diagnostic settings and route the
+selected exportable logs and metrics to the shared workspace.
 
 ![Issue 75 diagnostic routing: the 16 supported Function-host, API Management,
 and Event Hubs targets route exportable platform diagnostics to the persistent

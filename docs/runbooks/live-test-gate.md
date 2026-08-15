@@ -304,10 +304,10 @@ against the kept-alive stamp, with the exits decided in advance.
 ## Resource-level diagnostic settings (issue 75)
 
 Before the first issue 75 live test, complete
-`docs/runbooks/observability-bootstrap.md`. Hari must create
-`TF_VAR_shared_observability_application_insights_id` as a `live-test`
-Environment variable before dispatch. The workflow supplies it at job scope, so
-both scenario applies and both destroys receive the same required input.
+`docs/runbooks/observability-bootstrap.md`. The shared-observability bootstrap
+must create core state first. The workflow supplies the core remote-state
+coordinates at job scope, so both scenario applies and both destroys read the
+same Log Analytics workspace and Application Insights resource IDs.
 
 The gated principal must be authorized to create diagnostic settings on every
 target resource. This includes an existing caller-supplied storage account. The

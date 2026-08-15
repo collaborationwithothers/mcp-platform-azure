@@ -54,7 +54,7 @@ on:
 # Only one live-test run at a time: prevents two runs racing on the same
 # state keys or doubling billable resources.
 concurrency:
-  group: ephemeral-env-live-test
+  group: live-test
   cancel-in-progress: false
 
 permissions:
@@ -97,10 +97,9 @@ jobs:
       TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
       S1_STATE_KEY: s1-entra-mcp-server.tfstate
       S2_STATE_KEY: s2-apim-mcp-gateway.tfstate
-      # The shared observability Application Insights resource is provisioned
-      # out of band. Both compositions derive its WorkspaceResourceId for their
-      # diagnostic settings, so this input is job-scoped for apply and destroy.
-      TF_VAR_shared_observability_application_insights_id: ${{ vars.TF_VAR_shared_observability_application_insights_id }}
+      SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
+      TF_VAR_shared_observability_core_remote_state: >-
+        {"storage_account_name":"${{ vars.TF_STATE_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_STATE_CONTAINER }}","key":"shared-observability-core.tfstate"}
     steps:
       - name: Checkout
         uses: actions/checkout@v7

@@ -92,15 +92,20 @@ running apply-call-destroy like S1/S2.
 ### Resource-level platform diagnostics (issue 75)
 
 S1 and S2 route selected Azure Monitor resource logs and exportable platform
-metrics to the Log Analytics workspace behind one durable, workspace-based
-Application Insights resource. The resource-level configuration covers 16
-supported targets: 14 Function-host targets, the APIM service, and the Event
-Hubs namespace. It discovers each target's categories at apply time. API Center
-remains the APIM-linked registry, but Azure Monitor diagnostic settings are
-unsupported there, as gated run 31162622718 proved. The shared
-input is `shared_observability_application_insights_id`, supplied only as the
-`live-test` Environment variable
-`TF_VAR_shared_observability_application_insights_id`.
+metrics to the Log Analytics workspace in the
+`shared-observability-core` state. That state also owns the workspace-based
+Application Insights resource used by APIM's existing audit logger. The
+resource-level configuration covers 16 supported targets: 14 Function-host
+targets, the APIM service, and the Event Hubs namespace. Each scenario reads
+the core resource IDs through OIDC-authenticated Terraform remote state. No
+Application Insights resource ID is supplied as a GitHub Environment variable.
+API Center remains the APIM-linked registry, but Azure Monitor diagnostic
+settings are unsupported there, as gated run 31162622718 proved.
+
+The separate `shared-observability-metrics` state owns the Azure Monitor
+workspace and Azure Managed Grafana. AKS sends managed Prometheus metrics there
+and the repository imports one platform dashboard. These services remain
+provisioned while AKS is stopped. This project has not measured a monthly cost.
 
 This does not make observability complete. It does not add request and
 dependency correlation, workbooks, or alerts. Issue 18's separate per-tool deny
@@ -119,10 +124,10 @@ apply-call-destroy pass:
 2. Configure the `live-test` GitHub Environment's variables and secrets that
    `.github/workflows/ephemeral-env.yml` reads (state backend location, the
    two compositions' `tfvars.json` secrets built from step 1's values).
-3. Complete [the observability bootstrap](docs/runbooks/observability-bootstrap.md)
-   and create `TF_VAR_shared_observability_application_insights_id` before the
-   first issue 75 live test.
-4. Run the workflow manually from the Actions tab, typing `apply` into the
+3. Complete [the shared observability runbook](docs/runbooks/observability-bootstrap.md).
+   It creates core state, then metrics state, before the normal AKS bootstrap
+   attaches managed Prometheus.
+4. Run the ephemeral workflow manually from the Actions tab, typing `apply` into the
    cost-confirmation input.
 
 See [`docs/runbooks/live-test-gate.md`](docs/runbooks/live-test-gate.md) for

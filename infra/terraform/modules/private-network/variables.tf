@@ -134,7 +134,7 @@ variable "ingress_gateway_private_ip" {
 variable "log_analytics_workspace_id" {
   type        = string
   nullable    = false
-  description = "ARM resource ID of the out-of-band Log Analytics workspace the three NSGs' diagnostic settings send logs to (issue 75's discovery-based pattern, extended to this child's resources). Not wired to the virtual network resource itself; see main.tf for why."
+  description = "ARM resource ID of the core-state Log Analytics workspace the three NSGs' diagnostic settings send logs to (issue 75's discovery-based pattern, extended to this child's resources). Not wired to the virtual network resource itself; see main.tf for why."
 
   validation {
     condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Oo]perational[Ii]nsights/workspaces/[^/]+$", var.log_analytics_workspace_id))
@@ -149,8 +149,8 @@ variable "log_analytics_workspace_id" {
 # and must never be a literal in this repo (AGENTS.md hard safety rule: no
 # subscription or tenant ids committed; an ARM resource ID embeds the
 # subscription id). Supplied out of band as TF_VAR_runner_vnet_id on the
-# live-test GitHub Environment, the same pattern
-# shared_observability_application_insights_id already uses in apim-gateway.
+# live-test GitHub Environment. The shared observability module input is
+# supplied by its scenario through remote state instead.
 # This module creates BOTH sides of the peering link (main.tf,
 # to_runner_network and from_runner_network): the runner's resource group
 # and VNet name are parsed out of this value, not passed separately.

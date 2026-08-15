@@ -1,16 +1,30 @@
-# The shared observability Application Insights component is provisioned out
-# of band, exactly as s1-entra-mcp-server and s2-apim-mcp-gateway already read
-# it. Its workspace-based component properties identify the Log Analytics
-# workspace this composition's new resources send diagnostics to.
-data "azapi_resource" "shared_observability_application_insights" {
-  type        = "Microsoft.Insights/components@2020-02-02"
-  resource_id = var.shared_observability_application_insights_id
+data "terraform_remote_state" "shared_observability_core" {
+  backend = "azurerm"
 
-  response_export_values = ["properties.WorkspaceResourceId"]
+  config = {
+    storage_account_name = var.shared_observability_core_remote_state.storage_account_name
+    container_name       = var.shared_observability_core_remote_state.container_name
+    key                  = var.shared_observability_core_remote_state.key
+    use_oidc             = true
+    use_azuread_auth     = true
+  }
+}
+
+data "terraform_remote_state" "shared_observability_metrics" {
+  backend = "azurerm"
+
+  config = {
+    storage_account_name = var.shared_observability_metrics_remote_state.storage_account_name
+    container_name       = var.shared_observability_metrics_remote_state.container_name
+    key                  = var.shared_observability_metrics_remote_state.key
+    use_oidc             = true
+    use_azuread_auth     = true
+  }
 }
 
 locals {
-  log_analytics_workspace_id = data.azapi_resource.shared_observability_application_insights.output.properties.WorkspaceResourceId
+  log_analytics_workspace_id = data.terraform_remote_state.shared_observability_core.outputs.log_analytics_workspace_id
+  azure_monitor_workspace_id = data.terraform_remote_state.shared_observability_metrics.outputs.azure_monitor_workspace_id
 }
 
 module "network" {
@@ -34,6 +48,8 @@ module "aks" {
   tags                       = var.tags
   node_subnet_id             = module.network.aks_node_subnet_id
   log_analytics_workspace_id = local.log_analytics_workspace_id
+  azure_monitor_workspace_id = local.azure_monitor_workspace_id
+  managed_prometheus_enabled = var.managed_prometheus_enabled
 }
 
 # AKS uses its cluster identity, rather than the kubelet identity, to manage

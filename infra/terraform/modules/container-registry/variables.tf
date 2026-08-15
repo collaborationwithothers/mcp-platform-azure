@@ -59,7 +59,7 @@ variable "acr_push_principal_ids" {
 variable "log_analytics_workspace_id" {
   type        = string
   nullable    = false
-  description = "ARM resource ID of the out-of-band Log Analytics workspace the registry's diagnostic settings send logs and metrics to (issue 75's discovery-based pattern, extended to this child's resources)."
+  description = "ARM resource ID of the core-state Log Analytics workspace the registry's diagnostic settings send logs and metrics to (issue 75's discovery-based pattern, extended to this child's resources)."
 
   validation {
     condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Oo]perational[Ii]nsights/workspaces/[^/]+$", var.log_analytics_workspace_id))

@@ -18,7 +18,7 @@ different way, directly in the workflow:
 | `resource_group_name` | both | Computed per-run (`steps.rg.outputs.name`, `rg-mcp-tracer-<run_id>`) |
 | `location` | both | GitHub Environment variable `LIVE_TEST_LOCATION` |
 | `data_reader_principal_ids` | s2 | Computed from the OIDC principal (`steps.principal.outputs.object_id`) |
-| `shared_observability_application_insights_id` | both | GitHub Environment VARIABLE `TF_VAR_shared_observability_application_insights_id` (not a secret; see `docs/runbooks/observability-bootstrap.md`) |
+| `shared_observability_core_remote_state` | both | Computed job-level JSON for `shared-observability-core.tfstate`, using the existing state storage account and container. |
 
 Every OTHER required variable on both compositions must be a key in the
 matching `S1_TFVARS_JSON` / `S2_TFVARS_JSON` secret. Optional variables
@@ -38,10 +38,9 @@ them:
   counterparts).
 - `docs/runbooks/obo-app-registrations.md`: the downstream Orders API app
   registration (`downstream_app`, `downstream_entra_auth`).
-- `docs/runbooks/observability-bootstrap.md`: the shared, workspace-based
-  Application Insights resource ID (supplied separately, see table above, not
-  in this JSON). Both scenarios derive the shared Log Analytics workspace ARM
-  ID from its `WorkspaceResourceId` property.
+- `docs/runbooks/observability-bootstrap.md`: the shared core composition.
+  Both scenarios receive its backend coordinates separately and read the
+  Application Insights and Log Analytics resource IDs from remote state.
 
 ## S1_TFVARS_JSON (s1-entra-mcp-server)
 
@@ -79,7 +78,7 @@ schema, including `optional(...)` defaults inside object types):
 ```
 
 `resource_group_name`, `location`, and
-`shared_observability_application_insights_id` are NOT in this file (see table
+`shared_observability_core_remote_state` are NOT in this file (see table
 above). `deployment_profile` and `app_settings` are optional and omitted here
 (defaults: `"public-demo"`, `{}`).
 
@@ -138,7 +137,7 @@ as of issue #18:
 ```
 
 `resource_group_name`, `location`, `data_reader_principal_ids`, and
-`shared_observability_application_insights_id` are NOT in this file (see table
+`shared_observability_core_remote_state` are NOT in this file (see table
 above).
 `deployment_profile` and `registry_deployment` are optional and omitted here.
 
@@ -295,9 +294,8 @@ When a ticket adds a new REQUIRED variable (no `default`) to
    non-secret-shaped -- most variables) or as a distinct workflow-level
    `TF_VAR_*` line (computed per-run, or deliberately kept out of the shared
    JSON blob for its own reason -- see
-   `shared_observability_application_insights_id` for why it went the second
-   route: it is provisioned by a separate one-time runbook, not something Hari
-   edits alongside the rest of this JSON).
+   `shared_observability_core_remote_state` for why it goes through a
+   job-level value: the backend coordinates are shared by both compositions.)
 2. If it belongs in the JSON secret: add it to the relevant example above IN
    THE SAME PR as the variable, and say so plainly in the PR body that
    `S1_TFVARS_JSON`/`S2_TFVARS_JSON` needs a matching key added by Hari
