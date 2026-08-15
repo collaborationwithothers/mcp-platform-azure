@@ -113,8 +113,8 @@ See COMPATIBILITY.md for the full pin table and doc links.
 | `publisher_name` | string | API Management publisher/company name. |
 | `publisher_email` | string | API Management publisher email. |
 | `tenant_id` | string | Entra tenant ID callers authenticate against. Not consumed by this module (Entra token validation is owned by `apim-mcp-server`'s server-scope policy); present for thick-interface completeness. |
-| `shared_observability_application_insights_id` | string | ARM resource ID of the persistent, out-of-band Application Insights resource used by issue 18's per-tool deny audit logger. |
-| `log_analytics_workspace_id` | string | ARM resource ID of the persistent, out-of-band Log Analytics workspace that receives mandatory platform diagnostics. |
+| `shared_observability_application_insights_id` | string | ARM resource ID of the persistent Application Insights resource in core state, used by issue 18's per-tool deny audit logger. |
+| `log_analytics_workspace_id` | string | ARM resource ID of the persistent Log Analytics workspace in core state, which receives mandatory platform diagnostics. |
 | `prm` | object | `{ authorization_server, root = { resource, scopes }, servers = [{ resource, scopes }] }` -- the per-server PRM collection (issue 17). `authorization_server` is the shared OAuth authorization server (issuer) URL rendered into `authorization_servers[0]` of every document. `root` describes the primary server, served at the gateway root well-known location (the s3.3 fail-closed guard). `servers` is the full set of servers behind the gateway; each whose `resource` carries a path gets its own document at its RFC 9728 s3.1 path-inserted location. `resource` is the MCP server URL, not the token audience; `scopes` becomes that server's `scopes_supported`. Supplied by the composition. |
 
 ## Outputs
@@ -127,7 +127,7 @@ See COMPATIBILITY.md for the full pin table and doc links.
 | `prm_url` | Gateway-root PRM URL (`https://<gateway>/.well-known/oauth-protected-resource`), per RFC 9728. Serves the primary server's document; retained as the s3.3 fail-closed guard for clients that fall back to root while targeting another server. |
 | `prm_server_urls` | Map of RFC 9728 s3.1 path-inserted PRM URLs keyed by each server's resource URL (issue 17). Each value is the well-known location a spec client resolves for that server. The gate asserts each returns 200 with `resource` equal to that server's URL exactly. |
 | `identity_principal_id` | Principal ID of the system-assigned managed identity. Unused in the tracer; present for the thick interface. |
-| `shared_observability_workspace_id` | ARM resource ID of the persistent, out-of-band Log Analytics workspace. |
+| `shared_observability_workspace_id` | ARM resource ID of the persistent Log Analytics workspace in core state. |
 
 ## Platform diagnostic settings (issue 75)
 

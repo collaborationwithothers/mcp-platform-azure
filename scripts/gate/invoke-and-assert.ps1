@@ -184,7 +184,7 @@ param(
     # output server_2_tool_authorization_map_keys).
     [string]$Server2ToolAuthorizationMapKeys = '',
     # ARM resource ID of the shared Log Analytics workspace underlying the
-    # out-of-band workspace-based Application Insights resource (Terraform
+    # core-state workspace-based Application Insights resource (Terraform
     # output shared_observability_workspace_id).
     # Passed through so discovery-assertions can report the durable
     # observability trail. Optional: when empty, the pointer is omitted.

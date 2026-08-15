@@ -84,17 +84,26 @@ variable "placeholder_service_account_name" {
   default     = "mcp-platform-placeholder"
 }
 
-# Same shared, out-of-band resource s1-entra-mcp-server and
-# s2-apim-mcp-gateway already read (docs/runbooks/observability-bootstrap.md).
-# This composition derives its WorkspaceResourceId for the AKS cluster, the
-# container registry, and the spoke network's NSGs' diagnostic settings
-# (issue 75's discovery-based pattern, extended to this child's resources).
-variable "shared_observability_application_insights_id" {
-  type        = string
-  description = "ARM resource ID of the out-of-band workspace-based Application Insights resource shared by every scenario. Supplied as TF_VAR_shared_observability_application_insights_id on the live-test GitHub Environment; never committed."
+variable "shared_observability_core_remote_state" {
+  type = object({
+    storage_account_name = string
+    container_name       = string
+    key                  = string
+  })
+  description = "AzureRM backend coordinates for the shared-observability-core state. This composition reads the replacement Log Analytics workspace ID through OIDC-authenticated remote state."
+}
 
-  validation {
-    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Ii]nsights/components/[^/]+$", var.shared_observability_application_insights_id))
-    error_message = "shared_observability_application_insights_id must be a valid Microsoft.Insights/components ARM resource ID."
-  }
+variable "shared_observability_metrics_remote_state" {
+  type = object({
+    storage_account_name = string
+    container_name       = string
+    key                  = string
+  })
+  description = "AzureRM backend coordinates for the shared-observability-metrics state. This composition reads the Azure Monitor workspace ID through OIDC-authenticated remote state."
+}
+
+variable "managed_prometheus_enabled" {
+  type        = bool
+  description = "Whether the AKS managed Prometheus add-on and collection attachment are enabled. Metrics teardown sets this to false before destroying the metrics state."
+  default     = true
 }

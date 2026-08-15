@@ -95,7 +95,7 @@ variable "tenant_id" {
 
 variable "shared_observability_application_insights_id" {
   type        = string
-  description = "ARM resource ID of the out-of-band Application Insights resource that receives per-tool deny audit events (issue 18). Must be created before the first live run per docs/runbooks/observability-bootstrap.md; lives in a stable resource group never tagged for the ephemeral-env cleanup sweep. Supplied as TF_VAR_shared_observability_application_insights_id on the live-test GitHub Environment; never committed."
+  description = "ARM resource ID of the core-state Application Insights resource that receives per-tool deny audit events (issue 18). The S2 composition reads it from shared-observability-core remote state."
 
   validation {
     condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Ii]nsights/components/[^/]+$", var.shared_observability_application_insights_id))
@@ -106,7 +106,7 @@ variable "shared_observability_application_insights_id" {
 variable "log_analytics_workspace_id" {
   type        = string
   nullable    = false
-  description = "ARM resource ID of the out-of-band Log Analytics workspace that receives mandatory APIM service and Event Hubs namespace diagnostic settings."
+  description = "ARM resource ID of the core-state Log Analytics workspace that receives mandatory APIM service and Event Hubs namespace diagnostic settings."
 
   validation {
     condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[Mm]icrosoft\\.[Oo]perational[Ii]nsights/workspaces/[^/]+$", var.log_analytics_workspace_id))

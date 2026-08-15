@@ -46,7 +46,7 @@ locals {
   # adds the schema. See COMPATIBILITY.md.
   azapi_schema_validation_enabled = false
 
-  # Subscription hosting the out-of-band Application Insights resource, derived
+  # Subscription hosting the core-state Application Insights resource, derived
   # from its ARM resource ID for the subscription-scoped role definition reference.
   shared_observability_appinsights_subscription_id = split("/", var.shared_observability_application_insights_id)[2]
 
@@ -246,7 +246,7 @@ resource "azapi_resource" "prm_well_known_pathed_policy" {
   }
 }
 
-# Read-only lookup of the out-of-band Application Insights connection string.
+# Read-only lookup of the core-state Application Insights connection string.
 # The connection string is NOT a committed value or GitHub Environment secret:
 # it is derived at plan/apply time from the ARM resource ID. In managed-identity
 # credential mode the connection string identifies the ingestion endpoint only;
@@ -260,7 +260,7 @@ data "azapi_resource" "audit_appinsights" {
   response_export_values = ["properties.ConnectionString"]
 }
 
-# Monitoring Metrics Publisher on the out-of-band Application Insights resource,
+# Monitoring Metrics Publisher on the core-state Application Insights resource,
 # granted to the APIM service's system-assigned managed identity. This is the
 # prerequisite for managed-identity credential mode: Microsoft.Insights/Telemetry/Write
 # (a DataAction) lets the identity publish telemetry without the instrumentation key.
@@ -308,7 +308,7 @@ resource "azapi_resource" "audit_log_analytics_reader" {
 # Uses managed-identity credential mode: credentials.connectionString provides
 # the ingestion endpoint; credentials.identityClientId = "SystemAssigned" directs
 # APIM to authenticate via its system-assigned identity rather than the key.
-# The out-of-band Application Insights resource lives in a stable resource group
+# The core-state Application Insights resource lives in a stable resource group
 # not tagged for the ephemeral-env cleanup sweep. Verified 2026-08-06:
 # https://learn.microsoft.com/azure/api-management/api-management-howto-app-insights
 resource "azapi_resource" "audit_logger" {
@@ -319,7 +319,7 @@ resource "azapi_resource" "audit_logger" {
   body = {
     properties = {
       loggerType  = "applicationInsights"
-      description = "Out-of-band Application Insights logger for per-tool deny audit events (issue 18). Managed-identity credential mode; see docs/runbooks/observability-bootstrap.md."
+      description = "Core-state Application Insights logger for per-tool deny audit events (issue 18). Managed-identity credential mode; see docs/runbooks/observability-bootstrap.md."
       resourceId  = var.shared_observability_application_insights_id
       credentials = {
         connectionString = data.azapi_resource.audit_appinsights.output.properties.ConnectionString
@@ -340,7 +340,7 @@ resource "azapi_resource" "audit_logger" {
 # trace fired, non-deterministically, which makes it unsuitable for a
 # same-run pass/fail gate even though it remains the right long-lived,
 # human-reviewable audit trail. Deliberately lives IN this ephemeral
-# resource group (unlike the out-of-band Application Insights resource) and
+# resource group (unlike the core-state Application Insights resource) and
 # is destroyed with it: a verification-only signal has no reason to outlive
 # the run that produced it. Basic tier, single partition, 1-day retention --
 # this only ever carries one run's own denial events. azurerm schema

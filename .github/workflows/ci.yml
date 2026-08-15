@@ -66,6 +66,18 @@ jobs:
           fi
           terraform fmt -check -recursive infra/
 
+      - name: Grafana dashboard contract
+        shell: bash
+        run: |
+          dashboard="observability/grafana/aks-platform-overview.json"
+          required_sections='["Argo CD","Collection health","Istio","Kubernetes"]'
+          jq -e \
+            --argjson required_sections "${required_sections}" \
+            '.title == "AKS Platform Overview" and
+             .uid == "aks-platform-overview" and
+             ([.panels[] | select(.type == "row") | .title] | sort) == $required_sections' \
+            "${dashboard}" >/dev/null
+
       - name: terraform init and validate
         shell: bash
         run: |

@@ -53,3 +53,21 @@ Do not convert one short, synthetic, or idle live-test run into a standing
 workload price. It is a measurement point, not a forecast. Any later estimate
 must say that it is an estimate, give its measurement basis and period, and
 state its date.
+
+## Shared observability services
+
+Azure Managed Grafana and the Azure Monitor workspace have a lifecycle separate
+from AKS. Stopping AKS does not destroy them. A stopped cluster therefore does
+not mean observability costs have stopped.
+
+The replacement Log Analytics workspace and workspace-based Application
+Insights resource have a 5 GB daily cap. The cap is a data-loss guardrail, not
+a cost ceiling for every observability service. If it is reached, collection
+stops for the rest of the day and the missing data cannot be recovered. This
+issue adds no cap-reached alert.
+
+Managed Prometheus collection is limited to Microsoft's minimal default profile,
+three Argo CD ServiceMonitors, and Istio annotations in two AKS namespaces.
+The limits reduce accidental ingestion. They do not prove a billable volume or
+monthly cost. Metrics teardown destroys stored Prometheus history. It is not a
+cost measurement method.

@@ -1,176 +1,127 @@
-# Runbook: Observability bootstrap for v1 tracer
+# Runbook: Shared observability
 
-Out-of-band procedure for the Log Analytics workspace and workspace-based
-Application Insights resource shared by the S1 and S2 compositions. These
-resources are long-lived, provisioned out of band, and live in a stable resource
-group distinct from the ephemeral per-run resource group so the live-test cleanup
-sweep never deletes them. The resource remains the issue 18 audit sink for
-per-tool deny events. Issue 75 also derives the shared Log Analytics workspace
-ARM ID from it for resource-level diagnostics. This runbook must be executed
-once before the first live run of `.github/workflows/ephemeral-env.yml` that
-uses the renamed input. Creating resources in a separate, persistent resource
-group requires Azure Contributor privilege on the target subscription.
+This runbook creates and operates the persistent observability services. It
+uses the `Shared observability` workflow in the `live-test` GitHub Environment.
+The workflow owns Terraform apply and destroy. Do not run Terraform apply or
+destroy from a local shell.
 
-The Application Insights resource ID produced by this runbook is not committed to
-this repo. It is supplied to the live-test workflow as a GitHub Environment
-variable on the `live-test` environment and explicitly named in
-`.github/workflows/ephemeral-env.yml`'s `env:` block as
-`TF_VAR_shared_observability_application_insights_id: ${{ vars.TF_VAR_shared_observability_application_insights_id }}`.
-This follows the same pattern as `TF_STATE_STORAGE_ACCOUNT` and the other
-explicitly wired environment variables in that block. No connection string,
-instrumentation key, or other secret is committed or stored as a GitHub
-Environment secret. The scenarios read `WorkspaceResourceId` from the ARM
-resource at apply time. `apim-gateway` retains the issue 18 connection-string
-lookup internally for its unchanged deny audit logger, where APIM authenticates
-with its system-assigned managed identity.
+The core state contains logs and traces. The metrics state contains Prometheus
+metrics and Grafana. Core is never a routine teardown target. Metrics teardown
+deletes Prometheus history and any Grafana change that is not stored in this
+repository.
 
-Steps below reference the Azure portal
-(https://portal.azure.com) and the Azure CLI; both create the same resources.
-Verified against Microsoft Learn on 2026-08-06 (citations per step).
+## Before the first bootstrap
 
-## 1. Identify or create the stable resource group
+Create a stable resource group in the same region as `LIVE_TEST_LOCATION`. It
+must not be an ephemeral S1/S2 resource group and must not have the
+`expires-after` cleanup tag. The shared Terraform compositions look up this
+resource group. They do not create or manage it.
 
-Use a resource group that is NOT the ephemeral s2 composition resource group
-(the one the live-test workflow creates per run as `rg-...-<github.run_id>` and
-deletes at the end). The observability resources must NOT carry the expiry tag
-(`expires-after`) used by the cleanup sweep, and must NOT live in the ephemeral
-resource group that the cleanup sweep deletes.
-
-A dedicated resource group named e.g. `rg-mcp-platform-observability` is
-recommended. If you already have a stable non-ephemeral resource group (e.g. the
-one holding the Terraform state storage account), you may reuse it instead.
-
-### Using the Azure CLI
+For example, from a shell authenticated to the intended subscription:
 
 ```sh
 az group create \
   --name rg-mcp-platform-observability \
-  --location <same-region-as-s2-deployment>
+  --location <live-test-location>
 ```
 
-Do NOT add the expiry tag. ([Create a resource
-group](https://learn.microsoft.com/azure/azure-resource-manager/management/manage-resource-groups-cli))
+In the `live-test` GitHub Environment, set these variables:
 
-## 2. Create a Log Analytics workspace
+| Name | Required | Value |
+| --- | --- | --- |
+| `SHARED_OBSERVABILITY_RESOURCE_GROUP` | Yes | The stable resource group name. |
+| `GRAFANA_ADMIN_PRINCIPAL_IDS` | No | A Terraform JSON set of Microsoft Entra object IDs, for example `["<object-id>"]`. |
+| `GRAFANA_VIEWER_PRINCIPAL_IDS` | No | A Terraform JSON set of Microsoft Entra object IDs. |
 
-Workspace-based Application Insights requires an underlying Log Analytics
-workspace. ([Create a workspace-based Application Insights
-resource](https://learn.microsoft.com/azure/azure-monitor/app/create-workspace-resource))
+The object-ID variables are not secrets, but they must not be committed. Leave
+them unset to create no human Grafana grants. The workflow grants its own OIDC
+identity `Grafana Editor` on the Grafana workspace so it can import the
+repository dashboard.
 
-### Using the Azure portal
+The existing `TF_STATE_STORAGE_ACCOUNT`, `TF_STATE_CONTAINER`, Azure OIDC, AKS
+platform, and `LIVE_TEST_LOCATION` environment variables remain prerequisites.
+Remove the retired
+`TF_VAR_shared_observability_application_insights_id` environment variable after
+the core state has been deployed and consumers have cut over.
 
-1. In the portal, search for **Log Analytics workspaces** and select
-   **Create**.
-2. Select the stable resource group from step 1.
-3. Enter a name, e.g. `log-mcp-platform-observability`. Select the same
-   region as the s2 composition deployment.
-4. Leave all other settings at their defaults. Select **Review + Create**,
-   then **Create**.
+## Bootstrap
 
-### Using the Azure CLI
+1. In Actions, run `Shared observability` with `action=bootstrap` and type
+   `bootstrap` in `confirm`.
+2. Wait for the workflow to create or update core state first, metrics state
+   second, and import `AKS Platform Overview` into Grafana's `MCP Platform`
+   folder.
+3. In Actions, run `Deploy AKS platform` with `action=bootstrap` and type
+   `bootstrap` in `confirm`. That workflow is the only normal owner of the
+   managed Prometheus attachment.
+4. After the companion manifests PR has merged, run `Shared observability`
+   with `action=verify`. It reads the live state only. It checks the dashboard,
+   the add-on attachment, the Argo CD-owned scrape resources, and the required
+   PromQL queries.
 
-```sh
-az monitor log-analytics workspace create \
-  --resource-group rg-mcp-platform-observability \
-  --workspace-name log-mcp-platform-observability \
-  --location <same-region-as-s2-deployment>
-```
+`verify` can report no Istio traffic samples. This is not a failure if the
+query loads and the Istio control-plane and scrape-health checks pass. The
+workflow creates no synthetic traffic.
 
-## 3. Create a workspace-based Application Insights resource
+## Exercise an unmerged companion revision and teardown metrics
 
-Workspace-based mode (backed by a Log Analytics workspace) is the current
-recommended mode; the classic (non-workspace-based) Application Insights
-resource type is being retired. ([Create a workspace-based Application Insights
-resource](https://learn.microsoft.com/azure/azure-monitor/app/create-workspace-resource))
+Use this procedure only for the issue 124 live acceptance exercise. It is
+destructive to metrics state.
 
-### Using the Azure portal
+1. Obtain the exact 40-character lowercase commit SHA from the companion
+   manifests PR. Do not use a branch name.
+2. Run `Shared observability` with `action=teardown`, type `teardown` in
+   `confirm`, and pass the SHA as `companion_revision`.
+3. The workflow temporarily points the root and observability child Argo CD
+   Applications at that SHA. It disables root self-healing only during this
+   exercise, so the child can use the unmerged revision. It waits for the
+   ConfigMap and the three ServiceMonitors. It then checks Argo CD and Istio
+   metrics through the Azure Monitor workspace query endpoint.
+4. The workflow restores the root Application to `main`, re-enables root
+   self-healing, and proves the restoration before it changes AKS or destroys
+   metrics state. If restoration fails, it stops before teardown. Recover
+   manually with:
 
-1. In the portal, search for **Application Insights** and select **Create**.
-2. Select the stable resource group from step 1.
-3. Enter a name, e.g. `appi-mcp-platform-audit`.
-4. Select **Resource Mode: Workspace-based**.
-5. Under **Log Analytics Workspace**, select the workspace created in step 2.
-6. Select the same region as the s2 composition deployment.
-7. Leave all other settings at their defaults. Select **Review + Create**,
-   then **Create**.
-
-### Using the Azure CLI
-
-```sh
-# Retrieve the Log Analytics workspace resource id
-WORKSPACE_ID=$(az monitor log-analytics workspace show \
-  --resource-group rg-mcp-platform-observability \
-  --workspace-name log-mcp-platform-observability \
-  --query id -o tsv)
-
-az monitor app-insights component create \
-  --app appi-mcp-platform-audit \
-  --resource-group rg-mcp-platform-observability \
-  --location <same-region-as-s2-deployment> \
-  --workspace "$WORKSPACE_ID"
-```
-
-([az monitor app-insights component
-create](https://learn.microsoft.com/cli/azure/monitor/app-insights/component#az-monitor-app-insights-component-create))
-
-## 4. Record the resource id
-
-From the Application Insights resource's **Overview** page in the portal, or
-via the CLI:
-
-```sh
-az monitor app-insights component show \
-  --app appi-mcp-platform-audit \
-  --resource-group rg-mcp-platform-observability \
-  --query id -o tsv
-```
-
-The output is an ARM resource id of the form:
-```
-/subscriptions/<subscription-id>/resourceGroups/rg-mcp-platform-observability/providers/microsoft.insights/components/appi-mcp-platform-audit
-```
-
-This value becomes `TF_VAR_shared_observability_application_insights_id`. Do NOT
-record the connection string or instrumentation key. S1 and S2 read the
-workspace ARM ID from `WorkspaceResourceId` at apply time, while `apim-gateway`
-keeps the issue 18 connection-string lookup internal to its audit logger. No
-key-shaped value needs to be stored anywhere.
-
-## 5. Add the resource id to the live-test GitHub Environment
-
-1. Before the first issue 75 live test, in the GitHub repository go to
-   **Settings > Environments > live-test**.
-2. Under **Environment variables** (NOT secrets), create the renamed variable:
-   - **Name**: `TF_VAR_shared_observability_application_insights_id`
-   - **Value**: the ARM resource id from step 4.
-3. Save. Note that `.github/workflows/ephemeral-env.yml` names every
-   `TF_VAR_*` variable explicitly in its `env:` block -- they are NOT
-   picked up automatically. The workflow must include an entry for this
-   variable:
-   ```yaml
-   TF_VAR_shared_observability_application_insights_id: ${{ vars.TF_VAR_shared_observability_application_insights_id }}
+   ```sh
+   kubectl patch application mcp-platform-app-of-apps -n argocd \
+     --type merge \
+     -p '{"spec":{"source":{"targetRevision":"main"},"syncPolicy":{"automated":{"selfHeal":true}}}}'
    ```
-   Adding the GitHub Environment variable is the prerequisite. It is available
-   to both scenario applies and both destroys through the job-level environment.
-4. After the renamed variable is in use and the cutover has completed, remove
-   the pre-cutover Application Insights Environment variable. There is no
-   compatibility alias.
 
-The variable is NOT a secret: the ARM resource id is not sensitive (it is a
-stable identifier, not a key or credential). Storing it as a variable (not a
-secret) keeps the environment's secret count low and makes it auditable.
+5. The workflow plans AKS with `managed_prometheus_enabled=false`. It refuses
+   a plan with unrelated changes. It applies the planned detachment, confirms
+   the add-on is off, then destroys only `shared-observability-metrics`.
 
-## Values this runbook produces, and where they are consumed
+The workflow never destroys `shared-observability-core`. Do not use a direct
+Azure CLI update to disable the add-on. That would leave Terraform state out of
+sync with AKS.
 
-| Value | Consumed by |
-|---|---|
-| Application Insights ARM resource ID | `shared_observability_application_insights_id` in both S1 and S2, supplied as `TF_VAR_shared_observability_application_insights_id` on the `live-test` GitHub Environment; never committed |
+## Recovery after metrics teardown
 
-Both scenarios use the Application Insights resource's `WorkspaceResourceId`
-property as the required Log Analytics workspace ID for platform diagnostics.
-The `apim-gateway` module still derives the connection string from this resource
-at apply time, grants APIM's system-assigned managed identity the Monitoring
-Metrics Publisher role on this resource, and creates the issue 18 APIM
-Application Insights logger with managed-identity credential mode. No
-instrumentation key, connection string, or other secret is needed as a GitHub
-variable or secret; Terraform reads what it needs live from Azure.
+Run these actions in order:
+
+1. `Shared observability`, `action=bootstrap`, confirmation `bootstrap`.
+2. `Deploy AKS platform`, `action=bootstrap`, confirmation `bootstrap`.
+3. `Shared observability`, `action=verify`.
+
+The first action recreates the Azure Monitor workspace and Grafana and imports
+the dashboard. The second reads the new metrics-state output and reattaches
+managed Prometheus. The final action proves the recovered state.
+
+## Operational boundaries
+
+AKS idle stop and start do not destroy or reconfigure either shared state.
+Grafana and the Azure Monitor workspace remain provisioned while AKS is
+stopped, so their billing lifecycle continues. This project has not measured a
+monthly amount.
+
+The Log Analytics and Application Insights 5 GB daily caps are safeguards, not
+budgets. A cap hit stops data collection for the rest of the day and leaves a
+gap. There is no alert for it in this issue.
+
+The public-demo profile keeps Grafana public and zone redundancy disabled.
+Private monitoring access and zone redundancy are stronger production choices,
+but they require network and cost decisions outside this issue. Microsoft
+documents Grafana access options in [Secure Azure Managed
+Grafana](https://learn.microsoft.com/azure/managed-grafana/secure-azure-managed-grafana)
+and zone redundancy in [Enable zone redundancy](https://learn.microsoft.com/azure/managed-grafana/how-to-enable-zone-redundancy).

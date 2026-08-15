@@ -11,6 +11,12 @@ A Terraform root that composes modules to stand up one scenario at one deploymen
 profile. It is the unit of remote-state isolation (one state key per composition).
 _Avoid_: stack, environment, root module
 
+**Shared composition**:
+A Terraform root that owns long-lived platform resources used by more than one
+scenario. It has its own state and lifecycle rather than belonging to one
+scenario composition.
+_Avoid_: scenario composition, stack, environment
+
 **Deployment profile**:
 A named variant selected by a variable that composes the same modules differently,
 for example public-demo (Basic v2, public endpoints) versus private (Standard v2,
@@ -73,3 +79,26 @@ _Avoid_: sandbox, CI environment
 The apply, demo, destroy lifecycle in which nothing is left running; residual
 resources are removed by an expiry-tag cleanup sweep.
 _Avoid_: temporary, throwaway
+
+**Azure Monitor workspace**:
+The `Microsoft.Monitor/accounts` resource that stores managed Prometheus
+metrics. It is separate from the Log Analytics workspace that stores logs and
+traces.
+_Avoid_: Log Analytics workspace, shared observability workspace, Prometheus workspace
+
+**Shared observability core**:
+The Terraform composition and state that own the persistent Log Analytics
+workspace and workspace-based Application Insights resource used by S1 and S2.
+_Avoid_: shared workspace, observability stack
+
+**Shared observability metrics**:
+The Terraform composition and state that own the Azure Monitor workspace and
+Azure Managed Grafana. It can be torn down only after AKS collection is
+detached. Core state remains.
+_Avoid_: AKS state, Grafana dashboard state
+
+**Azure Managed Grafana**:
+The Microsoft-managed Grafana workspace that queries the Azure Monitor
+workspace with its system-assigned managed identity. It is not the Prometheus
+metric store.
+_Avoid_: Prometheus server, dashboard JSON

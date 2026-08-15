@@ -12,9 +12,13 @@ variable "location" {
   description = "Azure region for every resource this composition creates."
 }
 
-variable "shared_observability_application_insights_id" {
-  type        = string
-  description = "ARM resource ID of the out-of-band workspace-based Application Insights resource shared by the scenarios. The composition reads its WorkspaceResourceId and passes it to both mcp-function-host instances for diagnostic settings. Supplied as TF_VAR_shared_observability_application_insights_id in the live-test environment; never committed."
+variable "shared_observability_core_remote_state" {
+  type = object({
+    storage_account_name = string
+    container_name       = string
+    key                  = string
+  })
+  description = "AzureRM backend coordinates for shared-observability-core state. This scenario reads the shared Log Analytics workspace ID through OIDC-authenticated remote state."
 }
 
 variable "tags" {

@@ -21,14 +21,19 @@ locals {
   }
 }
 
-# The shared observability Application Insights component is provisioned out of
-# band. Its workspace-based component properties identify the Log Analytics
-# workspace that receives this scenario's Function App diagnostics.
-data "azapi_resource" "shared_observability_application_insights" {
-  type        = "Microsoft.Insights/components@2020-02-02"
-  resource_id = var.shared_observability_application_insights_id
+# The core composition owns the replacement Log Analytics workspace. Reading
+# its OIDC-authenticated state removes the old direct Application Insights
+# resource-ID input from this scenario.
+data "terraform_remote_state" "shared_observability_core" {
+  backend = "azurerm"
 
-  response_export_values = ["properties.WorkspaceResourceId"]
+  config = {
+    storage_account_name = var.shared_observability_core_remote_state.storage_account_name
+    container_name       = var.shared_observability_core_remote_state.container_name
+    key                  = var.shared_observability_core_remote_state.key
+    use_oidc             = true
+    use_azuread_auth     = true
+  }
 }
 
 module "mcp_function_host" {
@@ -42,7 +47,7 @@ module "mcp_function_host" {
   storage_account_name       = var.storage_account_name
   create_storage_account     = var.create_storage_account
   flex_consumption           = local.profile_flex_consumption[var.deployment_profile]
-  log_analytics_workspace_id = data.azapi_resource.shared_observability_application_insights.output.properties.WorkspaceResourceId
+  log_analytics_workspace_id = data.terraform_remote_state.shared_observability_core.outputs.log_analytics_workspace_id
 
   entra_auth = var.entra_auth
   prm_scope  = var.prm_scope
@@ -79,7 +84,7 @@ module "downstream_orders_api" {
   storage_account_name       = var.downstream_storage_account_name
   create_storage_account     = var.downstream_create_storage_account
   flex_consumption           = local.profile_flex_consumption[var.deployment_profile]
-  log_analytics_workspace_id = data.azapi_resource.shared_observability_application_insights.output.properties.WorkspaceResourceId
+  log_analytics_workspace_id = data.terraform_remote_state.shared_observability_core.outputs.log_analytics_workspace_id
 
   entra_auth = {
     tenant_id              = var.downstream_entra_auth.tenant_id

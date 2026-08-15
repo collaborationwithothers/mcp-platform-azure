@@ -83,6 +83,21 @@ module "aks" {
     vnet_subnet_id = var.node_subnet_id
   }
 
+  # Azure Monitor managed service for Prometheus is enabled on the cluster.
+  # The DCR and DCE below attach the collector to the Azure Monitor workspace.
+  # They stay outside the AVM's onboarding path because that path also enables
+  # Container Insights, which this platform does not add in issue 124.
+  azure_monitor_profile = {
+    metrics = {
+      enabled = var.managed_prometheus_enabled
+
+      kube_state_metrics = {
+        metric_annotations_allow_list = ""
+        metric_labels_allowlist       = ""
+      }
+    }
+  }
+
   # mode = "Internal": the ingress gateway's Azure load balancer must be
   # internal, never publicly reachable (issue 110 section 2, "Ingress is the
   # AKS Istio add-on, internal gateway"). AKS creates the resulting
@@ -156,4 +171,65 @@ module "aks" {
       }
     }
   }
+}
+
+# The managed Prometheus collection path is expressed with native AzureRM data
+# collection resources. It is separate from this module's existing diagnostic
+# settings and disappears when managed_prometheus_enabled is false.
+resource "azurerm_monitor_data_collection_endpoint" "managed_prometheus" {
+  count = var.managed_prometheus_enabled ? 1 : 0
+
+  name                = "${var.name}-prometheus"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  kind                = "Linux"
+
+  public_network_access_enabled = true
+  tags                          = var.tags
+}
+
+resource "azurerm_monitor_data_collection_rule" "managed_prometheus" {
+  count = var.managed_prometheus_enabled ? 1 : 0
+
+  name                        = "${var.name}-prometheus"
+  location                    = var.location
+  resource_group_name         = var.resource_group_name
+  kind                        = "Linux"
+  data_collection_endpoint_id = azurerm_monitor_data_collection_endpoint.managed_prometheus[0].id
+  tags                        = var.tags
+
+  destinations {
+    monitor_account {
+      name               = "AzureMonitorWorkspace"
+      monitor_account_id = var.azure_monitor_workspace_id
+    }
+  }
+
+  data_sources {
+    prometheus_forwarder {
+      name    = "PrometheusDataSource"
+      streams = ["Microsoft-PrometheusMetrics"]
+    }
+  }
+
+  data_flow {
+    streams      = ["Microsoft-PrometheusMetrics"]
+    destinations = ["AzureMonitorWorkspace"]
+  }
+}
+
+resource "azurerm_monitor_data_collection_rule_association" "managed_prometheus_rule" {
+  count = var.managed_prometheus_enabled ? 1 : 0
+
+  name                    = "mcp-managed-prometheus"
+  target_resource_id      = module.aks.resource_id
+  data_collection_rule_id = azurerm_monitor_data_collection_rule.managed_prometheus[0].id
+}
+
+resource "azurerm_monitor_data_collection_rule_association" "managed_prometheus_endpoint" {
+  count = var.managed_prometheus_enabled ? 1 : 0
+
+  name                        = "configurationAccessEndpoint"
+  target_resource_id          = module.aks.resource_id
+  data_collection_endpoint_id = azurerm_monitor_data_collection_endpoint.managed_prometheus[0].id
 }

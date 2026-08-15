@@ -18,14 +18,19 @@ data "terraform_remote_state" "s1" {
   }
 }
 
-# The shared observability Application Insights component is provisioned out of
-# band. Its workspace-based component properties identify the Log Analytics
-# workspace passed to diagnostics on the APIM resource.
-data "azapi_resource" "shared_observability_application_insights" {
-  type        = "Microsoft.Insights/components@2020-02-02"
-  resource_id = var.shared_observability_application_insights_id
+# The core composition owns both shared observability resources. The gateway
+# needs their IDs, so it reads the separate core state through the existing
+# OIDC backend pattern rather than accepting a direct resource-ID input.
+data "terraform_remote_state" "shared_observability_core" {
+  backend = "azurerm"
 
-  response_export_values = ["properties.WorkspaceResourceId"]
+  config = {
+    storage_account_name = var.shared_observability_core_remote_state.storage_account_name
+    container_name       = var.shared_observability_core_remote_state.container_name
+    key                  = var.shared_observability_core_remote_state.key
+    use_oidc             = true
+    use_azuread_auth     = true
+  }
 }
 
 locals {
@@ -141,8 +146,8 @@ module "apim_gateway" {
   virtual_network_type      = var.deployment_profile == "private-backend" ? "External" : "None"
   virtual_network_subnet_id = var.deployment_profile == "private-backend" ? var.apim_outbound_subnet_id : null
 
-  shared_observability_application_insights_id = var.shared_observability_application_insights_id
-  log_analytics_workspace_id                   = data.azapi_resource.shared_observability_application_insights.output.properties.WorkspaceResourceId
+  shared_observability_application_insights_id = data.terraform_remote_state.shared_observability_core.outputs.application_insights_id
+  log_analytics_workspace_id                   = data.terraform_remote_state.shared_observability_core.outputs.log_analytics_workspace_id
   data_reader_principal_ids                    = var.data_reader_principal_ids
 }
 

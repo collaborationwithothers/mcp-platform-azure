@@ -1,0 +1,352 @@
+{
+  "uid": "aks-platform-overview",
+  "title": "AKS Platform Overview",
+  "tags": [
+    "aks",
+    "platform",
+    "prometheus"
+  ],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "hide": 2,
+        "current": {}
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": "${datasource}",
+        "query": "label_values(kube_node_info, cluster)",
+        "definition": "label_values(kube_node_info, cluster)",
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "refresh": 1,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Collection health",
+      "id": 1,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Scrape target availability",
+      "id": 2,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "min by (job) (up{cluster=~\"$cluster\"})",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Argo CD and Istio targets",
+      "id": 3,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "min by (namespace) (up{cluster=~\"$cluster\", namespace=~\"argocd|aks-istio-system|aks-istio-ingress\"})",
+          "legendFormat": "{{namespace}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Kubernetes",
+      "id": 4,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Ready nodes",
+      "id": 5,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 10 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kube_node_status_condition{cluster=~\"$cluster\", condition=\"Ready\", status=\"true\"})"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": { "defaults": { "color": { "mode": "green" } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Cluster CPU use",
+      "id": 6,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 10 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{cluster=~\"$cluster\", container!=\"\", image!=\"\"}[5m]))",
+          "legendFormat": "cores"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cores", "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Cluster memory use",
+      "id": 7,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 10 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(container_memory_working_set_bytes{cluster=~\"$cluster\", container!=\"\", image!=\"\"})",
+          "legendFormat": "bytes"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Unready pods",
+      "id": 8,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 10 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kube_pod_status_ready{cluster=~\"$cluster\", condition=\"true\"} == 0)"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Argo CD",
+      "id": 9,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Application sync state",
+      "id": 10,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (sync_status) (argocd_app_info{cluster=~\"$cluster\"})",
+          "legendFormat": "{{sync_status}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Application health state",
+      "id": 11,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (health_status) (argocd_app_info{cluster=~\"$cluster\"})",
+          "legendFormat": "{{health_status}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Application reconciliation errors",
+      "id": 12,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(argocd_app_reconcile_count{cluster=~\"$cluster\", phase=\"error\"}[5m]))",
+          "legendFormat": "errors per second"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+    {
+      "type": "row",
+      "title": "Istio",
+      "id": 13,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Istio control plane",
+      "id": 14,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 5, "x": 0, "y": 28 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(pilot_info{cluster=~\"$cluster\"})"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate",
+      "id": 15,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 5, "x": 5, "y": 28 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(istio_requests_total{cluster=~\"$cluster\", reporter=\"destination\", namespace=~\"aks-istio-system|aks-istio-ingress\"}[5m]))",
+          "legendFormat": "requests per second"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx error ratio",
+      "id": 16,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 7, "x": 10, "y": 28 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(istio_requests_total{cluster=~\"$cluster\", reporter=\"destination\", namespace=~\"aks-istio-system|aks-istio-ingress\", response_code=~\"5..\"}[5m])) / sum(rate(istio_requests_total{cluster=~\"$cluster\", reporter=\"destination\", namespace=~\"aks-istio-system|aks-istio-ingress\"}[5m]))",
+          "legendFormat": "ratio"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 request duration",
+      "id": 17,
+      "datasource": "${datasource}",
+      "gridPos": { "h": 8, "w": 7, "x": 17, "y": 28 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{cluster=~\"$cluster\", reporter=\"destination\", namespace=~\"aks-istio-system|aks-istio-ingress\"}[5m])))",
+          "legendFormat": "milliseconds"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "color": { "mode": "palette-classic" } }, "overrides": [] }
+    }
+  ]
+}

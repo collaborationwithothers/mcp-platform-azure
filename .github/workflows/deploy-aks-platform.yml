@@ -55,7 +55,7 @@ on:
         type: string
 
 concurrency:
-  group: deploy-aks-platform
+  group: live-test
   cancel-in-progress: false
 
 permissions:
@@ -90,6 +90,8 @@ jobs:
       TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
       TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
       AKS_PLATFORM_STATE_KEY: s1-aks-platform.tfstate
+      SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
+      SHARED_OBSERVABILITY_METRICS_STATE_KEY: shared-observability-metrics.tfstate
       TF_VAR_resource_group_name: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
       TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
       TF_VAR_cluster_name: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
@@ -98,14 +100,10 @@ jobs:
       # Environment variable, never a literal in this repo.
       TF_VAR_runner_vnet_id: ${{ vars.AKS_PLATFORM_RUNNER_VNET_ID }}
       TF_VAR_ingress_gateway_private_ip: ${{ vars.AKS_PLATFORM_INGRESS_PRIVATE_IP }}
-      # Same shared, out-of-band Application Insights resource every other
-      # scenario reads (s1-entra-mcp-server, s2-apim-mcp-gateway via
-      # ephemeral-env.yml); this env var was already present on live-test
-      # before this workflow existed. Missing here until this fix -- s1-aks-
-      # platform's own diagnostics wiring needs it to resolve the shared Log
-      # Analytics workspace id (main.tf, shared_observability_application_
-      # insights_id).
-      TF_VAR_shared_observability_application_insights_id: ${{ vars.TF_VAR_shared_observability_application_insights_id }}
+      TF_VAR_shared_observability_core_remote_state: >-
+        {"storage_account_name":"${{ vars.TF_STATE_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_STATE_CONTAINER }}","key":"shared-observability-core.tfstate"}
+      TF_VAR_shared_observability_metrics_remote_state: >-
+        {"storage_account_name":"${{ vars.TF_STATE_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_STATE_CONTAINER }}","key":"shared-observability-metrics.tfstate"}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
