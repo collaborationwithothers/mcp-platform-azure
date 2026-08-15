@@ -152,7 +152,9 @@ compositions. This is the only new environment-specific observability input.
 Resource names are deterministic and require no additional inputs. Terraform
 appends the first eight characters of the resource group name's SHA-1 hash to
 the bases `mcp-shared-law`, `mcp-shared-appi`, `mcp-shared-amw`, and
-`mcp-shared-grafana`.
+`mcp-grafana`. `mcp-shared-grafana` cannot use the same suffix because its
+27-character result exceeds Azure Managed Grafana's
+[23-character name limit](https://learn.microsoft.com/azure/managed-grafana/troubleshoot-managed-grafana#azure-managed-grafana-workspace-creation-fails).
 All four resources use the existing `LIVE_TEST_LOCATION` value. Issue-start
 verification must confirm that Azure Monitor workspace and Managed Grafana are
 available there. If either is unavailable, implementation stops instead of
