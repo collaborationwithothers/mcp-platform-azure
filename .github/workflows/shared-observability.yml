@@ -388,6 +388,23 @@ jobs:
           kubectl patch application "${root_application}" -n "${root_namespace}" --type merge -p "{\"spec\":{\"source\":{\"targetRevision\":\"${COMPANION_REVISION}\"},\"syncPolicy\":{\"automated\":{\"selfHeal\":false}}}}"
           revision_changed=true
 
+          # Wait for the root Application's one intentional sync to the
+          # companion commit. Only then is it safe to patch the child
+          # Application to that commit: self-healing is disabled above, so the
+          # completed root sync will not overwrite the child back to main.
+          for attempt in $(seq 1 90); do
+            root_state="$(kubectl get application "${root_application}" -n "${root_namespace}" -o jsonpath='{.status.sync.status}|{.status.health.status}' 2>/dev/null || true)"
+            root_synced_revision="$(kubectl get application "${root_application}" -n "${root_namespace}" -o jsonpath='{.status.sync.revision}' 2>/dev/null || true)"
+            if [ "${root_state}" = "Synced|Healthy" ] && [ "${root_synced_revision}" = "${COMPANION_REVISION}" ]; then
+              break
+            fi
+            if [ "${attempt}" = "90" ]; then
+              echo "::error::The root Application did not reconcile the companion revision to Synced and Healthy. Last state: ${root_state:-missing}. Last sync revision: ${root_synced_revision:-missing}."
+              exit 1
+            fi
+            sleep 10
+          done
+
           for attempt in $(seq 1 60); do
             if kubectl get application mcp-platform-observability -n argocd >/dev/null 2>&1; then
               break
@@ -411,7 +428,7 @@ jobs:
               break
             fi
             if [ "${attempt}" = "90" ]; then
-              echo "::error::The companion revision did not reconcile mcp-platform-observability to Synced and Healthy. Last state: ${state:-missing}."
+              echo "::error::The companion revision did not reconcile mcp-platform-observability to Synced and Healthy at the requested revision. Last state: ${state:-missing}. Last source revision: ${child_revision:-missing}."
               exit 1
             fi
             sleep 10
