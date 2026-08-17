@@ -247,10 +247,14 @@ jobs:
           source "${GITHUB_WORKSPACE}/scripts/gate/prometheus-query.sh"
           endpoint="$(azure_monitor_workspace_query_endpoint "${AZURE_MONITOR_WORKSPACE_ID}")"
           token="$(az account get-access-token --resource https://prometheus.monitor.azure.com --query accessToken -o tsv)"
-          ready_nodes="$(query_prometheus "${endpoint}" "${token}" 'kube_node_status_condition{condition="Ready",status="true"}')"
-          cluster_label="$(prometheus_single_cluster_label "${ready_nodes}")"
-          query_prometheus "${endpoint}" "${token}" "argocd_app_info{cluster=\"${cluster_label}\"}" | jq -e '.data.result | length > 0' >/dev/null
-          query_prometheus "${endpoint}" "${token}" "pilot_info{cluster=\"${cluster_label}\"}" | jq -e '.data.result | length > 0' >/dev/null
+          node_conditions="$(query_prometheus "${endpoint}" "${token}" 'kube_node_status_condition')"
+          cluster_label="$(prometheus_single_cluster_label "${node_conditions}")"
+          ready_nodes="$(query_prometheus "${endpoint}" "${token}" "kube_node_status_condition{cluster=\"${cluster_label}\",condition=\"Ready\",status=\"true\"}")"
+          prometheus_require_results "${ready_nodes}" 'kube_node_status_condition Ready=true'
+          argo_cd_apps="$(query_prometheus "${endpoint}" "${token}" "argocd_app_info{cluster=\"${cluster_label}\"}")"
+          prometheus_require_results "${argo_cd_apps}" 'argocd_app_info'
+          istio_pilot="$(query_prometheus "${endpoint}" "${token}" "pilot_info{cluster=\"${cluster_label}\"}")"
+          prometheus_require_results "${istio_pilot}" 'pilot_info'
           query_prometheus "${endpoint}" "${token}" 'istio_requests_total' >/dev/null
           query_prometheus "${endpoint}" "${token}" 'istio_request_duration_milliseconds_bucket' >/dev/null
           echo "cluster_label=${cluster_label}" >> "$GITHUB_OUTPUT"

@@ -42,6 +42,20 @@ test "${cluster_label}" = 'aks-mcp-platform'
 ready_node_response='{"status":"success","data":{"result":[{"metric":{"cluster":"aks-mcp-platform","condition":"Ready","status":"true"}}]}}'
 cluster_label="$(prometheus_single_cluster_label "${ready_node_response}")"
 test "${cluster_label}" = 'aks-mcp-platform'
+prometheus_require_results "${ready_node_response}" 'kube_node_status_condition Ready=true'
+
+if error_output="$(prometheus_require_results '{"status":"success","data":{"result":[]}}' 'argocd_app_info' 2>&1)"; then
+  echo "expected an empty Prometheus result to fail" >&2
+  exit 1
+fi
+
+case "${error_output}" in
+  *'Prometheus query argocd_app_info returned no series.'*) ;;
+  *)
+    echo "expected an empty-result diagnostic" >&2
+    exit 1
+    ;;
+esac
 
 if error_output="$(prometheus_single_cluster_label '{"status":"success","data":{"result":[]}}' 2>&1)"; then
   echo "expected missing cluster labels to fail" >&2

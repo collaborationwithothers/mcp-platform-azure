@@ -85,3 +85,19 @@ prometheus_single_cluster_label() {
 
   printf '%s\n' "${observed_labels}"
 }
+
+prometheus_require_results() {
+  local response_body="$1"
+  local query_name="$2"
+  local result_series_count
+
+  if ! result_series_count="$(jq '[.data.result[]?] | length' <<< "${response_body}")"; then
+    echo "::error::Could not count result series for ${query_name}." >&2
+    return 1
+  fi
+
+  if [ "${result_series_count}" -eq 0 ]; then
+    echo "::error::Prometheus query ${query_name} returned no series." >&2
+    return 1
+  fi
+}
