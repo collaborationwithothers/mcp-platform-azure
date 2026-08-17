@@ -230,6 +230,25 @@ jobs:
           echo "workspace_id=$(terraform output -raw azure_monitor_workspace_id)" >> "$GITHUB_OUTPUT"
           echo "grafana_name=$(terraform output -raw grafana_name)" >> "$GITHUB_OUTPUT"
 
+      - name: Verify Argo CD-owned scrape resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks get-credentials --resource-group "${TF_VAR_resource_group_name}" --name "${TF_VAR_cluster_name}" --overwrite-existing
+          az aks install-cli --only-show-errors || true
+          kubelogin convert-kubeconfig -l azurecli
+          kubectl get application mcp-platform-app-of-apps -n argocd
+          application_state="$(kubectl get application mcp-platform-observability -n argocd -o jsonpath='{.status.sync.status}|{.status.health.status}')"
+          echo "mcp-platform-observability state: ${application_state}"
+          if [ "${application_state}" != "Synced|Healthy" ]; then
+            echo "::error::mcp-platform-observability must be Synced and Healthy before Prometheus verification. Found ${application_state:-missing}." >&2
+            exit 1
+          fi
+          kubectl get configmap ama-metrics-settings-configmap -n kube-system
+          kubectl get servicemonitor mcp-argocd-controller-metrics -n kube-system
+          kubectl get servicemonitor mcp-argocd-repo-server-metrics -n kube-system
+          kubectl get servicemonitor mcp-argocd-api-server-metrics -n kube-system
+
       - name: Verify the dashboard and managed Prometheus attachment
         id: verify
         shell: bash
@@ -258,20 +277,6 @@ jobs:
           query_prometheus "${endpoint}" "${token}" 'istio_requests_total' >/dev/null
           query_prometheus "${endpoint}" "${token}" 'istio_request_duration_milliseconds_bucket' >/dev/null
           echo "cluster_label=${cluster_label}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify Argo CD-owned scrape resources
-        shell: bash
-        run: |
-          set -euo pipefail
-          az aks get-credentials --resource-group "${TF_VAR_resource_group_name}" --name "${TF_VAR_cluster_name}" --overwrite-existing
-          az aks install-cli --only-show-errors || true
-          kubelogin convert-kubeconfig -l azurecli
-          kubectl get application mcp-platform-app-of-apps -n argocd
-          kubectl get application mcp-platform-observability -n argocd
-          kubectl get configmap ama-metrics-settings-configmap -n kube-system
-          kubectl get servicemonitor mcp-argocd-controller-metrics -n kube-system
-          kubectl get servicemonitor mcp-argocd-repo-server-metrics -n kube-system
-          kubectl get servicemonitor mcp-argocd-api-server-metrics -n kube-system
 
       - name: Summarize verification
         shell: bash
