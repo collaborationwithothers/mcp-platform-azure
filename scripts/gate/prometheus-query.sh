@@ -101,3 +101,32 @@ prometheus_require_results() {
     return 1
   fi
 }
+
+prometheus_wait_for_results() {
+  local endpoint="$1"
+  local token="$2"
+  local query="$3"
+  local query_name="$4"
+  local max_attempts="$5"
+  local retry_seconds="$6"
+  local attempt
+  local response_body
+  local result_series_count
+
+  for attempt in $(seq 1 "${max_attempts}"); do
+    response_body="$(query_prometheus "${endpoint}" "${token}" "${query}")"
+    result_series_count="$(jq '[.data.result[]?] | length' <<< "${response_body}")"
+    if [ "${result_series_count}" -gt 0 ]; then
+      printf '%s\n' "${response_body}"
+      return 0
+    fi
+
+    if [ "${attempt}" -lt "${max_attempts}" ]; then
+      echo "Prometheus query ${query_name} returned no series. Retrying in ${retry_seconds} seconds (${attempt}/${max_attempts})." >&2
+      sleep "${retry_seconds}"
+    fi
+  done
+
+  echo "::error::Prometheus query ${query_name} returned no series after ${max_attempts} attempts." >&2
+  return 1
+}
