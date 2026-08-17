@@ -56,3 +56,32 @@ query_prometheus() {
 
   printf '%s\n' "${response_body}"
 }
+
+prometheus_single_cluster_label() {
+  local response_body="$1"
+  local cluster_labels
+  local cluster_count
+  local observed_labels
+  local result_series_count
+
+  if ! cluster_labels="$(jq -c '[.data.result[]? | .metric.cluster // empty] | unique' <<< "${response_body}")"; then
+    echo "::error::Could not read cluster labels from the Prometheus response." >&2
+    return 1
+  fi
+
+  cluster_count="$(jq 'length' <<< "${cluster_labels}")"
+  observed_labels="$(jq -r 'join(", ")' <<< "${cluster_labels}")"
+  result_series_count="$(jq '[.data.result[]?] | length' <<< "${response_body}")"
+
+  if [ "${cluster_count}" -eq 0 ]; then
+    echo "::error::Ready-node metrics returned ${result_series_count} series and no non-empty cluster labels." >&2
+    return 1
+  fi
+
+  if [ "${cluster_count}" -ne 1 ]; then
+    echo "::error::Ready-node metrics returned ${result_series_count} series across ${cluster_count} cluster labels; expected exactly one: ${observed_labels}." >&2
+    return 1
+  fi
+
+  printf '%s\n' "${observed_labels}"
+}

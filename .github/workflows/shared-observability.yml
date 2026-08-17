@@ -247,10 +247,8 @@ jobs:
           source "${GITHUB_WORKSPACE}/scripts/gate/prometheus-query.sh"
           endpoint="$(azure_monitor_workspace_query_endpoint "${AZURE_MONITOR_WORKSPACE_ID}")"
           token="$(az account get-access-token --resource https://prometheus.monitor.azure.com --query accessToken -o tsv)"
-          up="$(query_prometheus "${endpoint}" "${token}" 'up')"
-          cluster_label="$(jq -r '[.data.result[] | .metric.cluster // empty] | unique | .[0] // empty' <<< "${up}")"
-          test -n "${cluster_label}"
-          query_prometheus "${endpoint}" "${token}" "kube_node_status_condition{cluster=\"${cluster_label}\",condition=\"Ready\",status=\"true\"}" | jq -e '.data.result | length > 0' >/dev/null
+          ready_nodes="$(query_prometheus "${endpoint}" "${token}" 'kube_node_status_condition{condition="Ready",status="true"}')"
+          cluster_label="$(prometheus_single_cluster_label "${ready_nodes}")"
           query_prometheus "${endpoint}" "${token}" "argocd_app_info{cluster=\"${cluster_label}\"}" | jq -e '.data.result | length > 0' >/dev/null
           query_prometheus "${endpoint}" "${token}" "pilot_info{cluster=\"${cluster_label}\"}" | jq -e '.data.result | length > 0' >/dev/null
           query_prometheus "${endpoint}" "${token}" 'istio_requests_total' >/dev/null
