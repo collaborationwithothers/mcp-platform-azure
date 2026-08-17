@@ -286,6 +286,9 @@ jobs:
             --namespace argocd \
             --create-namespace \
             --set redis-ha.enabled=false \
+            --set controller.metrics.enabled=true \
+            --set repoServer.metrics.enabled=true \
+            --set server.metrics.enabled=true \
             --wait --timeout 10m
 
       - name: Apply the app-of-apps
