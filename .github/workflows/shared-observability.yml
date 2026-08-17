@@ -238,16 +238,18 @@ jobs:
           az aks install-cli --only-show-errors || true
           kubelogin convert-kubeconfig -l azurecli
           kubectl get application mcp-platform-app-of-apps -n argocd
-          application_state="$(kubectl get application mcp-platform-observability -n argocd -o jsonpath='{.status.sync.status}|{.status.health.status}')"
+          application_json="$(kubectl get application mcp-platform-observability -n argocd -o json)"
+          application_state="$(jq -r '[(.status.sync.status // "Unknown"), (.status.health.status // "Unknown")] | join("|")' <<< "${application_json}")"
           echo "mcp-platform-observability state: ${application_state}"
-          if [ "${application_state}" != "Synced|Healthy" ]; then
-            echo "::error::mcp-platform-observability must be Synced and Healthy before Prometheus verification. Found ${application_state:-missing}." >&2
-            exit 1
-          fi
+          jq -c '{source: .spec.source, sync: .status.sync.status, health: .status.health.status, operation: .status.operationState, conditions: (.status.conditions // []), unresolved_resources: [(.status.resources // [])[] | select(.status != "Synced" or (.health.status // "Unknown") != "Healthy") | {group, kind, namespace, name, status, health, message}]}' <<< "${application_json}"
           kubectl get configmap ama-metrics-settings-configmap -n kube-system
           kubectl get servicemonitor mcp-argocd-controller-metrics -n kube-system
           kubectl get servicemonitor mcp-argocd-repo-server-metrics -n kube-system
           kubectl get servicemonitor mcp-argocd-api-server-metrics -n kube-system
+          if [ "${application_state}" != "Synced|Healthy" ]; then
+            echo "::error::mcp-platform-observability must be Synced and Healthy before Prometheus verification. Found ${application_state:-missing}." >&2
+            exit 1
+          fi
 
       - name: Verify the dashboard and managed Prometheus attachment
         id: verify
