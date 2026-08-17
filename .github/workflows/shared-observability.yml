@@ -246,11 +246,42 @@ jobs:
 
           endpoint="$(az monitor account show --ids "${AZURE_MONITOR_WORKSPACE_ID}" --query properties.metrics.prometheusQueryEndpoint -o tsv)"
           token="$(az account get-access-token --resource https://prometheus.monitor.azure.com --query accessToken -o tsv)"
+          if [ -z "${endpoint}" ]; then
+            echo "::error::Azure Monitor workspace did not return a Prometheus query endpoint."
+            exit 1
+          fi
 
           query_prometheus() {
-            curl --fail --silent --show-error --get "${endpoint%/}/api/v1/query" \
+            local query="$1"
+            local response_body
+            local http_status
+            local response_type
+            local response_status
+
+            if ! response_body="$(curl --silent --show-error --get \
+              --write-out '\n%{http_code}' \
+              "${endpoint%/}/api/v1/query" \
               --header "Authorization: Bearer ${token}" \
-              --data-urlencode "query=$1" | jq -e '.status == "success"'
+              --data-urlencode "query=${query}")"; then
+              echo "::error::Prometheus request failed before receiving an HTTP response." >&2
+              return 1
+            fi
+
+            http_status="${response_body##*$'\n'}"
+            response_body="${response_body%$'\n'*}"
+            if [ "${http_status}" != "200" ]; then
+              echo "::error::Prometheus query returned HTTP ${http_status}." >&2
+              return 1
+            fi
+
+            if ! jq -e '.status == "success"' >/dev/null <<< "${response_body}"; then
+              response_type="$(jq -r 'type' <<< "${response_body}" 2>/dev/null || printf 'non-json')"
+              response_status="$(jq -r '.status // "missing"' <<< "${response_body}" 2>/dev/null || printf 'unavailable')"
+              echo "::error::Prometheus query returned unexpected content (type=${response_type}, status=${response_status})." >&2
+              return 1
+            fi
+
+            printf '%s\n' "${response_body}"
           }
 
           up="$(query_prometheus 'up')"
