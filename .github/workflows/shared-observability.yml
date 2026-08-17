@@ -241,7 +241,7 @@ jobs:
           set -euo pipefail
           az extension add --name amg --version 2.8.0 --yes
           az grafana folder show --name "${GRAFANA_NAME}" --resource-group "${GRAFANA_RESOURCE_GROUP}" --folder "MCP Platform" --query title -o tsv | grep -Fx "MCP Platform"
-          az grafana dashboard show --name "${GRAFANA_NAME}" --resource-group "${GRAFANA_RESOURCE_GROUP}" --dashboard aks-platform-overview --query title -o tsv | grep -Fx "AKS Platform Overview"
+          az grafana dashboard show --name "${GRAFANA_NAME}" --resource-group "${GRAFANA_RESOURCE_GROUP}" --dashboard aks-platform-overview --query dashboard.title -o tsv | grep -Fx "AKS Platform Overview"
           az aks show --resource-group "${TF_VAR_resource_group_name}" --name "${TF_VAR_cluster_name}" --query azureMonitorProfile.metrics.enabled -o tsv | grep -Fx "true"
 
           endpoint="$(az monitor account show --ids "${AZURE_MONITOR_WORKSPACE_ID}" --query properties.metrics.prometheusQueryEndpoint -o tsv)"
