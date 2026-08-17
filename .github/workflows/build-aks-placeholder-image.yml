@@ -1,8 +1,8 @@
 # Placeholder image pipeline for the epic 108 child (b) AKS platform (issue
 # 110 task 9). Manual only, workflow_dispatch, never triggered by
 # pull_request or push: this is a deliberate action for a placeholder proof,
-# not part of the fast PR CI loop. runs-on: ubuntu-latest, OIDC-only auth (no
-# client secret, no stored Azure credential) -- same auth pattern as
+# not part of the fast PR CI loop. runs-on: ubuntu-latest, OIDC-only Azure
+# auth (no client secret, no stored Azure credential) -- same auth pattern as
 # deploy-aks-platform.yml and ephemeral-env.yml.
 #
 # This workflow builds nothing (issue 110's out-of-scope list: no application
@@ -48,6 +48,14 @@
 # 2026-08-17. The workflow checks the selected manifest before Azure login, so
 # a removed tag or invalid override fails before it can reach the registry
 # push step.
+#
+# After the image push, the workflow reads the placeholder workload identity
+# client ID from the AKS platform's Terraform state. It then uses a GitHub App
+# installation token, scoped to the companion manifests repository, to send a
+# repository_dispatch event. The companion repository creates the reviewable
+# GitOps promotion PR with its own GITHUB_TOKEN. This removes manual copying of
+# either value without giving this workflow direct Git write access to the
+# companion repository.
 
 name: Build AKS placeholder image
 
@@ -69,7 +77,20 @@ jobs:
     name: push-placeholder-image
     runs-on: ubuntu-latest
     environment: live-test
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      AKS_PLATFORM_STATE_KEY: s1-aks-platform.tfstate
+      TARGET_IMAGE: ${{ vars.AKS_PLATFORM_REGISTRY_NAME }}.azurecr.io/mcp-platform-placeholder:${{ github.sha }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Validate source image
         shell: bash
         env:
@@ -93,35 +114,94 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Read the placeholder workload identity
+        id: workload-identity
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${AKS_PLATFORM_STATE_KEY}"
+          workload_identity_client_id="$(terraform output -raw placeholder_workload_client_id)"
+          if ! [[ "${workload_identity_client_id}" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+            echo "::error::The AKS platform state did not return a valid placeholder workload identity client ID. Run Deploy AKS platform with bootstrap first."
+            exit 1
+          fi
+          echo "client_id=${workload_identity_client_id}" >> "$GITHUB_OUTPUT"
+
       - name: az acr login
         shell: bash
         run: az acr login --name "${{ vars.AKS_PLATFORM_REGISTRY_NAME }}"
 
-      # TARGET_IMAGE's host is built the same way
-      # container-registry/outputs.tf's login_server output is: "<registry
-      # name>.azurecr.io", never read from a terraform output, because that
-      # output only exists after a terraform init against this platform's
-      # remote state, and this workflow has no other reason to carry that
-      # weight.
       - name: Pull, retag by commit SHA, and push
         shell: bash
         env:
           SOURCE_IMAGE: ${{ inputs.source_image }}
-          TARGET_IMAGE: ${{ vars.AKS_PLATFORM_REGISTRY_NAME }}.azurecr.io/mcp-platform-placeholder:${{ github.sha }}
         run: |
           set -euo pipefail
           docker pull "${SOURCE_IMAGE}"
           docker tag "${SOURCE_IMAGE}" "${TARGET_IMAGE}"
           docker push "${TARGET_IMAGE}"
           echo "Pushed ${TARGET_IMAGE}"
+
+      - name: Require GitHub App promotion credentials
+        shell: bash
+        env:
+          GITOPS_PROMOTION_APP_CLIENT_ID: ${{ vars.GITOPS_PROMOTION_APP_CLIENT_ID }}
+          GITOPS_PROMOTION_APP_PRIVATE_KEY: ${{ secrets.GITOPS_PROMOTION_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          for required in GITOPS_PROMOTION_APP_CLIENT_ID GITOPS_PROMOTION_APP_PRIVATE_KEY; do
+            if [ -z "${!required}" ]; then
+              echo "::error::${required} is required on the live-test Environment. Complete the GitHub App setup in docs/runbooks/aks-platform-bootstrap.md."
+              exit 1
+            fi
+          done
+
+      - name: Create companion promotion token
+        id: promotion-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.GITOPS_PROMOTION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GITOPS_PROMOTION_APP_PRIVATE_KEY }}
+          owner: collaborationwithothers
+          repositories: mcp-platform-kubernetes-manifests
+          permission-contents: write
+
+      - name: Request GitOps promotion
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.promotion-token.outputs.token }}
+          WORKLOAD_IDENTITY_CLIENT_ID: ${{ steps.workload-identity.outputs.client_id }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg image_reference "${TARGET_IMAGE}" \
+            --arg workload_identity_client_id "${WORKLOAD_IDENTITY_CLIENT_ID}" \
+            --arg source_commit "${GITHUB_SHA}" \
+            '{event_type: "aks-placeholder-image-promoted", client_payload: {image_reference: $image_reference, workload_identity_client_id: $workload_identity_client_id, source_commit: $source_commit}}' \
+            | gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY_OWNER}/mcp-platform-kubernetes-manifests/dispatches" \
+              --input -
+
+      - name: Report image and promotion request
+        shell: bash
+        run: |
           {
-            echo "## Placeholder image pushed"
+            echo "## Placeholder image promotion requested"
             echo ""
             echo "Image reference: \`${TARGET_IMAGE}\`"
             echo ""
-            echo "Run the **Promote AKS placeholder image** workflow in"
-            echo "mcp-platform-kubernetes-manifests. Provide this image reference and"
-            echo "the workload identity client ID reported by Deploy AKS platform."
-            echo "The promotion workflow validates both values and opens a reviewable"
-            echo "manifest PR. Do not edit the Argo CD Application YAML by hand."
+            echo "The manifests repository received the promotion request and will open"
+            echo "a draft PR if these values are not already on main. Review that PR;"
+            echo "do not edit the Argo CD Application YAML by hand."
           } >> "$GITHUB_STEP_SUMMARY"
