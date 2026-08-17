@@ -151,6 +151,23 @@ jobs:
             -backend-config="key=${AKS_PLATFORM_STATE_KEY}"
           terraform apply -input=false -auto-approve
 
+      - name: Report placeholder promotion input
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          workload_identity_client_id="$(terraform output -raw placeholder_workload_client_id)"
+          {
+            echo "## Placeholder workload promotion input"
+            echo ""
+            echo "Workload identity client ID: \`${workload_identity_client_id}\`"
+            echo ""
+            echo "After Build AKS placeholder image reports its immutable image reference,"
+            echo "run **Promote AKS placeholder image** in the companion manifests"
+            echo "repository with both values. That workflow opens the GitOps manifest PR"
+            echo "that Argo CD will reconcile."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: kubelogin and az aks get-credentials
         working-directory: infra/terraform/scenarios/s1-aks-platform
         shell: bash
