@@ -78,6 +78,10 @@ jobs:
              ([.panels[] | select(.type == "row") | .title] | sort) == $required_sections' \
             "${dashboard}" >/dev/null
 
+      - name: Shared observability Prometheus helper
+        shell: bash
+        run: bash scripts/gate/tests/test_prometheus-query.sh
+
       - name: terraform init and validate
         shell: bash
         run: |

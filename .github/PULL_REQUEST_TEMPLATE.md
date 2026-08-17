@@ -52,7 +52,7 @@ input, policy, or auth setting in this diff. UNVERIFIABLE claims do not ship. --
 ## Checklist
 
 - [ ] Review pass run on Opus 4.8
-- [ ] Azure capability claims verified via azure-docs-verifier (links above)
+- [ ] Azure capability claims verified through current Microsoft Learn documentation (links above)
 - [ ] Docs land in this PR, or this is a code PR whose same-ticket docs PR
       is linked in "The concept" (no code-only ticket)
 - [ ] COMPATIBILITY.md row added or updated for any new/changed pin, or N/A
@@ -60,4 +60,6 @@ input, policy, or auth setting in this diff. UNVERIFIABLE claims do not ship. --
 - [ ] No terraform apply/destroy outside the gated live-test environment
 - [ ] Estimates labelled as estimates; no unmeasured figures; synthetic data
       labelled; ASCII punctuation
+- [ ] Read-only branch preflight passed for a changed `live-test` verification
+      path, or N/A:
 - [ ] Live-test run link (needs-live-test PRs only):

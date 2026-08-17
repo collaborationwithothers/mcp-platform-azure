@@ -277,6 +277,16 @@ ticket, honouring its acceptance checklist and out-of-scope list exactly. Open a
 PR referencing the issue using the PR template, apply the acting agent's agent:*
 label, watch CI (gh pr checks), and fix failures until green.
 
+Live preflight before review: when a PR changes an existing read-only
+`workflow_dispatch` verification path that uses the `live-test` Environment,
+dispatch that workflow at the PR branch ref and record the successful run in the
+PR before requesting review. `workflow_dispatch` must exist on the default
+branch before GitHub can dispatch it, but a branch ref is valid once it does.
+This preflight is read-only. It does not authorize `bootstrap`, `teardown`,
+Terraform apply, or Terraform destroy from an unmerged branch. Static CI proves
+repository behaviour only. It does not replace an Azure control-plane or
+data-plane check. See https://docs.github.com/actions/managing-workflow-runs/manually-running-a-workflow.
+
 Finish: complete the PR template's review summary section, including the
 Microsoft Learn links justifying every Terraform, azapi, policy, or auth
 decision in the diff; tick only the checklist items that are actually true;
