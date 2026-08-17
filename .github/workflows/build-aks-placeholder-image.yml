@@ -43,14 +43,11 @@
 # workflow follows that precedent instead of inventing a new environment or
 # attempting an OIDC login whose subject would not match the existing trust.
 #
-# Base image: mcr.microsoft.com/oss/nginx/nginx, Microsoft's own mirror of
-# nginx, pinned by the `source_image` input's default below rather than
-# `:latest`. This session picked that default tag from its own general
-# knowledge of Microsoft's container mirrors, not by re-checking the live
-# Microsoft Container Registry listing (this task's instructions scoped
-# verification to files already in this repo). Confirm the tag still exists,
-# and update the default or override it at dispatch time, before the first
-# real run.
+# Base image: Docker Hub's nginx image, pinned by the `source_image` input's
+# default below rather than `:latest`. Its manifest was verified on
+# 2026-08-17. The workflow checks the selected manifest before Azure login, so
+# a removed tag or invalid override fails before it can reach the registry
+# push step.
 
 name: Build AKS placeholder image
 
@@ -58,10 +55,10 @@ on:
   workflow_dispatch:
     inputs:
       source_image:
-        description: "Public image to re-push, as registry/repository:tag. Must not be :latest. Defaults to Microsoft's own nginx mirror; override if the pinned default has gone stale."
+        description: "Public image to re-push, as registry/repository:tag. Must not be :latest. Defaults to a verified nginx tag; override only with another immutable tag."
         required: false
         type: string
-        default: "mcr.microsoft.com/oss/nginx/nginx:1.25.3"
+        default: "docker.io/library/nginx:1.27.4-alpine"
 
 permissions:
   contents: read
@@ -73,6 +70,22 @@ jobs:
     runs-on: ubuntu-latest
     environment: live-test
     steps:
+      - name: Validate source image
+        shell: bash
+        env:
+          SOURCE_IMAGE: ${{ inputs.source_image }}
+        run: |
+          set -euo pipefail
+          image_tail="${SOURCE_IMAGE##*/}"
+          if [[ "${image_tail}" != *:* ]] || [[ "${image_tail}" == *:latest ]]; then
+            echo "::error::source_image must name a non-latest image tag."
+            exit 1
+          fi
+          if ! docker manifest inspect "${SOURCE_IMAGE}" >/dev/null; then
+            echo "::error::Source image ${SOURCE_IMAGE} has no accessible manifest."
+            exit 1
+          fi
+
       - name: Azure login (OIDC)
         uses: azure/login@v3
         with:
