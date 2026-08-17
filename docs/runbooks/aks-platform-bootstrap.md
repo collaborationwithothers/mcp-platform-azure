@@ -26,7 +26,35 @@ why.
 | `AKS_PLATFORM_RUNNER_VNET_ID` | the existing GitHub Actions VNet runner network's ARM resource ID | Non-secret (a resource ID, not a credential) but never committed to this repo -- it embeds a real subscription ID, which AGENTS.md's hard safety rules forbid committing. Ask whoever manages that runner network for the exact value. |
 | `AKS_PLATFORM_INGRESS_PRIVATE_IP` | an address inside the ingress subnet, see step 2 | Pinned once; changing it after the first bootstrap re-pins a live load balancer. |
 
-## 2. Choosing the ingress gateway's private IP
+## 2. GitHub App setup for image promotion
+
+The image workflow sends a promotion request to the public manifests
+repository. A GitHub App is a GitHub-managed automation identity with access
+to selected repositories. It is needed because `GITHUB_TOKEN`, the temporary
+token GitHub gives a workflow, cannot act outside the repository that created
+it.
+
+Hari creates and owns this App. Install it for only
+`collaborationwithothers/mcp-platform-kubernetes-manifests`. Grant repository
+Metadata read and Contents write. Contents write is enough to create the
+`repository_dispatch` event, which starts a workflow in another repository.
+The manifests workflow uses its own `GITHUB_TOKEN` to create the branch and
+draft PR.
+
+Add these values to the existing `live-test` GitHub Environment in this
+repository:
+
+| Setting | Value | Notes |
+|---|---|---|
+| Variable `GITOPS_PROMOTION_APP_CLIENT_ID` | The App Client ID | Identifier only. It is not a credential. |
+| Secret `GITOPS_PROMOTION_APP_PRIVATE_KEY` | The App private key PEM | Keep it only in the GitHub Environment. Never commit it or copy it into a workflow input. |
+
+The App is not installed in this repository. Its private key is available to
+the protected image workflow solely so that workflow can request a short-lived
+token for the selected manifests repository. The token is limited to the
+repository and permission above, and the action revokes it when the job ends.
+
+## 3. Choosing the ingress gateway's private IP
 
 `private-network`'s ingress subnet defaults to `10.20.2.0/28` (16 addresses;
 see `infra/terraform/modules/private-network/README.md` for the full
@@ -41,7 +69,7 @@ reject a value outside the subnet -- see `private-network/variables.tf`'s
 If you changed `ingress_gateway_subnet_cidr` from its default, recompute the
 usable range accordingly before choosing an address.
 
-## 3. Running bootstrap
+## 4. Running bootstrap
 
 From the repository's **Actions** tab, run **Deploy AKS platform**,
 `action: bootstrap`, and type `bootstrap` into the confirmation input. This:
@@ -72,15 +100,17 @@ Argo CD then reconciles the placeholder workload asynchronously; check
 `kubectl get applications -n argocd` (via `az aks get-credentials` +
 `kubelogin`) if it does not show `Synced`/`Healthy` shortly after.
 
-## 4. Pushing the placeholder image
+## 5. Pushing the placeholder image
 
 Run **Build AKS placeholder image** (`.github/workflows/build-aks-placeholder-image.yml`)
 separately -- it is not part of bootstrap. It pushes a small, pinned public
 image into the registry this composition created, tagged by git commit SHA.
-Update the manifests repository's Deployment with the printed image
-reference if the tag is not resolved automatically.
+The workflow reads the workload identity client ID from Terraform state and
+sends both values to the manifests repository. That repository validates them
+and opens a draft promotion PR. Review and merge that PR. Do not copy either
+value or edit a manifest by hand.
 
-## 5. Idling the cluster
+## 6. Idling the cluster
 
 `action: idle-stop` runs `az aks stop`. Wait 15 to 30 minutes (Microsoft
 Learn's documented settle window; no tighter SLA is published) before
@@ -90,7 +120,7 @@ requirement into something silently masked, not enforced. Running
 `idle-start` too soon after `idle-stop` fails; if it does, wait longer and
 retry.
 
-## 6. Recording the first live measurement
+## 7. Recording the first live measurement
 
 Issue #110's acceptance criteria require the FIRST stop/start cycle's
 measured behaviour recorded in COMPATIBILITY.md: whether the Istio add-on's
