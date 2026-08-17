@@ -90,6 +90,10 @@ jobs:
         shell: bash
         run: bash scripts/gate/tests/test-shared-observability-companion-revision.sh
 
+      - name: Managed Prometheus detachment scope
+        shell: bash
+        run: bash scripts/gate/tests/test-managed-prometheus-detachment-scope.sh
+
       - name: terraform init and validate
         shell: bash
         run: |

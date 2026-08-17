@@ -478,7 +478,20 @@ jobs:
             -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
             -backend-config="container_name=${TF_STATE_CONTAINER}" \
             -backend-config="key=${AKS_PLATFORM_STATE_KEY}"
-          terraform plan -input=false -out=managed-prometheus-off.tfplan -var='managed_prometheus_enabled=false'
+          # Changing the AKS ARM resource makes some unrelated provider
+          # outputs unknown during this plan. Scope the plan to the five
+          # collection resources that this workflow owns so Terraform cannot
+          # apply an unrelated diagnostic, identity, or ACR role change.
+          managed_prometheus_targets=(
+            '-target=module.aks.module.aks.azapi_resource.this'
+            '-target=module.aks.azurerm_monitor_data_collection_endpoint.managed_prometheus'
+            '-target=module.aks.azurerm_monitor_data_collection_rule.managed_prometheus'
+            '-target=module.aks.azurerm_monitor_data_collection_rule_association.managed_prometheus_rule'
+            '-target=module.aks.azurerm_monitor_data_collection_rule_association.managed_prometheus_endpoint'
+          )
+          terraform plan -input=false -out=managed-prometheus-off.tfplan \
+            -var='managed_prometheus_enabled=false' \
+            "${managed_prometheus_targets[@]}"
           terraform show -json managed-prometheus-off.tfplan > managed-prometheus-off.json
           allowed='^module\.aks\.(module\.aks\.azapi_resource\.this|azurerm_monitor_data_collection_(endpoint|rule|rule_association)\.managed_prometheus)'
           unexpected="$(jq -r --arg allowed "${allowed}" '.resource_changes[] | select(.change.actions != ["no-op"]) | select(.address | test($allowed) | not) | .address' managed-prometheus-off.json)"
