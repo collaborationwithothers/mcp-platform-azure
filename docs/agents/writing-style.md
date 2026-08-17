@@ -92,3 +92,5 @@ the AGENTS.md rules above them.
 - 2026-08-12: Describe the mechanic in one concrete sentence before naming a
   decision about it; a reader who cannot picture the thing cannot make the
   call. Never write "the X half of Y" before Y has been described plainly.
+- 2026-08-17: When one merged PR installs a workflow that later opens another
+  PR, name them separately as the implementation PR and the generated PR.
