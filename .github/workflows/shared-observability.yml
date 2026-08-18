@@ -246,6 +246,8 @@ jobs:
           kubectl get servicemonitor mcp-argocd-controller-metrics -n kube-system
           kubectl get servicemonitor mcp-argocd-repo-server-metrics -n kube-system
           kubectl get servicemonitor mcp-argocd-api-server-metrics -n kube-system
+          kubectl get service -n argocd --show-labels
+          kubectl get pod -n argocd --show-labels
           if [ "${application_state}" != "Synced|Healthy" ]; then
             echo "::error::mcp-platform-observability must be Synced and Healthy before Prometheus verification. Found ${application_state:-missing}." >&2
             exit 1
@@ -268,14 +270,15 @@ jobs:
           source "${GITHUB_WORKSPACE}/scripts/gate/prometheus-query.sh"
           endpoint="$(azure_monitor_workspace_query_endpoint "${AZURE_MONITOR_WORKSPACE_ID}")"
           token="$(az account get-access-token --resource https://prometheus.monitor.azure.com --query accessToken -o tsv)"
-          node_conditions="$(query_prometheus "${endpoint}" "${token}" 'kube_node_status_condition')"
+          # A successful Argo CD reconciliation may create ServiceMonitors only
+          # seconds before this job queries Prometheus. Wait for first scrape
+          # and ingestion rather than treating that expected propagation window
+          # as a failed deployment.
+          node_conditions="$(prometheus_wait_for_results "${endpoint}" "${token}" 'kube_node_status_condition' 'kube_node_status_condition' 90 10)"
           cluster_label="$(prometheus_single_cluster_label "${node_conditions}")"
-          ready_nodes="$(query_prometheus "${endpoint}" "${token}" "kube_node_status_condition{cluster=\"${cluster_label}\",condition=\"Ready\",status=\"true\"}")"
-          prometheus_require_results "${ready_nodes}" 'kube_node_status_condition Ready=true'
-          argo_cd_apps="$(query_prometheus "${endpoint}" "${token}" "argocd_app_info{cluster=\"${cluster_label}\"}")"
-          prometheus_require_results "${argo_cd_apps}" 'argocd_app_info'
-          istio_pilot="$(query_prometheus "${endpoint}" "${token}" "pilot_info{cluster=\"${cluster_label}\"}")"
-          prometheus_require_results "${istio_pilot}" 'pilot_info'
+          prometheus_wait_for_results "${endpoint}" "${token}" "kube_node_status_condition{cluster=\"${cluster_label}\",condition=\"Ready\",status=\"true\"}" 'kube_node_status_condition Ready=true' 90 10 >/dev/null
+          prometheus_wait_for_results "${endpoint}" "${token}" "argocd_app_info{cluster=\"${cluster_label}\"}" 'argocd_app_info' 90 10 >/dev/null
+          prometheus_wait_for_results "${endpoint}" "${token}" "pilot_info{cluster=\"${cluster_label}\"}" 'pilot_info' 90 10 >/dev/null
           query_prometheus "${endpoint}" "${token}" 'istio_requests_total' >/dev/null
           query_prometheus "${endpoint}" "${token}" 'istio_request_duration_milliseconds_bucket' >/dev/null
           echo "cluster_label=${cluster_label}" >> "$GITHUB_OUTPUT"
@@ -385,6 +388,23 @@ jobs:
           kubectl patch application "${root_application}" -n "${root_namespace}" --type merge -p "{\"spec\":{\"source\":{\"targetRevision\":\"${COMPANION_REVISION}\"},\"syncPolicy\":{\"automated\":{\"selfHeal\":false}}}}"
           revision_changed=true
 
+          # Wait for the root Application's one intentional sync to the
+          # companion commit. Only then is it safe to patch the child
+          # Application to that commit: self-healing is disabled above, so the
+          # completed root sync will not overwrite the child back to main.
+          for attempt in $(seq 1 90); do
+            root_state="$(kubectl get application "${root_application}" -n "${root_namespace}" -o jsonpath='{.status.sync.status}|{.status.health.status}' 2>/dev/null || true)"
+            root_synced_revision="$(kubectl get application "${root_application}" -n "${root_namespace}" -o jsonpath='{.status.sync.revision}' 2>/dev/null || true)"
+            if [ "${root_state}" = "Synced|Healthy" ] && [ "${root_synced_revision}" = "${COMPANION_REVISION}" ]; then
+              break
+            fi
+            if [ "${attempt}" = "90" ]; then
+              echo "::error::The root Application did not reconcile the companion revision to Synced and Healthy. Last state: ${root_state:-missing}. Last sync revision: ${root_synced_revision:-missing}."
+              exit 1
+            fi
+            sleep 10
+          done
+
           for attempt in $(seq 1 60); do
             if kubectl get application mcp-platform-observability -n argocd >/dev/null 2>&1; then
               break
@@ -408,7 +428,7 @@ jobs:
               break
             fi
             if [ "${attempt}" = "90" ]; then
-              echo "::error::The companion revision did not reconcile mcp-platform-observability to Synced and Healthy. Last state: ${state:-missing}."
+              echo "::error::The companion revision did not reconcile mcp-platform-observability to Synced and Healthy at the requested revision. Last state: ${state:-missing}. Last source revision: ${child_revision:-missing}."
               exit 1
             fi
             sleep 10
@@ -458,7 +478,20 @@ jobs:
             -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
             -backend-config="container_name=${TF_STATE_CONTAINER}" \
             -backend-config="key=${AKS_PLATFORM_STATE_KEY}"
-          terraform plan -input=false -out=managed-prometheus-off.tfplan -var='managed_prometheus_enabled=false'
+          # Changing the AKS ARM resource makes some unrelated provider
+          # outputs unknown during this plan. Scope the plan to the five
+          # collection resources that this workflow owns so Terraform cannot
+          # apply an unrelated diagnostic, identity, or ACR role change.
+          managed_prometheus_targets=(
+            '-target=module.aks.module.aks.azapi_resource.this'
+            '-target=module.aks.azurerm_monitor_data_collection_endpoint.managed_prometheus'
+            '-target=module.aks.azurerm_monitor_data_collection_rule.managed_prometheus'
+            '-target=module.aks.azurerm_monitor_data_collection_rule_association.managed_prometheus_rule'
+            '-target=module.aks.azurerm_monitor_data_collection_rule_association.managed_prometheus_endpoint'
+          )
+          terraform plan -input=false -out=managed-prometheus-off.tfplan \
+            -var='managed_prometheus_enabled=false' \
+            "${managed_prometheus_targets[@]}"
           terraform show -json managed-prometheus-off.tfplan > managed-prometheus-off.json
           allowed='^module\.aks\.(module\.aks\.azapi_resource\.this|azurerm_monitor_data_collection_(endpoint|rule|rule_association)\.managed_prometheus)'
           unexpected="$(jq -r --arg allowed "${allowed}" '.resource_changes[] | select(.change.actions != ["no-op"]) | select(.address | test($allowed) | not) | .address' managed-prometheus-off.json)"
