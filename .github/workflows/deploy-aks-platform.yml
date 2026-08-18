@@ -48,11 +48,11 @@
 # goal or loop session dispatches this gated workflow autonomously, and
 # AGENTS.md's hard rule forbids apply/destroy only OUTSIDE the live-test gate,
 # which this workflow is. Any other write-access actor fails the guard
-# closed. Because bootstrap stands up a persistent, billable cluster, spend
-# is gated by the live-test Environment's required-reviewers rule
-# ({haripraghash, haripraghash-bot}, self-review allowed): the bot
-# self-approves so a loop does not stall, Hari approves his own manual runs,
-# and a third actor cannot approve. The ref guard is defense in depth beyond
+# closed. By design the live-test Environment requires no reviewer approval,
+# so a loop session runs unattended; the actor allow-list above is the sole
+# control over who may trigger. Because bootstrap stands up a persistent,
+# billable cluster, its running cost is bounded out of band (an Azure
+# subscription budget), not by a GitHub approval gate. The ref guard is defense in depth beyond
 # the Environment's branch policy: that policy currently allows a stale
 # non-main branch, so this guard fails closed even if a weakened copy of this
 # workflow is dispatched from a resurrected branch.
