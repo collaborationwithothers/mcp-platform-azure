@@ -3,6 +3,7 @@ using McpTools.Core;
 using McpTools.Downstream;
 using McpTools.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.AspNetCore.Authentication;
@@ -26,7 +27,33 @@ var downstreamScope = RequiredConfiguration(
 var downstreamApplicationScope = RequiredConfiguration(
     builder.Configuration,
     "DownstreamOrdersApi:ApplicationScope");
+var requireHttpsMetadata = builder.Configuration.GetValue(
+    "Authentication:RequireHttpsMetadata",
+    true);
+if (!requireHttpsMetadata && !builder.Environment.IsDevelopment())
+{
+    throw new InvalidOperationException(
+        "Authentication:RequireHttpsMetadata may be false only in Development.");
+}
+var trustAnyForwarder = builder.Configuration.GetValue(
+    "ReverseProxy:TrustAnyForwarder",
+    false);
+if (trustAnyForwarder && !builder.Environment.IsDevelopment())
+{
+    throw new InvalidOperationException(
+        "ReverseProxy:TrustAnyForwarder may be true only in Development.");
+}
 var scopePrefix = audience.TrimEnd('/');
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedProto;
+    if (trustAnyForwarder)
+    {
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+    }
+});
 
 builder.Services
     .AddAuthentication(options =>
@@ -38,6 +65,7 @@ builder.Services
     {
         options.Authority = authority;
         options.Audience = audience;
+        options.RequireHttpsMetadata = requireHttpsMetadata;
         options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -77,6 +105,7 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
+builder.Services.AddHealthChecks();
 builder.Services.AddSingleton(
     new KubernetesTokenAcquirer(serverAppClientId, serverTenantId));
 builder.Services.AddSingleton<IOboTokenAcquirer>(services =>
@@ -103,8 +132,10 @@ builder.Services.AddMcpServer()
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapHealthChecks("/healthz");
 app.MapMcp("/mcp")
     .RequireAuthorization(McpHostContract.ServerEntryPolicy);
 

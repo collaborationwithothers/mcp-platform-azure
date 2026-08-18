@@ -4,7 +4,9 @@ This directory holds the .NET side of the v1 tracer bullet (scenario S1): the
 host-neutral MCP application core, its currently deployed Azure Functions
 adapter, the alongside ASP.NET Core adapter, the hand-written MCP test client,
 and the in-process tests. Both adapters expose the same three core-backed tools.
-The ASP.NET Core adapter is not deployed by issue #147. Spec:
+Issue #148 builds and tests the ASP.NET Core adapter as a container image, a
+read-only package that holds the application and its runtime. It does not push
+or deploy that image. Spec:
 `docs/specs/v1-tracer-bullet.md` (sections "Compute and the tool (S1)" and
 "Testing Decisions"). Glossary: `src/CONTEXT.md`.
 
@@ -153,6 +155,24 @@ their environment-specific values before the pod starts.
 | `DownstreamOrdersApi__Scope` | Exact delegated Orders scope, such as `api://<orders-app-client-id>/user_impersonation` |
 | `DownstreamOrdersApi__ApplicationScope` | Orders application scope in `api://<orders-app-client-id>/.default` form |
 
+The container listens for HTTP on port 8080 because Istio terminates TLS in the
+later deployment. The runtime selects the built-in non-root `app` user. Its
+`/healthz` endpoint is anonymous so Kubernetes can probe it, but the response is
+only the plain health status. The `/mcp` endpoint keeps its existing token and
+entitlement checks.
+
+The app processes `X-Forwarded-Proto` before authentication so a trusted proxy
+can preserve the caller's HTTPS scheme on the HTTP hop to the container. This
+is the ASP.NET Core pattern for a TLS-terminating proxy. The framework's trusted
+proxy and network defaults stay in force outside Development. See
+[proxy and load balancer configuration](https://learn.microsoft.com/aspnet/core/host-and-deploy/proxy-load-balancer?view=aspnetcore-10.0).
+
+The final image contains the ASP.NET Core runtime and published application
+output. The .NET SDK, source, test projects, and other repository content stay
+in the build stage or outside the narrow Docker build context. CI proves those
+boundaries before it starts the image and exercises private metadata discovery
+and an authenticated `get_service_info` call.
+
 ### McpTestClient (`src/McpTestClient`)
 
 A hand-written .NET MCP client (the official ModelContextProtocol C# SDK) that
@@ -165,6 +185,8 @@ tools/call. The normal mode asserts both frozen result contracts. The
 deterministic backend authorization error for a missing application role or
 delegated scope. It reads the target endpoint and bearer token from
 `MCP_SERVER_ENDPOINT` and `MCP_ACCESS_TOKEN`.
+`MCP_TEST_PROFILE=service-info` selects the no-downstream tool path used by the
+local container check. The default remains the deployed order-status path.
 
 ### McpTools.Tests (`tests/McpTools.Tests`)
 
@@ -198,6 +220,42 @@ dotnet test  src/McpPlatform.sln --configuration Release --no-build
 ```
 
 Restore is pinned to the public nuget.org feed by the repo-root `NuGet.config`.
+
+## Build and test the container locally
+
+Docker builds from the repository root because the ASP.NET Core project
+references the application core. The repo-root `.dockerignore` admits only
+those two projects and `NuGet.config`.
+
+1. If the operator is anywhere inside the checkout, the operator enters the
+   repository root:
+
+   ```bash
+   cd "$(git rev-parse --show-toplevel)"
+   ```
+
+2. The operator builds the image:
+
+   ```bash
+   docker build \
+     --file src/McpTools.AspNetCore/Dockerfile \
+     --tag mcp-tools-aspnetcore:local \
+     .
+   ```
+
+3. The operator runs the container check:
+
+   ```bash
+   bash scripts/ci/test-mcp-container.sh mcp-tools-aspnetcore:local
+   ```
+
+The check generates a short-lived signing key in a temporary directory. It
+starts a local OpenID Connect test issuer, then removes the key, token, test
+container, and temporary files on exit. The application accepts that HTTP
+issuer only when `ASPNETCORE_ENVIRONMENT=Development` and
+`Authentication__RequireHttpsMetadata=false`. Production startup rejects that
+combination. The check also sets `ReverseProxy__TrustAnyForwarder=true` because
+the Docker host is its temporary proxy. Production startup rejects that setting.
 
 ## Pinned packages
 

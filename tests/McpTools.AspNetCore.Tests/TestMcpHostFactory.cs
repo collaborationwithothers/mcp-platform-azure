@@ -56,6 +56,7 @@ internal sealed class TestMcpHostFactory : WebApplicationFactory<Program>
     {
         builder.UseSetting("Authentication:Authority", Issuer);
         builder.UseSetting("Authentication:Audience", Audience);
+        builder.UseSetting("ReverseProxy:TrustAnyForwarder", "true");
         builder.UseSetting("MicrosoftEntra:ServerAppClientId", "mcp-server-app-id");
         builder.UseSetting("MicrosoftEntra:TenantId", "server-tenant-id");
         builder.UseSetting("DownstreamOrdersApi:BaseUrl", "https://orders.example.test");

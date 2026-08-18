@@ -38,6 +38,39 @@ public sealed class AuthenticationTests
     }
 
     [Fact]
+    public async Task UnauthenticatedHealthProbeReturnsOnlyHealthStatus()
+    {
+        await using var factory = new TestMcpHostFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = PrivateHost,
+        });
+
+        using var response = await client.GetAsync("/healthz");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task ForwardedHttpsSchemeServesPrivateMetadataBehindProxy()
+    {
+        await using var factory = new TestMcpHostFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("http://mcp.internal.consultwithcloud.com"),
+        });
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/.well-known/oauth-protected-resource/mcp");
+        request.Headers.Add("X-Forwarded-Proto", "https");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task ValidTokenWithoutServerEntitlementIsForbidden()
     {
         await using var factory = new TestMcpHostFactory();

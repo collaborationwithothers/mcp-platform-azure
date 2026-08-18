@@ -1,0 +1,9 @@
+**
+!NuGet.config
+!src/
+!src/McpTools.AspNetCore/
+!src/McpTools.AspNetCore/**
+!src/McpTools.Core/
+!src/McpTools.Core/**
+src/**/bin/
+src/**/obj/
