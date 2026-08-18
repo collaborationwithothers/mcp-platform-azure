@@ -38,6 +38,41 @@ resource "azurerm_network_security_group" "aks_nodes" {
   location            = var.location
   resource_group_name = data.azurerm_resource_group.this.name
   tags                = var.tags
+
+  # Optional inbound public HTTP/HTTPS allow for a public ingress gateway on the
+  # node subnet (issue 121, ADR-011: the Argo CD external Istio gateway). Off by
+  # default so this module keeps its private-only posture; s1-aks-platform turns
+  # it on. Why it is needed: the external gateway's public load balancer forwards
+  # 80/443 to the gateway pods, which run on this node subnet, but the subnet
+  # NSG's default rules deny inbound Internet traffic, so the public path would
+  # otherwise time out at the NSG. This is the only inbound-from-Internet rule on
+  # the platform. The internal ingress gateway uses an internal load balancer
+  # with no public frontend, so it is unaffected, and the default
+  # AllowAzureLoadBalancerInBound rule still permits the health probe.
+  #
+  # destination_address_prefix is "*", NOT the node subnet CIDR, on purpose:
+  # Azure Load Balancer uses floating IP (direct server return) for AKS
+  # LoadBalancer services, so the packet arrives at the node still addressed to
+  # the PUBLIC frontend IP, not the node's own address. A rule scoped to the node
+  # subnet CIDR never matches that packet and the traffic is dropped (confirmed
+  # live on the #121 gate: the endpoint timed out until this was widened to "*").
+  # AKS's own managed NIC-level rule scopes destination to the exact public IPs;
+  # this module cannot know those at plan time, so "*" is the equivalent, with
+  # source = Internet and ports 80/443 as the real scoping.
+  dynamic "security_rule" {
+    for_each = var.public_https_ingress_enabled ? [1] : []
+    content {
+      name                       = "AllowPublicIngressInbound"
+      priority                   = 100
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      source_port_range          = "*"
+      destination_port_ranges    = ["80", "443"]
+      source_address_prefix      = "Internet"
+      destination_address_prefix = "*"
+    }
+  }
 }
 
 resource "azurerm_network_security_group" "istio_ingress" {

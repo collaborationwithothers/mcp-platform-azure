@@ -28,6 +28,16 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.9"
     }
+    # Manages the one public DNS record for Argo CD's public entry point
+    # (argocd.consultwithcloud.com A record), issue 121 / ADR-011. This is the
+    # repo's first non-Azure provider and its first non-OIDC credential: the
+    # cloudflare provider authenticates with a Cloudflare API token, injected
+    # as var.cloudflare_api_token from a live-test environment secret, never
+    # committed (AGENTS.md Hard-safety carve-out, 2026-08-18).
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 5.23"
+    }
   }
 }
 
@@ -41,4 +51,8 @@ provider "azurerm" {
 # root module.
 provider "azapi" {
   use_oidc = true
+}
+
+provider "cloudflare" {
+  api_token = var.cloudflare_api_token
 }

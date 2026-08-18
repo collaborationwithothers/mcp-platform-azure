@@ -1,0 +1,73 @@
+<mxfile host="app.diagrams.net" agent="drawio-mcp/1.0" compressed="false">
+  <diagram name="argocd-public-access" id="55414f0c4696">
+    <mxGraphModel dx="1413" dy="2004" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" background="#FFFFFF" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" parent="1" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=20;fontStyle=1;" value="Argo CD public access (target state, ADR-011 Proposed)" vertex="1">
+          <mxGeometry height="30" width="400" x="460" y="-80" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=14;fontColor=#666666;" value="Two public entry paths into one AKS cluster. Path A (Argo CD) is new; Path B (MCP) shown for contrast." vertex="1">
+          <mxGeometry height="20" width="700" x="310" y="-50" as="geometry" />
+        </mxCell>
+        <mxCell id="cluster" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#9673A6;strokeWidth=2;dashed=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=8;fontSize=13;fontStyle=1;fontColor=#9673A6;" value="AKS cluster (both Istio ingress gateways live here)" vertex="1">
+          <mxGeometry height="470" width="540" x="740" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="guest" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=12;fontStyle=1;" value="Invited guest&#xa;(browser / argocd CLI)" vertex="1">
+          <mxGeometry height="80" width="190" x="40" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="dns" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;dashed=1;fontSize=11;" value="Cloudflare DNS (grey-cloud, DNS-only)&#xa;argocd.consultwithcloud.com -&gt; pinned public IP&#xa;(resolves name only, does not proxy)" vertex="1">
+          <mxGeometry height="95" width="300" x="290" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pip" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=11;" value="Standard static public IP&#xa;(pinned, node RG)" vertex="1">
+          <mxGeometry height="80" width="210" x="300" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="extgw" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=11;fontStyle=1;" value="AKS Istio EXTERNAL ingress gateway&#xa;aks-istio-ingressgateway-external&#xa;(TLS terminate, cert-manager Let&#39;s Encrypt)" vertex="1">
+          <mxGeometry height="120" width="220" x="780" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="argocd" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=11;" value="argocd-server&#xa;(read-only RBAC,&#xa;Entra SSO via PKCE, no client secret)" vertex="1">
+          <mxGeometry height="120" width="220" x="1040" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="mcpclient" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#999999;fontColor=#666666;fontSize=11;" value="MCP client" vertex="1">
+          <mxGeometry height="75" width="190" x="40" y="420" as="geometry" />
+        </mxCell>
+        <mxCell id="apim" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#999999;fontColor=#666666;fontSize=11;" value="APIM gateway (public)" vertex="1">
+          <mxGeometry height="85" width="210" x="300" y="415" as="geometry" />
+        </mxCell>
+        <mxCell id="intgw" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#999999;fontColor=#666666;fontSize=11;" value="AKS Istio INTERNAL ingress gateway&#xa;aks-istio-ingressgateway-internal&#xa;(pinned private IP)" vertex="1">
+          <mxGeometry height="115" width="220" x="780" y="400" as="geometry" />
+        </mxCell>
+        <mxCell id="backend" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#999999;fontColor=#666666;fontSize=11;" value="MCP backend workload" vertex="1">
+          <mxGeometry height="95" width="220" x="1040" y="410" as="geometry" />
+        </mxCell>
+        <mxCell id="caption" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;dashed=1;fontSize=12;align=left;verticalAlign=middle;spacingLeft=14;spacingRight=14;fontStyle=2;" value="Target state, not yet deployed. ADR-011 is Proposed; it flips to Accepted after the #121 live gate. Entra SSO + read-only RBAC is the sole gate: no WAF, no IP allowlist." vertex="1">
+          <mxGeometry height="80" width="1215" x="40" y="600" as="geometry" />
+        </mxCell>
+        <mxCell id="4" edge="1" parent="1" source="guest" style="endArrow=open;html=1;dashed=1;strokeColor=#D6B656;strokeWidth=1;fontSize=10;fontColor=#7A6000;exitX=1.0;exitY=0.15;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.15;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="dns" value="1. DNS lookup">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="5" edge="1" parent="1" source="dns" style="endArrow=open;html=1;dashed=1;strokeColor=#D6B656;strokeWidth=1;fontSize=10;fontColor=#7A6000;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.667;entryY=0.0;entryDx=0;entryDy=0;entryPerimeter=0;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.667;entryY=0.0;entryDx=0;entryDy=0;entryPerimeter=0;" target="pip" value="resolves to">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="6" edge="1" parent="1" source="guest" style="endArrow=classic;html=1;strokeColor=#6C8EBF;strokeWidth=2;fontSize=10;fontColor=#333333;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.85;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="pip" value="2. HTTPS 443">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="7" edge="1" parent="1" source="pip" style="endArrow=classic;html=1;strokeColor=#6C8EBF;strokeWidth=2;fontSize=10;fontColor=#333333;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="extgw" value="3. ingress">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="8" edge="1" parent="1" source="extgw" style="endArrow=classic;html=1;strokeColor=#82B366;strokeWidth=2;fontSize=10;fontColor=#333333;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="argocd" value="4. TLS terminated">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="9" edge="1" parent="1" source="mcpclient" style="endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1;fontSize=10;fontColor=#888888;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="apim" value="MCP">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="10" edge="1" parent="1" source="apim" style="endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1;fontSize=10;fontColor=#888888;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="intgw" value="private VNet">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="11" edge="1" parent="1" source="intgw" style="endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1;fontSize=10;fontColor=#888888;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" target="backend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

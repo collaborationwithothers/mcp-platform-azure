@@ -1,0 +1,30 @@
+# cert-manager ClusterIssuer for Argo CD's public TLS certificate (issue 121,
+# ADR-011). Let's Encrypt, proven by a DNS-01 challenge via Cloudflare.
+#
+# DNS-01, not HTTP-01: this cluster has no ingress controller and Gateway API is
+# disabled (ADR-010), so cert-manager's HTTP-01 solver cannot route the ACME
+# challenge. DNS-01 writes a TXT record through the Cloudflare API instead and
+# needs no in-cluster routing. The trade-off it forces is that the Cloudflare
+# token now also lives in the cluster (the cloudflare-api-token secret below),
+# not only in Terraform -- see ADR-011's TLS section. For a ClusterIssuer,
+# cert-manager reads that secret from its own namespace (cert-manager); the
+# deploy workflow creates it there from the live-test environment secret.
+#
+# Rendered from an envsubst template by deploy-aks-platform.yml. ${ACME_EMAIL}
+# is the Let's Encrypt account email (a live-test environment variable).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-argocd
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${ACME_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-argocd-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token

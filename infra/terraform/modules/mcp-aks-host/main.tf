@@ -98,17 +98,29 @@ module "aks" {
     }
   }
 
-  # mode = "Internal": the ingress gateway's Azure load balancer must be
-  # internal, never publicly reachable (issue 110 section 2, "Ingress is the
-  # AKS Istio add-on, internal gateway"). AKS creates the resulting
-  # Kubernetes Service in the aks-istio-ingress namespace; pinning its load
-  # balancer to the predetermined private IP and the dedicated ingress
-  # subnet (private-network's istio_ingress_subnet_id/_name) happens by
-  # annotating that Service after cluster creation
-  # (service.beta.kubernetes.io/azure-load-balancer-ipv4 and
-  # -internal-subnet), a Kubernetes-object-level step this Terraform module
-  # does not own -- see the deploy-and-bootstrap workflow and
-  # docs/runbooks/aks-platform-bootstrap.md.
+  # Two add-on-managed ingress gateways, both enabled here declaratively:
+  #
+  # - mode = "Internal": MCP client traffic reaches the backend only through
+  #   this gateway's internal load balancer, never publicly (issue 110
+  #   section 2, "Ingress is the AKS Istio add-on, internal gateway"). AKS
+  #   creates its Kubernetes Service (aks-istio-ingressgateway-internal, in
+  #   the aks-istio-ingress namespace); pinning its load balancer to the
+  #   predetermined private IP and the dedicated ingress subnet happens by
+  #   annotating that Service after cluster creation
+  #   (service.beta.kubernetes.io/azure-load-balancer-ipv4 and
+  #   -internal-subnet), a Kubernetes-object-level step this Terraform module
+  #   does not own -- see the deploy-and-bootstrap workflow and
+  #   docs/runbooks/aks-platform-bootstrap.md.
+  #
+  # - mode = "External": a SECOND, public ingress gateway that fronts Argo CD
+  #   only (issue 121, ADR-011). Its Service (aks-istio-ingressgateway-external,
+  #   same aks-istio-ingress namespace) gets a public Azure load balancer; the
+  #   deploy workflow pins its frontend to a pre-created Standard static public
+  #   IP with the service.beta.kubernetes.io/azure-pip-name annotation, again a
+  #   Kubernetes-object-level step outside this module. This is platform-tooling
+  #   access, deliberately separate from the MCP path above; it does NOT extend
+  #   ADR-001, which stays scoped to MCP client traffic (ADR-011). The add-on
+  #   allows exactly one internal and one external gateway per cluster.
   service_mesh_profile = {
     mode = "Istio"
 
@@ -120,6 +132,10 @@ module "aks" {
           {
             enabled = true
             mode    = "Internal"
+          },
+          {
+            enabled = true
+            mode    = "External"
           }
         ]
       }

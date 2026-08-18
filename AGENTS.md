@@ -96,11 +96,16 @@ planning any work. Everything here is public and carries Hari's name.
 - Exception, added 2026-08-18, scoped to issue #121: the Cloudflare DNS record
   for argocd.consultwithcloud.com is managed by the cloudflare Terraform
   provider, which needs a Cloudflare API token. That token is not Azure OIDC. It
-  is stored only as a live-test environment secret in GitHub Actions and injected
-  as a Terraform variable during the live-test apply; it is never committed to the
-  repo. This is the one permitted non-OIDC credential; every other credential
-  stays OIDC via the live-test environment as the rule above requires. This is a
-  standing exception; it persists as long as the record is Terraform-managed.
+  is stored only as a live-test environment secret in GitHub Actions; it is never
+  committed to the repo. The same token is used two ways, both from that one
+  secret: injected as a Terraform variable during the live-test apply for the
+  cloudflare provider, and created as a Kubernetes secret in the cluster's
+  cert-manager namespace for the DNS-01 challenge that issues Argo CD's TLS
+  certificate (the cluster has no ingress controller or Gateway API for HTTP-01;
+  see ADR-011). This is the one permitted non-OIDC credential; every other
+  credential stays OIDC via the live-test environment as the rule above requires.
+  This is a standing exception; it persists as long as the record is
+  Terraform-managed.
 - Never use pull_request_target with a checkout of PR head code.
 - Bot commits and PRs carry no Claude session deep links. The binding is
   attribution.sessionUrl = false in .claude/settings.json (shared, checked
@@ -340,10 +345,15 @@ Live preflight before review: when a PR changes an existing read-only
 dispatch that workflow at the PR branch ref and record the successful run in the
 PR before requesting review. `workflow_dispatch` must exist on the default
 branch before GitHub can dispatch it, but a branch ref is valid once it does.
-This preflight is read-only. It does not authorize `bootstrap`, `teardown`,
-Terraform apply, or Terraform destroy from an unmerged branch. Static CI proves
-repository behaviour only. It does not replace an Azure control-plane or
-data-plane check. See https://docs.github.com/actions/managing-workflow-runs/manually-running-a-workflow.
+This preflight is read-only. Static CI proves repository behaviour only. It does
+not replace an Azure control-plane or data-plane check. See https://docs.github.com/actions/managing-workflow-runs/manually-running-a-workflow.
+
+The `refs/heads/main` dispatch guard that once blocked `bootstrap`, `teardown`,
+apply, and destroy from a branch was removed 2026-08-18 at Hari's instruction
+(see the gated workflows' header comments), so a gated lifecycle workflow may now
+be dispatched from an unmerged branch. That is an operator choice, not a
+weakening of the hard safety rule above: apply and destroy still run only inside
+the gated `live-test` Environment, never outside it.
 
 Finish: complete the PR template's review summary section, including the
 Microsoft Learn links justifying every Terraform, azapi, policy, or auth

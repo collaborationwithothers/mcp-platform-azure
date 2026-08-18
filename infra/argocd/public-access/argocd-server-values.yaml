@@ -1,0 +1,55 @@
+# Helm values layered onto the existing Argo CD chart install to turn on public
+# SSO access (issue 121, ADR-011). Passed with -f alongside the install in
+# deploy-aks-platform.yml; it adds to, and does not replace, the values already
+# set there.
+#
+# Three things happen here, all governance-driven:
+#
+# 1. Entra OIDC with PKCE, NOT a client secret. enablePKCEAuthentication makes
+#    Argo CD a public OIDC client, so the login needs no client secret at all.
+#    That is deliberate: AGENTS.md permits exactly one non-OIDC credential in
+#    this repo (the Cloudflare token), so a static Entra client secret is not
+#    allowed. PKCE keeps the credential model clean. The Entra app must be
+#    registered as an SPA/public client with the /auth/callback redirect URI --
+#    see docs/runbooks/argocd-public-access.md.
+#
+# 2. Read-only by default, admin by GROUP membership. policy.default:
+#    role:readonly means every SSO user who logs in gets Argo CD's built-in
+#    read-only role. Admin is granted by membership of one Entra group, matched
+#    on the token's `groups` claim (the group's object id), not by individual
+#    email. Add someone to that group to make them admin; remove them to revoke.
+#    Invited B2B guests need no group at all; the read-only default covers them.
+#    The oidc.config below requests the `groups` claim as essential so RBAC can
+#    see it.
+#
+# 3. The local admin account is disabled and TLS terminates at the gateway.
+#    admin.enabled: "false" removes the password login; access is SSO-only.
+#    server.insecure: true stops Argo CD from doing its own TLS, because the
+#    Istio gateway already terminated it (gateway.yaml).
+#
+# Rendered from an envsubst template by deploy-aks-platform.yml. Placeholders:
+# ${ARGOCD_HOSTNAME}, ${AZURE_TENANT_ID}, ${ARGOCD_OIDC_CLIENT_ID},
+# ${ARGOCD_ADMIN_GROUP}. No secret appears here.
+configs:
+  cm:
+    url: https://${ARGOCD_HOSTNAME}
+    admin.enabled: "false"
+    oidc.config: |
+      name: Microsoft Entra
+      issuer: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
+      clientID: ${ARGOCD_OIDC_CLIENT_ID}
+      enablePKCEAuthentication: true
+      requestedScopes:
+        - openid
+        - profile
+        - email
+      requestedIDTokenClaims:
+        groups:
+          essential: true
+  rbac:
+    policy.default: role:readonly
+    policy.csv: |
+      g, ${ARGOCD_ADMIN_GROUP}, role:admin
+    scopes: "[groups]"
+  params:
+    server.insecure: true
