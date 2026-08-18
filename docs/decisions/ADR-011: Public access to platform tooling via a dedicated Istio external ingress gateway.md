@@ -188,11 +188,12 @@ cert-manager:
 ## Live proof and the flip to Accepted
 
 This ADR stays Proposed until the first successful `bootstrap` run of
-`deploy-aks-platform.yml` from `main` proves the path end to end: the Cloudflare
-record resolves, cert-manager issues the certificate, and
+`deploy-aks-platform.yml` proves the path end to end: the Cloudflare record
+resolves, cert-manager issues the certificate, and
 `https://argocd.consultwithcloud.com/healthz` returns 200 over the pinned public
-IP. That run cannot happen from the #121 branch: the workflow's guard requires
-`refs/heads/main`, and this repo forbids apply from an unmerged branch. So the
-flip to Accepted is a post-merge step, recorded the way the #110 idle-cycle
-measurement was (a dated COMPATIBILITY.md update citing the run id), not asserted
-here.
+IP. That run is dispatched from the #121 branch: the `refs/heads/main` guard that
+once forced it to wait for merge was removed on this branch (2026-08-18, Hari's
+instruction), and the `live-test` Environment's branch policy was widened to
+admit `claude/*`, so the bot runs the live gate directly. The flip to Accepted is
+recorded the way the #110 idle-cycle measurement was, a dated COMPATIBILITY.md
+update citing the run id, once that run is green; it is not asserted here.
