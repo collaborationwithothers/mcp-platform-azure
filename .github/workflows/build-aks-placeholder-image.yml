@@ -56,6 +56,20 @@
 # GitOps promotion PR with its own GITHUB_TOKEN. This removes manual copying of
 # either value without giving this workflow direct Git write access to the
 # companion repository.
+#
+# Actor and ref guards (issue 120). workflow_dispatch already requires write
+# access to THIS repo, runs with this repo's own workflow file, and cannot be
+# reached from a fork -- a GitHub platform guarantee, not something this file
+# controls. The gap these two guards close is narrower: haripraghash-bot has
+# push access to this repo, so an implementation-agent session could dispatch
+# this workflow and reach the live-test Environment's promotion credentials
+# without that being an agent decision Hari made. The actor guard restricts
+# dispatch to Hari himself. The ref guard is defense in depth beyond the
+# live-test Environment's branch policy: that policy currently allows a
+# stale non-main branch, so this guard fails closed even if a weakened copy
+# of this workflow is dispatched from a resurrected branch. This workflow has
+# no separate guard job, so both checks are the first steps of
+# push-placeholder-image, before checkout.
 
 name: Build AKS placeholder image
 
@@ -88,6 +102,22 @@ jobs:
       AKS_PLATFORM_STATE_KEY: s1-aks-platform.tfstate
       TARGET_IMAGE: ${{ vars.AKS_PLATFORM_REGISTRY_NAME }}.azurecr.io/mcp-platform-placeholder:${{ github.sha }}
     steps:
+      - name: Require authorized actor
+        shell: bash
+        run: |
+          if [ "${{ github.actor }}" != "haripraghash" ]; then
+            echo "::error::This workflow may only be triggered by haripraghash. Triggering actor was '${{ github.actor }}'."
+            exit 1
+          fi
+
+      - name: Require dispatch from main
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::This workflow may only run from refs/heads/main. Dispatched ref was '${{ github.ref }}'."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v7
 

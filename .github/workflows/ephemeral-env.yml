@@ -35,6 +35,19 @@
 #   2026-07-12, confirmed stale by the verifier agent):
 #   https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_oidc
 #   Both mechanisms are configured below from the same OIDC identity.
+#
+# Actor and ref guards (issue 120). workflow_dispatch already requires write
+# access to THIS repo, runs with this repo's own workflow file, and cannot be
+# reached from a fork -- a GitHub platform guarantee, not something this file
+# controls. The gap these two guards close is narrower: haripraghash-bot has
+# push access to this repo, so an implementation-agent session could dispatch
+# this workflow even though AGENTS.md's hard safety rules forbid agents
+# running terraform apply/destroy directly -- nothing previously stopped an
+# agent from triggering the *workflow* that does. The actor guard restricts
+# dispatch to Hari himself. The ref guard is defense in depth beyond the
+# live-test Environment's branch policy: that policy currently allows a
+# stale non-main branch, so this guard fails closed even if a weakened copy
+# of this workflow is dispatched from a resurrected branch.
 
 name: Ephemeral live-test gate
 
@@ -66,6 +79,22 @@ jobs:
     name: guard
     runs-on: ubuntu-latest
     steps:
+      - name: Require authorized actor
+        shell: bash
+        run: |
+          if [ "${{ github.actor }}" != "haripraghash" ]; then
+            echo "::error::This workflow may only be triggered by haripraghash. Triggering actor was '${{ github.actor }}'."
+            exit 1
+          fi
+
+      - name: Require dispatch from main
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::This workflow may only run from refs/heads/main. Dispatched ref was '${{ github.ref }}'."
+            exit 1
+          fi
+
       - name: Require explicit cost confirmation
         shell: bash
         run: |
