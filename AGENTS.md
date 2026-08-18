@@ -233,6 +233,42 @@ doc and match its register; a concrete sample beats any adjective below.
   concept findable. A missing, padded, or file-listing concept section is a
   review finding.
 
+### Comprehension load
+
+The rules above police sentences. These rules police structure. A doc can
+pass every sentence-level rule and still fail, because comprehension load
+comes from how many new things a reader must hold at once and whether each
+one is anchored to something already held. These rules bind chat
+explanations as well as committed artifacts.
+
+- Anchor before detail. Before describing any component, mechanism, or
+  change, one sentence places it in the system the reader already knows:
+  what it belongs to and what it talks to. A reader must never meet a new
+  name before knowing where it lives.
+- New-concept budget: a doc, PR description, or explanation introduces at
+  most three new concepts. If the content needs a fourth, split the doc, or
+  move detail to a linked section the reader opens only if needed.
+- Layered structure: point, then picture, then detail. First the conclusion
+  in plain words, then one concrete example or walkthrough that makes the
+  mechanism visible, then the full detail. A reader who stops after any
+  layer leaves with a correct, if less complete, model.
+- One concept at a time. Finish explaining a concept before starting the
+  next. Never interleave two half-explained ideas.
+
+### Procedural register
+
+For procedures, commands, operational changes, rollback steps, and
+acceptance criteria - anything an operator or agent must execute - the
+register tightens beyond the rules above:
+
+- State the condition before the action: "If the plan shows a destroy,
+  stop", never "Stop if the plan shows a destroy".
+- One principal action per step.
+- Name the actor of every step: Hari, the agent, CI, or the workflow.
+- Preserve the exact order of operations. Never rely on the reader to
+  reorder steps.
+- Repeat the noun whenever a pronoun could bind to more than one thing.
+
 Correction ratchet: when Hari corrects wording, tone, or structure in a
 session (asks for a simplification, an explanation of something already
 written, or a rewrite), the agent does two things in that same session: apply

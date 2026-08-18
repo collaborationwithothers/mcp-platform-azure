@@ -1,4 +1,5 @@
 @AGENTS.md
+@docs/agents/writing-style.md
 
 # CLAUDE.md
 
@@ -9,6 +10,12 @@ import at session start, so a Claude session loads the same effective
 instructions it did before AGENTS.md was split out; the sections below add only
 the Claude-Code-specific bindings that AGENTS.md deliberately leaves to each
 tool. Do not duplicate any AGENTS.md rule here.
+
+The second line imports docs/agents/writing-style.md so the exemplar, the
+banned-constructions list, and the Learned rules are in context every session
+instead of depending on the agent choosing to read them. Codex has no import
+mechanism; for Codex the read remains an AGENTS.md instruction, backed by the
+banned-constructions CI check if and when Hari adds one.
 
 ## Claude Code bindings
 
