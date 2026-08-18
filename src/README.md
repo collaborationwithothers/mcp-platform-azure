@@ -2,8 +2,9 @@
 
 This directory holds the .NET side of the v1 tracer bullet (scenario S1): the
 host-neutral MCP application core, its currently deployed Azure Functions
-adapter, the hand-written MCP test client, and the in-process tests. The future
-ASP.NET Core host is not present yet; work on it begins in issue #146. Spec:
+adapter, the alongside ASP.NET Core adapter, the hand-written MCP test client,
+and the in-process tests. The ASP.NET Core adapter currently exposes one tool and
+is not deployed by issue #146. Spec:
 `docs/specs/v1-tracer-bullet.md` (sections "Compute and the tool (S1)" and
 "Testing Decisions"). Glossary: `src/CONTEXT.md`.
 
@@ -89,6 +90,29 @@ unless a built-in-auth signal is present, and `Run` rejects any request whose
 "OBO and downstream auth" > "Header trust chain," for why the per-request check
 is only sound in combination with the startup check.
 
+### McpTools.AspNetCore (`src/McpTools.AspNetCore`)
+
+The ASP.NET Core adapter is the new host introduced by issue #146. It serves
+`get_service_info` at `/mcp` in stateless mode. Each POST is independent, and
+the host registers no MCP GET or DELETE session route. The adapter calls the
+same `McpToolApplication` as the Functions adapter. The Functions project and
+live workflow stay unchanged until the later gateway-cutover issue.
+
+The adapter validates the signature, issuer, audience, and lifetime of each
+JSON Web Token (JWT) before MCP dispatch. Entry requires either existing
+delegated server scope
+(`Orders.Invoke` or `Catalog.Invoke`) or existing application server role
+(`Orders.Invoke.All` or `Catalog.Invoke.All`). The shared core then applies the
+unchanged `ServiceInfo.Read` per-tool rule.
+
+The private MCP resource is fixed at
+`https://mcp.internal.consultwithcloud.com/mcp`. Its protected resource metadata
+is fixed at the RFC 9728 path-inserted URI, which places the `/mcp` resource path
+after the well-known metadata segment. `Authentication__Authority` supplies the
+Entra issuer. `Authentication__Audience` supplies the unchanged server App ID
+URI, which is Entra's identifier for the server resource, and the prefix for the
+two advertised delegated scopes.
+
 ### McpTestClient (`src/McpTestClient`)
 
 A hand-written .NET MCP client (the official ModelContextProtocol C# SDK) that
@@ -117,6 +141,13 @@ Together they preserve the tool results, current Functions authorization and
 OBO behaviour, and the rule that neither downstream identity mode forwards the
 inbound token.
 
+### McpTools.AspNetCore.Tests (`tests/McpTools.AspNetCore.Tests`)
+
+This suite drives the complete ASP.NET Core middleware and MCP HTTP path in
+process. It proves the private challenge and metadata, JWT rejection cases,
+stateless method surface, server-entry entitlement check, tool listing,
+successful tracer call, and the unchanged per-tool denial.
+
 ## Build and test locally
 
 ```
@@ -128,7 +159,7 @@ Restore is pinned to the public nuget.org feed by the repo-root `NuGet.config`.
 
 ## Pinned packages
 
-Verified through 2026-07-20; recorded with doc links in `COMPATIBILITY.md`.
+Verified through 2026-08-18; recorded with doc links in `COMPATIBILITY.md`.
 
 | Package | Version | Role |
 |---|---|---|
@@ -138,3 +169,7 @@ Verified through 2026-07-20; recorded with doc links in `COMPATIBILITY.md`.
 | Microsoft.Azure.Functions.Worker.Sdk | 2.0.7 | isolated worker build SDK |
 | ModelContextProtocol | 0.4.0-preview.3 (transitive via Microsoft.Azure.Functions.Worker.Extensions.Mcp.Sdk) | typed MCP tool-error result compatible with the Functions server middleware |
 | ModelContextProtocol | 1.4.1 | MCP client SDK (test client) |
+| Microsoft.AspNetCore.Authentication.JwtBearer | 10.0.11 | JWT validation in the ASP.NET Core adapter |
+| ModelContextProtocol | 2.2.0 | MCP protocol and tool types in the ASP.NET Core adapter |
+| ModelContextProtocol.AspNetCore | 2.2.0 | stateless Streamable HTTP and MCP authentication challenge |
+| Microsoft.AspNetCore.Mvc.Testing | 10.0.11 | in-process ASP.NET Core HTTP tests |

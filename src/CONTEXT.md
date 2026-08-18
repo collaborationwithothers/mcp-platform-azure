@@ -1,7 +1,7 @@
 # Src Context
 
-The application domain: the host-neutral MCP application behaviour, its currently
-deployed Azure Functions host adapter, and the APIM MCP gateway behaviour
+The application domain: the host-neutral MCP application behaviour, its Azure
+Functions and ASP.NET Core host adapters, and the APIM MCP gateway behaviour
 (scenarios S1 and S2), plus the MCP client used to test them. Glossary only.
 ASCII punctuation.
 
@@ -34,15 +34,18 @@ _Avoid_: Functions core, shared host
 The code that connects a hosting framework to the MCP application core. It parses
 the host's request and identity, supplies the downstream implementation, and maps
 core outcomes to the host SDK. `src/McpTools` is the Azure Functions adapter and
-the still-deployed host. The future ASP.NET Core adapter is not present yet; work
-on it begins in issue #146.
+the still-deployed host. `src/McpTools.AspNetCore` is the alongside adapter that
+validates JSON Web Tokens (JWTs) in the application and currently exposes only
+get_service_info.
+Both adapters call `src/McpTools.Core`; neither owns tool rules.
 _Avoid_: application core, business logic
 
 **MCP server**:
 The deployed service formed by a host adapter and the MCP application core. It
 exposes tools over streamable HTTP. The current v1 deployment uses the Azure
-Functions adapter. It is a passthrough backend behind the gateway; clients never
-reach it directly on the sanctioned path.
+Functions adapter behind the gateway. The ASP.NET Core project is not deployed
+by issue #146. A later issue deploys it beside the Functions server before the
+gateway cuts over.
 _Avoid_: tool server, backend service
 
 **Synthetic data**:
@@ -62,8 +65,10 @@ validation. The server half of defense in depth.
 _Avoid_: re-auth, double check
 
 **Protected resource metadata**:
-The document served at the gateway root well-known path that tells a client how to
-authenticate to the MCP server. The gateway owns it, not the backend.
+The document that tells a client how to authenticate to one MCP resource. The
+gateway owns the two public-resource documents. The ASP.NET Core host owns the
+private-resource document at `/.well-known/oauth-protected-resource/mcp` and
+advertises the union of the two existing delegated server scopes.
 _Avoid_: PRM doc, auth metadata, discovery document
 
 **Gateway challenge**:
