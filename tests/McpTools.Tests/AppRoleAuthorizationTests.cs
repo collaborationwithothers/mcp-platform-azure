@@ -40,36 +40,36 @@ public class AppRoleAuthorizationTests
     {
         // Easy Auth may emit the role claim under its short name or under the
         // mapped schema URI. Both must satisfy the check.
-        var principal = PrincipalWith((roleClaimType, AppRoleAuthorization.ServiceInfoRole));
+        var caller = CallerWithClaims((roleClaimType, AppRoleAuthorization.ServiceInfoRole));
 
-        Assert.True(AppRoleAuthorization.HasRole(principal, AppRoleAuthorization.ServiceInfoRole));
+        Assert.True(AppRoleAuthorization.HasRole(caller, AppRoleAuthorization.ServiceInfoRole));
     }
 
     [Fact]
     public void HasRole_ClaimTypeCasingDiffers_StillMatches()
     {
         // A claim TYPE is a well-known identifier, not a granted value, so it is
-        // matched case-insensitively (ClientPrincipal.ValuesFor). Contrast the
+        // matched case-insensitively by CallerIdentityResolver. Contrast the
         // role VALUE, pinned as ordinal below.
-        var principal = PrincipalWith(("ROLES", AppRoleAuthorization.ServiceInfoRole));
+        var caller = CallerWithClaims(("ROLES", AppRoleAuthorization.ServiceInfoRole));
 
-        Assert.True(AppRoleAuthorization.HasRole(principal, AppRoleAuthorization.ServiceInfoRole));
+        Assert.True(AppRoleAuthorization.HasRole(caller, AppRoleAuthorization.ServiceInfoRole));
     }
 
     [Fact]
     public void HasRole_RoleAbsent_ReturnsFalse()
     {
-        var principal = PrincipalWith(("roles", "Orders.Write"));
+        var caller = CallerWithClaims(("roles", "Orders.Write"));
 
-        Assert.False(AppRoleAuthorization.HasRole(principal, AppRoleAuthorization.ServiceInfoRole));
+        Assert.False(AppRoleAuthorization.HasRole(caller, AppRoleAuthorization.ServiceInfoRole));
     }
 
     [Fact]
     public void HasRole_NoRoleClaimAtAll_ReturnsFalse()
     {
-        var principal = PrincipalWith(("azp", "role-less-client-app-id"), ("oid", "role-less-object-id"));
+        var caller = CallerWithClaims(("azp", "role-less-client-app-id"), ("oid", "role-less-object-id"));
 
-        Assert.False(AppRoleAuthorization.HasRole(principal, AppRoleAuthorization.ServiceInfoRole));
+        Assert.False(AppRoleAuthorization.HasRole(caller, AppRoleAuthorization.ServiceInfoRole));
     }
 
     [Theory]
@@ -82,20 +82,20 @@ public class AppRoleAuthorizationTests
         // the app registration; accepting other casings would grant access on a
         // value nobody configured. A silent case-fold here is a real defect class,
         // so it is pinned rather than left to the implementation.
-        var principal = PrincipalWith(("roles", differentlyCasedRole));
+        var caller = CallerWithClaims(("roles", differentlyCasedRole));
 
-        Assert.False(AppRoleAuthorization.HasRole(principal, AppRoleAuthorization.ServiceInfoRole));
+        Assert.False(AppRoleAuthorization.HasRole(caller, AppRoleAuthorization.ServiceInfoRole));
     }
 
     [Fact]
     public void HasRole_PrincipalWithSeveralRoles_MatchesOnlyTheNamedOne()
     {
-        var principal = PrincipalWith(
+        var caller = CallerWithClaims(
             ("roles", "Orders.Read"),
             ("roles", "Reports.Read"));
 
-        Assert.True(AppRoleAuthorization.HasRole(principal, "Reports.Read"));
-        Assert.False(AppRoleAuthorization.HasRole(principal, AppRoleAuthorization.ServiceInfoRole));
+        Assert.True(AppRoleAuthorization.HasRole(caller, "Reports.Read"));
+        Assert.False(AppRoleAuthorization.HasRole(caller, AppRoleAuthorization.ServiceInfoRole));
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public class AppRoleAuthorizationTests
         // The property issue 76 exists to prove: entitlement for one tool is not
         // entitlement for another on the same server. This is the unit-level
         // statement of it; the live gate proves it end to end (issue 80).
-        var ordersOnly = PrincipalWith(("roles", AppRoleAuthorization.RequiredRole));
+        var ordersOnly = CallerWithClaims(("roles", AppRoleAuthorization.RequiredRole));
 
         Assert.True(AppRoleAuthorization.HasRole(ordersOnly, AppRoleAuthorization.RequiredRole));
         Assert.False(AppRoleAuthorization.HasRole(ordersOnly, AppRoleAuthorization.ServiceInfoRole));
@@ -118,41 +118,40 @@ public class AppRoleAuthorizationTests
     [InlineData("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")]
     public void HasOrdersRead_OrdersReadPresent_ReturnsTrue(string roleClaimType)
     {
-        var principal = PrincipalWith((roleClaimType, "Orders.Read"));
+        var caller = CallerWithClaims((roleClaimType, "Orders.Read"));
 
-        Assert.True(AppRoleAuthorization.HasOrdersRead(principal));
+        Assert.True(AppRoleAuthorization.HasOrdersRead(caller));
     }
 
     [Fact]
     public void HasOrdersRead_DifferentRolePresent_ReturnsFalse()
     {
-        var principal = PrincipalWith(("roles", "Orders.Write"));
+        var caller = CallerWithClaims(("roles", "Orders.Write"));
 
-        Assert.False(AppRoleAuthorization.HasOrdersRead(principal));
+        Assert.False(AppRoleAuthorization.HasOrdersRead(caller));
     }
 
     [Fact]
     public void HasOrdersRead_NoRoleClaim_ReturnsFalse()
     {
-        var principal = PrincipalWith(("azp", "role-less-client-app-id"));
+        var caller = CallerWithClaims(("azp", "role-less-client-app-id"));
 
-        Assert.False(AppRoleAuthorization.HasOrdersRead(principal));
+        Assert.False(AppRoleAuthorization.HasOrdersRead(caller));
     }
 
     [Fact]
     public void HasOrdersRead_DifferentCasing_ReturnsFalse()
     {
-        var principal = PrincipalWith(("roles", "orders.read"));
+        var caller = CallerWithClaims(("roles", "orders.read"));
 
-        Assert.False(AppRoleAuthorization.HasOrdersRead(principal));
+        Assert.False(AppRoleAuthorization.HasOrdersRead(caller));
     }
 
     /// <summary>
-    /// Builds a decoded principal from claims, the only way in: ClientPrincipal
-    /// has no public constructor, so tests go through the real Base64 JSON parse
-    /// path rather than a test-only back door.
+    /// Builds a normalized caller from claims through the real built-in auth
+    /// Base64 JSON parse path rather than a test-only back door.
     /// </summary>
-    private static CallerIdentity PrincipalWith(params (string Typ, string Val)[] claims)
+    private static CallerIdentity CallerWithClaims(params (string Typ, string Val)[] claims)
     {
         var payload = new
         {

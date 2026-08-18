@@ -7,6 +7,8 @@ namespace McpTools.Core;
 public static class McpToolContracts
 {
     public const string GetOrderStatusName = "get_order_status";
+
+    // Acceptance: the description string must state the data is synthetic.
     public const string GetOrderStatusDescription =
         "Returns the status of a Contoso order by id. The order data is SYNTHETIC "
         + "demo data (ids CONTOSO-1001 to CONTOSO-1005) and is not sourced from any "
@@ -30,6 +32,24 @@ public static class McpToolContracts
         + "required. The response is compiled into the server build, so every call "
         + "returns the same answer.";
 
+    // ServiceInfoServerName is a FIXED DEMO LABEL. It deliberately does not
+    // match any deployed resource: the live servers are named orders and
+    // catalog (docs/runbooks/live-test-tfvars-reference.md; this comment said
+    // orders-mcp and orders-mcp-2 until issue 82, which was wrong, and the
+    // runbook records the 2026-08-09 correction). Those two names are
+    // correct-on-report, not verified: they come from a direct read of the live
+    // tfvars secret, and no gate output, Terraform assertion, or CI check in
+    // this repo can see a server NAME. The matching PATHS are verifiable, from
+    // the server URLs in any gate run log. The claim this comment is actually
+    // making survives either way, because ServiceInfoServerName matches none
+    // of the four candidates. The MCP handshake name is whatever the Functions
+    // host reports. Not matching them is the point. This tool exists to prove
+    // an authorization boundary, and it must not become a route by which a real
+    // deployment's identity reaches this public repo's demo output. A caller
+    // who needs the real server identity reads it from the initialize handshake,
+    // not from here. ServiceInfoDataDisclaimer says this in the payload itself,
+    // so the response is self-labelling and nobody has to find this comment to
+    // know the value is not a resource name.
     public const string ServiceInfoServerName = "contoso-orders-mcp";
     public const string ServiceInfoTransport = "streamable-http";
     public const string ServiceInfoDataDisclaimer =
@@ -41,6 +61,21 @@ public static class McpToolContracts
     public const string AccessGuidanceDocsUrl =
         "https://github.com/collaborationwithothers/mcp-platform-azure";
 
+    // Governance review of issue 82 found that an earlier summary stated the
+    // downstream assignment gate as settled fact and omitted the Global
+    // Administrator bypass. Independent verification against Microsoft Learn
+    // on 2026-08-09 graded the assignment-required gate VERIFIED for OAuth 2.0
+    // access-token requests generally, the Global Administrator bypass
+    // VERIFIED, and the on-behalf-of token exchange specifically UNVERIFIABLE
+    // from Learn. The summary therefore carries both qualifications and names
+    // the 2026-07-22 live test as its basis. See docs/security.md, "Trusted-
+    // subsystem trade-off and backstop asymmetry".
+    //
+    // The summary names the gateway's per-server roles because that is the
+    // entitlement a caller holding nothing is most likely missing. Those names
+    // remain prose rather than structured requirements because they live in
+    // deployment configuration that this core cannot read or guard. The
+    // summary therefore declares the gateway map authoritative on disagreement.
     public const string AccessGuidanceSummary =
         "Two layers authorize a call and they fail in a fixed order. FIRST the "
         + "gateway checks a per-SERVER entitlement, before it considers which tool "
@@ -74,6 +109,9 @@ public static class McpToolContracts
         + "else: a valid token for this server, and the per-server entitlement "
         + "above, are both still required. To request an entitlement, see docsUrl.";
 
+    // This distinguishes values taken from runtime authorization constants
+    // from the per-server values named in the summary. The latter are
+    // deployment configuration and this server deliberately cannot read them.
     public const string AccessGuidanceDataDisclaimer =
         "This response is fixed guidance compiled into the server build. It reads no "
         + "configuration and names no deployed Azure resource, tenant, or principal. "
@@ -86,8 +124,12 @@ public static class McpToolContracts
         + "tool returns is SYNTHETIC demo data (ids CONTOSO-1001 to CONTOSO-1005) "
         + "and is not sourced from any real system.";
 
+    // Identity-mode vocabulary for a ToolEntitlement row.
     public const string AppliesToApplication = "application";
     public const string AppliesToDelegated = "delegated";
+
+    // Requirement vocabulary for a ToolEntitlement row. This intentionally
+    // describes the backend and downstream controls, not the gateway map.
     public const string RequirementKindApplicationRole = "applicationRole";
     public const string RequirementKindDelegatedScope = "delegatedScope";
     public const string RequirementKindDownstreamAssignmentRequired =
@@ -96,6 +138,15 @@ public static class McpToolContracts
     public const string EnforcedAtDownstreamTokenIssuance =
         "downstreamTokenIssuance";
 
+    // Total over tool TIMES identity mode. get_order_status has separate
+    // application and delegated rules. The delegated rule also records the
+    // downstream Orders API assignment-required gate at token issuance. That
+    // behavior was established live on 2026-07-22 by AADSTS50105 from
+    // OnBehalfOfRequest.ExecuteAsync; the summary above preserves the limits of
+    // the available Microsoft documentation. Adding a tool without adding both
+    // of its rows fails ToolEntitlementParityTests at build time, which is the
+    // only thing keeping this list honest; check (a) guards the gateway map,
+    // not this.
     public static readonly IReadOnlyList<ToolEntitlement> RequiredEntitlements =
     [
         new ToolEntitlement(

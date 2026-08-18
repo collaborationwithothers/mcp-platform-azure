@@ -44,6 +44,11 @@ public sealed class GetAccessGuidance
     public object Run(
         [McpToolTrigger(ToolName, ToolDescription)] ToolInvocationContext context)
     {
+        // TryGetHttpTransport's out parameter is not nullable-annotated in the
+        // extension package, but the method's own contract guarantees it is
+        // non-null when it returns true. This was confirmed by reflection
+        // against the installed 1.5.1 assembly; GetOrderStatus carries the full
+        // verification note.
         if (!context.TryGetHttpTransport(out var transport))
         {
             throw new InvalidOperationException(
@@ -52,6 +57,13 @@ public sealed class GetAccessGuidance
                 + "therefore the caller identity, are unavailable otherwise.");
         }
 
+        // This is the same fail-closed resolution used by the other tools. It
+        // is sound only because BuiltInAuthGuard asserts built-in auth is
+        // enabled and the platform strips client-supplied X-MS-* headers before
+        // injecting its own. The MCP SDK replaces a non-McpException with the
+        // generic tool error text and keeps this detail in server logs. See
+        // COMPATIBILITY.md, "MCP tool method: thrown exception wire shape", and
+        // docs/security.md, "trust chain".
         var resolution = IdentityModeResolver.ResolveWithPrincipal(transport!.Headers);
         var caller = resolution.Mode switch
         {

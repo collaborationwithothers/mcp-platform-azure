@@ -5,7 +5,6 @@ using McpTools.Downstream;
 using McpTools.Identity;
 using McpTools.Tools;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
-using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using Xunit;
 
@@ -282,7 +281,7 @@ public class GetOrderStatusRunTests
         };
 
     private static GetOrderStatus CreateTool(IDownstreamOrdersClient downstreamOrdersClient) =>
-        new(new McpToolApplication(downstreamOrdersClient), NullLogger<GetOrderStatus>.Instance);
+        new(new McpToolApplication(downstreamOrdersClient));
 
     private sealed class FakeDownstreamOrdersClient(OrderLookupResult resultToReturn) : IDownstreamOrdersClient
     {

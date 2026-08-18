@@ -3,32 +3,36 @@ using McpTools.Core;
 using McpTools.Identity;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
-using Microsoft.Extensions.Logging;
 
 namespace McpTools.Tools;
 
 /// <summary>
 /// Azure Functions adapter for get_order_status. The shared application core
 /// owns authorization, branch selection, and typed results. This adapter owns
-/// the Functions trigger, HTTP headers, built-in auth parsing, and logging.
+/// the Functions trigger, HTTP headers, and built-in auth parsing.
 /// </summary>
 public sealed class GetOrderStatus
 {
     internal const string ToolName = McpToolContracts.GetOrderStatusName;
     internal const string ToolDescription = McpToolContracts.GetOrderStatusDescription;
 
+    // The user assertion for the OBO exchange. The token-store header
+    // (X-MS-TOKEN-AAD-ACCESS-TOKEN) is expected ABSENT in this topology: APIM
+    // forwards a bearer and built-in auth validates it without brokering a
+    // sign-in, and no token store is enabled. The token-store header is what
+    // requires the token store (verified; COMPATIBILITY.md). The raw
+    // Authorization header is therefore the OPERATIVE source here. The
+    // token-store header is still checked first. This matches Microsoft's OBO
+    // sample Azure-Samples/remote-mcp-functions-dotnet, HelloToolWithAuth.cs,
+    // and remains correct if a future topology enables the token store.
     private static readonly string[] InboundTokenHeaderNames =
         ["X-MS-TOKEN-AAD-ACCESS-TOKEN", "Authorization"];
 
     private readonly McpToolApplication _application;
-    private readonly ILogger<GetOrderStatus> _logger;
 
-    public GetOrderStatus(
-        McpToolApplication application,
-        ILogger<GetOrderStatus> logger)
+    public GetOrderStatus(McpToolApplication application)
     {
         _application = application;
-        _logger = logger;
     }
 
     [Function(nameof(GetOrderStatus))]
@@ -38,6 +42,10 @@ public sealed class GetOrderStatus
             string orderId,
         CancellationToken cancellationToken)
     {
+        // TryGetHttpTransport's out parameter is not nullable-annotated in the
+        // extension package, but the method's own contract guarantees it is
+        // non-null when it returns true. This was confirmed by reflection
+        // against the installed 1.5.1 assembly.
         if (!context.TryGetHttpTransport(out var transport))
         {
             throw new InvalidOperationException(
@@ -48,6 +56,15 @@ public sealed class GetOrderStatus
         }
 
         var headers = transport!.Headers;
+
+        // Per-request fail-closed check plus mode decision, in one place. The
+        // rejection of a missing, malformed, or unsupported principal is the
+        // established thrown tool-error shape. It is distinct from the typed
+        // not-found result, which is reserved for a genuinely unknown order id.
+        // This is a sound production boundary only because BuiltInAuthGuard
+        // asserts built-in auth is enabled and the platform strips client-
+        // supplied X-MS-* headers before injecting its own. See
+        // docs/security.md, "trust chain".
         var resolution = IdentityModeResolver.ResolveWithPrincipal(headers);
         var caller = resolution.Mode switch
         {
@@ -79,26 +96,6 @@ public sealed class GetOrderStatus
                 + "token was found on the request (checked X-MS-TOKEN-AAD-ACCESS-TOKEN and Authorization). "
                 + "The Authorization bearer is the operative OBO user assertion in this topology; its "
                 + "absence indicates an unverified transport or a token-store misconfiguration.");
-        }
-
-        if (outcome.Error is null)
-        {
-            if (caller.Correlation is not null)
-            {
-                _logger.LogInformation(
-                    "get_order_status authorized caller. CallerApplicationId={CallerApplicationId} "
-                    + "CallerObjectId={CallerObjectId} IdentityMode={IdentityMode}",
-                    caller.Correlation.ApplicationId,
-                    caller.Correlation.ObjectId,
-                    caller.Mode);
-            }
-            else
-            {
-                _logger.LogWarning(
-                    "get_order_status: the delegated caller principal did not carry azp/appid and "
-                    + "oid claims; proceeding without caller correlation headers (audit context only, "
-                    + "not an authorization input).");
-            }
         }
 
         return ToolOutcomeMapper.ToFunctionResult(outcome);

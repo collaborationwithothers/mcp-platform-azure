@@ -9,8 +9,19 @@ namespace McpTools.Core;
 /// Host-neutral application rules used by the current Functions adapter and
 /// available to the future ASP.NET Core adapter introduced by issue #146.
 /// </summary>
-public sealed class McpToolApplication(IDownstreamOrdersClient downstreamOrdersClient)
+public sealed class McpToolApplication
 {
+    private readonly IDownstreamOrdersClient _downstreamOrdersClient;
+    private readonly IOrderStatusAuthorizationObserver? _orderStatusAuthorizationObserver;
+
+    public McpToolApplication(
+        IDownstreamOrdersClient downstreamOrdersClient,
+        IOrderStatusAuthorizationObserver? orderStatusAuthorizationObserver = null)
+    {
+        _downstreamOrdersClient = downstreamOrdersClient;
+        _orderStatusAuthorizationObserver = orderStatusAuthorizationObserver;
+    }
+
     public async Task<ToolOutcome<OrderLookupResult>> GetOrderStatusAsync(
         string orderId,
         CallerIdentity caller,
@@ -90,7 +101,8 @@ public sealed class McpToolApplication(IDownstreamOrdersClient downstreamOrdersC
             throw new InboundAccessTokenRequiredException();
         }
 
-        var result = await downstreamOrdersClient.GetOrderStatusOnBehalfOfAsync(
+        _orderStatusAuthorizationObserver?.OnAuthorized(caller);
+        var result = await _downstreamOrdersClient.GetOrderStatusOnBehalfOfAsync(
             orderId,
             inboundAccessToken,
             caller.Correlation,
@@ -115,7 +127,8 @@ public sealed class McpToolApplication(IDownstreamOrdersClient downstreamOrdersC
                 "get_order_status: the validated caller principal must carry azp/appid and oid "
                 + "claims so the call can be recorded with audit-grade identity correlation.");
 
-        var result = await downstreamOrdersClient.GetOrderStatusAsApplicationAsync(
+        _orderStatusAuthorizationObserver?.OnAuthorized(caller);
+        var result = await _downstreamOrdersClient.GetOrderStatusAsApplicationAsync(
             orderId,
             correlation,
             cancellationToken);

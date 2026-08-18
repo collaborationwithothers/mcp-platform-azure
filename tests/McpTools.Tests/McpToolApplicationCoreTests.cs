@@ -36,7 +36,8 @@ public class McpToolApplicationCoreTests
     public async Task GetOrderStatus_MissingDelegatedScope_ReturnsForbiddenBeforeTokenCheck()
     {
         var orders = new FakeDownstreamOrdersClient(SampleOrder);
-        var application = new McpToolApplication(orders);
+        var observer = new RecordingAuthorizationObserver();
+        var application = new McpToolApplication(orders, observer);
 
         var outcome = await application.GetOrderStatusAsync(
             "CONTOSO-1001", DelegatedCaller("user_impersonation"), null, CancellationToken.None);
@@ -45,6 +46,7 @@ public class McpToolApplicationCoreTests
         Assert.Equal(
             "403 Forbidden: get_order_status requires the delegated scope 'Orders.Read.AsUser'.",
             outcome.Error?.Message);
+        Assert.False(observer.WasCalled);
         Assert.Null(orders.LastOrderId);
     }
 
@@ -52,7 +54,8 @@ public class McpToolApplicationCoreTests
     public async Task GetOrderStatus_AuthorizedDelegatedCallerWithoutToken_RequestsAHostAssertion()
     {
         var orders = new FakeDownstreamOrdersClient(SampleOrder);
-        var application = new McpToolApplication(orders);
+        var observer = new RecordingAuthorizationObserver();
+        var application = new McpToolApplication(orders, observer);
 
         await Assert.ThrowsAsync<InboundAccessTokenRequiredException>(() =>
             application.GetOrderStatusAsync(
@@ -61,6 +64,7 @@ public class McpToolApplicationCoreTests
                 null,
                 CancellationToken.None));
 
+        Assert.False(observer.WasCalled);
         Assert.Null(orders.LastOrderId);
     }
 
@@ -76,6 +80,23 @@ public class McpToolApplicationCoreTests
         Assert.IsType<OrderStatus>(outcome.Value);
         Assert.Null(outcome.Error);
         Assert.Equal(DownstreamAccessMode.Application, orders.LastAccessMode);
+    }
+
+    [Fact]
+    public async Task GetOrderStatus_DownstreamFailure_ObservesAuthorizedCallerBeforeCall()
+    {
+        var observer = new RecordingAuthorizationObserver();
+        var orders = new ThrowingDownstreamOrdersClient(observer);
+        var application = new McpToolApplication(orders, observer);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            application.GetOrderStatusAsync(
+                "CONTOSO-1001",
+                DelegatedCaller("Orders.Read.AsUser"),
+                "inbound-token",
+                CancellationToken.None));
+
+        Assert.True(observer.WasCalled);
     }
 
     [Fact]
@@ -161,5 +182,32 @@ public class McpToolApplicationCoreTests
             LastAccessMode = DownstreamAccessMode.Application;
             return Task.FromResult(resultToReturn);
         }
+    }
+
+    private sealed class RecordingAuthorizationObserver : IOrderStatusAuthorizationObserver
+    {
+        public bool WasCalled { get; private set; }
+
+        public void OnAuthorized(CallerIdentity caller) => WasCalled = true;
+    }
+
+    private sealed class ThrowingDownstreamOrdersClient(RecordingAuthorizationObserver observer)
+        : IDownstreamOrdersClient
+    {
+        public Task<OrderLookupResult> GetOrderStatusOnBehalfOfAsync(
+            string orderId,
+            string inboundUserAssertion,
+            CallerIdentityCorrelation? caller,
+            CancellationToken cancellationToken)
+        {
+            Assert.True(observer.WasCalled);
+            throw new InvalidOperationException("Synthetic downstream failure.");
+        }
+
+        public Task<OrderLookupResult> GetOrderStatusAsApplicationAsync(
+            string orderId,
+            CallerIdentityCorrelation caller,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Synthetic downstream failure.");
     }
 }
