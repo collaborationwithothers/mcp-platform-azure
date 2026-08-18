@@ -53,6 +53,20 @@ planning any work. Everything here is public and carries Hari's name.
   reachable, APIM gets no inbound private endpoint, and no other gated scenario
   is unlocked by this exception. This exception is removed when epic 108
   child (b) merges; removing it is part of closing that ticket.
+- Exception, added 2026-08-18, scoped to issue #121: exposing the Argo CD UI
+  and API to the public internet through a dedicated AKS Istio external ingress
+  gateway is in v1 scope. That covers a Standard static public IP, the external
+  ingress gateway add-on component, a Cloudflare DNS-only A record under
+  consultwithcloud.com managed by the cloudflare Terraform provider, cert-manager
+  TLS, a dedicated Entra app registration, and read-only Argo CD RBAC for invited
+  guests. It does not open any gated scenario (S4 private platform, Foundry,
+  Python variant, evals, EMA). The security posture is Entra SSO plus read-only
+  RBAC alone: no WAF and no IP allowlist. Argo CD's local admin account is
+  disabled; access is SSO-only. This is a new public entry point distinct from
+  APIM's MCP path, and it does not alter ADR-001, which stays scoped to MCP
+  client traffic. See ADR-011. Unlike the epic 108 exceptions above, this is a
+  standing scope addition, not a temporary one: it persists after #121 merges,
+  because the public access it authorizes is permanent.
 - One issue at a time. Finish or park the current issue before starting
   another. Branch per issue, PR references the issue.
 - Implementation sessions authenticate to GitHub as haripraghash-bot, never as
@@ -79,6 +93,14 @@ planning any work. Everything here is public and carries Hari's name.
   the VNet-runner job as small as it can be, and never put a build or a test
   compile in it. This exception is removed when epic 108 child (b) merges;
   removing it is part of closing that ticket.
+- Exception, added 2026-08-18, scoped to issue #121: the Cloudflare DNS record
+  for argocd.consultwithcloud.com is managed by the cloudflare Terraform
+  provider, which needs a Cloudflare API token. That token is not Azure OIDC. It
+  is stored only as a live-test environment secret in GitHub Actions and injected
+  as a Terraform variable during the live-test apply; it is never committed to the
+  repo. This is the one permitted non-OIDC credential; every other credential
+  stays OIDC via the live-test environment as the rule above requires. This is a
+  standing exception; it persists as long as the record is Terraform-managed.
 - Never use pull_request_target with a checkout of PR head code.
 - Bot commits and PRs carry no Claude session deep links. The binding is
   attribution.sessionUrl = false in .claude/settings.json (shared, checked
