@@ -36,18 +36,25 @@
 #   https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_oidc
 #   Both mechanisms are configured below from the same OIDC identity.
 #
-# Actor and ref guards (issue 120). workflow_dispatch already requires write
-# access to THIS repo, runs with this repo's own workflow file, and cannot be
-# reached from a fork -- a GitHub platform guarantee, not something this file
-# controls. The gap these two guards close is narrower: haripraghash-bot has
-# push access to this repo, so an implementation-agent session could dispatch
-# this workflow even though AGENTS.md's hard safety rules forbid agents
-# running terraform apply/destroy directly -- nothing previously stopped an
-# agent from triggering the *workflow* that does. The actor guard restricts
-# dispatch to Hari himself. The ref guard is defense in depth beyond the
-# live-test Environment's branch policy: that policy currently allows a
-# stale non-main branch, so this guard fails closed even if a weakened copy
-# of this workflow is dispatched from a resurrected branch.
+# Actor and ref guards (issue 120; actor allow-list widened 2026-08-18 to
+# admit haripraghash-bot so autonomous goal/loop sessions can run this).
+# workflow_dispatch already requires write access to THIS repo, runs with
+# this repo's own workflow file, and cannot be reached from a fork -- a
+# GitHub platform guarantee, not something this file controls. The gap these
+# guards close is narrower: they restrict which write-access principals may
+# trigger this workflow, and from which ref. The actor guard is an allow-list
+# of exactly two: haripraghash and haripraghash-bot. The bot is allowed on
+# purpose -- a goal or loop session dispatches this gated workflow to run
+# live-run acceptance autonomously, and AGENTS.md's hard rule forbids
+# apply/destroy only OUTSIDE the live-test gate, which this workflow is. Any
+# other write-access actor fails the guard closed. Spend is gated by the
+# live-test Environment's required-reviewers rule ({haripraghash,
+# haripraghash-bot}, self-review allowed): the bot self-approves so a loop
+# does not stall, Hari approves his own manual runs, and a third actor cannot
+# approve. The ref guard is defense in depth beyond the Environment's branch
+# policy: that policy currently allows a stale non-main branch, so this guard
+# fails closed even if a weakened copy of this workflow is dispatched from a
+# resurrected branch.
 
 name: Ephemeral live-test gate
 
@@ -82,8 +89,8 @@ jobs:
       - name: Require authorized actor
         shell: bash
         run: |
-          if [ "${{ github.actor }}" != "haripraghash" ]; then
-            echo "::error::This workflow may only be triggered by haripraghash. Triggering actor was '${{ github.actor }}'."
+          if [ "${{ github.actor }}" != "haripraghash" ] && [ "${{ github.actor }}" != "haripraghash-bot" ]; then
+            echo "::error::This workflow may only be triggered by haripraghash or haripraghash-bot. Triggering actor was '${{ github.actor }}'."
             exit 1
           fi
 
