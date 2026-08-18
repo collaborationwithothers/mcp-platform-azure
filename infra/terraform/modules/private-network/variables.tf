@@ -60,6 +60,12 @@ variable "node_subnet_cidr" {
   }
 }
 
+variable "public_https_ingress_enabled" {
+  type        = bool
+  description = "When true, adds one inbound NSG rule on the node subnet allowing Internet TCP 80/443 to a public ingress gateway (issue 121, ADR-011: the Argo CD external Istio gateway). Default false keeps the module's private-only posture; only s1-aks-platform enables it, because only that platform runs the public external gateway."
+  default     = false
+}
+
 # The Istio internal ingress gateway gets its OWN subnet (Hari, 2026-08-13
 # planning session, issue 110 section 3 item 7) specifically so its pinned
 # private IP (see ingress_gateway_private_ip) cannot collide with a node: Azure

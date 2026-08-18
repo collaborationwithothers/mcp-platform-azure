@@ -136,9 +136,9 @@ challenge type.
   credential, recorded as a Hard-safety carve-out in AGENTS.md. The DNS-01 change
   above widens its use: the same token is also created as a cert-manager secret
   in the cluster's `cert-manager` namespace, still from the same live-test secret
-  and never committed. The AGENTS.md carve-out text describes the token only as a
-  Terraform variable; whether that wording should be broadened to name the
-  cert-manager use is Hari's call, since the GOVERNANCE section is his to edit.
+  and never committed. The AGENTS.md Hard-safety carve-out was broadened
+  (2026-08-18, Hari's edit) to name this cert-manager use of the token
+  explicitly, alongside its Terraform-variable use.
 - Standing maintenance: an Istio minor revision upgrade creates a second external
   gateway deployment per revision, the same obligation #110 already recorded for
   the internal gateway.

@@ -38,6 +38,31 @@ resource "azurerm_network_security_group" "aks_nodes" {
   location            = var.location
   resource_group_name = data.azurerm_resource_group.this.name
   tags                = var.tags
+
+  # Optional inbound public HTTP/HTTPS allow for a public ingress gateway on the
+  # node subnet (issue 121, ADR-011: the Argo CD external Istio gateway). Off by
+  # default so this module keeps its private-only posture; s1-aks-platform turns
+  # it on. Why it is needed: the external gateway's public load balancer forwards
+  # 80/443 to the gateway pods, which run on this node subnet, but the subnet
+  # NSG's default rules deny inbound Internet traffic, so the public path would
+  # otherwise time out at the NSG. This is the only inbound-from-Internet rule on
+  # the platform. The internal ingress gateway uses an internal load balancer
+  # with no public frontend, so it is unaffected, and the default
+  # AllowAzureLoadBalancerInBound rule still permits the health probe.
+  dynamic "security_rule" {
+    for_each = var.public_https_ingress_enabled ? [1] : []
+    content {
+      name                       = "AllowPublicIngressInbound"
+      priority                   = 100
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      source_port_range          = "*"
+      destination_port_ranges    = ["80", "443"]
+      source_address_prefix      = "Internet"
+      destination_address_prefix = var.node_subnet_cidr
+    }
+  }
 }
 
 resource "azurerm_network_security_group" "istio_ingress" {

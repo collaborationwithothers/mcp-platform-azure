@@ -37,6 +37,12 @@ module "network" {
   runner_vnet_id             = var.runner_vnet_id
   ingress_gateway_private_ip = var.ingress_gateway_private_ip
   log_analytics_workspace_id = local.log_analytics_workspace_id
+
+  # Argo CD's public external Istio gateway needs inbound Internet 80/443 to the
+  # node subnet (issue 121, ADR-011); without it the node NSG's default rules
+  # deny the public path and the endpoint times out. Scoped to this composition;
+  # the module keeps its private-only default for any other caller.
+  public_https_ingress_enabled = true
 }
 
 module "aks" {

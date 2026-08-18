@@ -96,11 +96,16 @@ planning any work. Everything here is public and carries Hari's name.
 - Exception, added 2026-08-18, scoped to issue #121: the Cloudflare DNS record
   for argocd.consultwithcloud.com is managed by the cloudflare Terraform
   provider, which needs a Cloudflare API token. That token is not Azure OIDC. It
-  is stored only as a live-test environment secret in GitHub Actions and injected
-  as a Terraform variable during the live-test apply; it is never committed to the
-  repo. This is the one permitted non-OIDC credential; every other credential
-  stays OIDC via the live-test environment as the rule above requires. This is a
-  standing exception; it persists as long as the record is Terraform-managed.
+  is stored only as a live-test environment secret in GitHub Actions; it is never
+  committed to the repo. The same token is used two ways, both from that one
+  secret: injected as a Terraform variable during the live-test apply for the
+  cloudflare provider, and created as a Kubernetes secret in the cluster's
+  cert-manager namespace for the DNS-01 challenge that issues Argo CD's TLS
+  certificate (the cluster has no ingress controller or Gateway API for HTTP-01;
+  see ADR-011). This is the one permitted non-OIDC credential; every other
+  credential stays OIDC via the live-test environment as the rule above requires.
+  This is a standing exception; it persists as long as the record is
+  Terraform-managed.
 - Never use pull_request_target with a checkout of PR head code.
 - Bot commits and PRs carry no Claude session deep links. The binding is
   attribution.sessionUrl = false in .claude/settings.json (shared, checked
