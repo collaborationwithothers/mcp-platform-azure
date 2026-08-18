@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using McpTools.Core;
 using McpTools.Identity;
 using McpTools.Tools;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
@@ -150,5 +151,8 @@ public class GetServiceInfoTests
             Transport = new HttpTransport("http") { Headers = headers },
         };
 
-    private static GetServiceInfo CreateTool() => new(NullLogger<GetServiceInfo>.Instance);
+    private static GetServiceInfo CreateTool() =>
+        new(
+            new McpToolApplication(new UnusedDownstreamOrdersClient()),
+            NullLogger<GetServiceInfo>.Instance);
 }

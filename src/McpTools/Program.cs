@@ -1,4 +1,5 @@
 using McpTools.Downstream;
+using McpTools.Core;
 using McpTools.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -72,6 +73,7 @@ var host = new HostBuilder()
                 scope,
                 applicationScope);
         });
+        services.AddSingleton<McpToolApplication>();
     })
     .Build();
 

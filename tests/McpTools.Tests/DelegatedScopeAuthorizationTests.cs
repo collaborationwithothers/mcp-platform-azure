@@ -76,7 +76,7 @@ public class DelegatedScopeAuthorizationTests
         Assert.False(DelegatedScopeAuthorization.HasScope(principal, "Reports.Write.AsUser"));
     }
 
-    private static ClientPrincipal PrincipalWith(params (string Typ, string Val)[] claims)
+    private static CallerIdentity PrincipalWith(params (string Typ, string Val)[] claims)
     {
         var payload = new
         {
@@ -87,6 +87,6 @@ public class DelegatedScopeAuthorizationTests
             Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload)));
 
         Assert.True(ClientPrincipal.TryParse(header, out var principal));
-        return principal!;
+        return CallerIdentityResolver.Resolve(principal!.ToClaimsPrincipal());
     }
 }

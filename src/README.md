@@ -1,9 +1,11 @@
 # src: the S1 MCP server and its test client
 
 This directory holds the .NET side of the v1 tracer bullet (scenario S1): the
-Functions-hosted MCP server, the hand-written MCP test client, and the
-in-process unit tests. Spec: `docs/specs/v1-tracer-bullet.md` (sections
-"Compute and the tool (S1)" and "Testing Decisions"). Glossary: `src/CONTEXT.md`.
+host-neutral MCP application core, its currently deployed Azure Functions
+adapter, the hand-written MCP test client, and the in-process tests. The future
+ASP.NET Core host is not present yet; work on it begins in issue #146. Spec:
+`docs/specs/v1-tracer-bullet.md` (sections "Compute and the tool (S1)" and
+"Testing Decisions"). Glossary: `src/CONTEXT.md`.
 
 Everything here is built and tested by the `dotnet-build` CI job. That job
 discovers the solution with `find src -type f -name '*.sln'`, so the solution
@@ -12,43 +14,61 @@ relative path.
 
 ## Projects
 
+### McpTools.Core (`src/McpTools.Core`)
+
+The host-neutral MCP application core that host adapters call. It contains no
+Azure Functions or ASP.NET Core package reference. It owns the three tool
+contracts, authorization rules, typed results, normalized caller identity,
+downstream interface, and synthetic fixture.
+
+- `Core/McpToolApplication.cs` - runs the tool rules and returns host-neutral
+  values or errors.
+- `Core/McpToolContracts.cs` - holds the frozen tool names, descriptions, and
+  fixed response values.
+- `Identity/` - normalizes caller claims and applies the per-tool role and scope
+  checks.
+- `Downstream/IDownstreamOrdersClient.cs` - separates the core from the host's
+  credential acquisition and HTTP client.
+- `Fixtures/` and `Tools/` - hold the synthetic order fixture and typed tool
+  results.
+
 ### McpTools (`src/McpTools`)
 
-The Azure Functions .NET isolated-worker MCP server (ADR-002). It exposes a
-single synthetic tool, `get_order_status`, using the Azure Functions MCP
-extension tool trigger.
+The Azure Functions .NET isolated-worker adapter (ADR-002) and the currently
+deployed MCP host. Its path remains `src/McpTools` because the ephemeral
+environment workflow publishes that project directly. It exposes the three MCP
+tools through Azure Functions MCP extension triggers: `get_order_status`,
+`get_service_info`, and `get_access_guidance`.
 
-The tool contract is frozen at v1; only its data source varies, and it varies
-by caller identity mode (issue 10, OBO thickening). The two typed result shapes
-are unchanged:
+The `get_order_status` contract is frozen at v1. Its data source varies by caller
+identity mode (issue 10, OBO thickening), but its two typed result shapes are
+unchanged:
 - known id  -> `{ orderId, status, updatedUtc }`
 - unknown id -> `{ orderId, found: false, message }` (a typed result, never a
   thrown error)
 
-- `Identity/` - the identity-mode decision, kept out of the tool so it is
-  unit-testable in isolation:
+- `Identity/` - parses the built-in auth principal and converts it to the core's
+  normalized caller identity:
   - `ClientPrincipal.cs` - parses the Base64 JSON `X-MS-CLIENT-PRINCIPAL`
-    header Easy Auth injects on every request it validates.
-  - `IdentityModeResolver.cs` - decides the mode from that header's claims:
+    header built-in auth injects on every request it validates.
+  - `IdentityModeResolver.cs` - maps that principal into the core identity mode:
     - an `scp` claim -> **Delegated** (a user-context caller): sourced from the
       synthetic downstream Orders API via the Entra On-Behalf-Of exchange.
     - an `azp`/`appid` application identity and no `scp` -> **App-context** (a
       client-credentials, app-only caller): requires `Orders.Read` in `roles`,
       then calls the downstream as the MCP server's own application identity.
     - missing / malformed / neither-claim -> a fail-closed rejection.
-- `Tools/GetOrderStatus.cs` - the tool. `Run` resolves the mode, then branches
-  to delegated OBO or the app-only trusted-subsystem downstream
-  (`Downstream/`). The pure,
-  host-independent pieces (`ServeFromFixture`, `TryExtractInboundAccessToken`)
-  are unit-tested with no Functions host.
-- `Downstream/` - delegated OBO and app-only token acquisition plus the
-  downstream Orders API client. The server never forwards the inbound token;
-  each branch acquires a downstream-audience token (docs/decisions/ADR-006).
-- `Fixtures/SyntheticOrders.cs` - the fixed in-memory fixture, ids CONTOSO-1001
-  to CONTOSO-1005. The data is SYNTHETIC and the tool description says so.
+- `Tools/` - the three Functions triggers. Each trigger translates the host
+  request into core inputs and maps the core outcome to the Functions MCP SDK
+  result.
+- `Downstream/` - the Functions implementation of the core downstream interface,
+  including delegated OBO and app-only token acquisition. The adapter never
+  forwards the inbound token; each branch acquires a downstream-audience token
+  (docs/decisions/ADR-006).
 - `Hosting/BuiltInAuthGuard.cs` - the startup fail-closed check (below).
 - `Program.cs` - isolated-worker host. Runs `BuiltInAuthGuard` before serving,
-  and wires the OBO exchange via DI.
+  then wires the core, host adapters, and credential acquisition through
+  dependency injection.
 
 **App-context is a trusted-subsystem path.** An app-only caller must carry the
 `Orders.Read` application role at the MCP layer. The server then acquires a
@@ -62,7 +82,7 @@ OBO path remains independently validated manually; see
 `docs/runbooks/obo-app-registrations.md`, "User-context token strategy."
 
 **Fail-closed header trust.** The server does not re-validate the inbound
-token's signature in code (Easy Auth does). It instead asserts the trust chain
+token's signature in code (built-in auth does). It instead asserts the trust chain
 holds: `BuiltInAuthGuard` refuses to start in any non-`Development` environment
 unless a built-in-auth signal is present, and `Run` rejects any request whose
 `X-MS-CLIENT-PRINCIPAL` header is missing/malformed. See `docs/security.md`,
@@ -84,13 +104,18 @@ delegated scope. It reads the target endpoint and bearer token from
 
 ### McpTools.Tests (`tests/McpTools.Tests`)
 
-The unit seam: in-process xUnit tests with no Azure Functions host and no Azure
-dependency. They cover the identity-mode decision (`IdentityModeResolverTests`,
-`ClientPrincipalTests`), the tool's mode branching (`GetOrderStatusRunTests`),
-the pure fixture seam and frozen contract shapes (`GetOrderStatusTests`), both
-downstream identity modes never forwarding the inbound token
-(`DownstreamOrdersClientTests`), and the startup fail-closed auth guard
-(`BuiltInAuthGuardTests`).
+The in-process xUnit suite has two test seams:
+
+- Core tests call `McpToolApplication` and the core authorization and fixture
+  types directly. They use no Functions transport.
+- Adapter tests exercise the Functions triggers, built-in auth header parsing,
+  identity translation, result mapping, downstream token paths, and startup
+  guard. These tests reference Azure Functions SDK types, but they do not start
+  a Functions host process.
+
+Together they preserve the tool results, current Functions authorization and
+OBO behaviour, and the rule that neither downstream identity mode forwards the
+inbound token.
 
 ## Build and test locally
 

@@ -1,8 +1,9 @@
 # Src Context
 
-The application domain: the Entra-secured .NET Functions MCP server and the APIM
-MCP gateway behaviour (scenarios S1 and S2), plus the MCP client used to test them.
-Glossary only. ASCII punctuation.
+The application domain: the host-neutral MCP application behaviour, its currently
+deployed Azure Functions host adapter, and the APIM MCP gateway behaviour
+(scenarios S1 and S2), plus the MCP client used to test them. Glossary only.
+ASCII punctuation.
 
 ## Language
 
@@ -21,10 +22,27 @@ classification an exercised branch rather than a rendered one. Requiring no
 role is a classification, not an absence of one.
 _Avoid_: function, action, endpoint, command
 
+**MCP application core**:
+The host-neutral module that owns the tool contracts, authorization rules, typed
+results, normalized caller identity, downstream interface, and synthetic fixture.
+It accepts identity and credentials supplied by a host adapter. It does not parse
+host requests, acquire credentials, carry hosting attributes, or map results to a
+host SDK. The module lives in `src/McpTools.Core`.
+_Avoid_: Functions core, shared host
+
+**Host adapter**:
+The code that connects a hosting framework to the MCP application core. It parses
+the host's request and identity, supplies the downstream implementation, and maps
+core outcomes to the host SDK. `src/McpTools` is the Azure Functions adapter and
+the still-deployed host. The future ASP.NET Core adapter is not present yet; work
+on it begins in issue #146.
+_Avoid_: application core, business logic
+
 **MCP server**:
-The Functions-hosted service that exposes tools over streamable HTTP. In v1 it is a
-passthrough backend behind the gateway; clients never reach it directly on the
-sanctioned path.
+The deployed service formed by a host adapter and the MCP application core. It
+exposes tools over streamable HTTP. The current v1 deployment uses the Azure
+Functions adapter. It is a passthrough backend behind the gateway; clients never
+reach it directly on the sanctioned path.
 _Avoid_: tool server, backend service
 
 **Synthetic data**:

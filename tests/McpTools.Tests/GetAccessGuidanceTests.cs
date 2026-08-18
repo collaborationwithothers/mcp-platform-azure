@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using McpTools.Core;
 using McpTools.Identity;
 using McpTools.Tools;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
@@ -388,5 +389,8 @@ public class GetAccessGuidanceTests
             Transport = new HttpTransport("http") { Headers = headers },
         };
 
-    private static GetAccessGuidance CreateTool() => new(NullLogger<GetAccessGuidance>.Instance);
+    private static GetAccessGuidance CreateTool() =>
+        new(
+            new McpToolApplication(new UnusedDownstreamOrdersClient()),
+            NullLogger<GetAccessGuidance>.Instance);
 }

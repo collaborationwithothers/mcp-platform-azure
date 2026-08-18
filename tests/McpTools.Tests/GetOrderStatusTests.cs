@@ -1,4 +1,4 @@
-using McpTools.Downstream;
+using McpTools.Core;
 using McpTools.Tools;
 using Xunit;
 
@@ -32,7 +32,7 @@ public class GetOrderStatusTests
     [Fact]
     public void ServeFromFixture_KnownId_ReturnsTypedSuccessShape()
     {
-        var result = GetOrderStatus.ServeFromFixture("CONTOSO-1001");
+        var result = McpToolApplication.GetOrderStatusFromFixture("CONTOSO-1001");
 
         var status = Assert.IsType<OrderStatus>(result);
         Assert.Equal("CONTOSO-1001", status.OrderId);
@@ -43,7 +43,7 @@ public class GetOrderStatusTests
     [Fact]
     public void ServeFromFixture_UnknownId_ReturnsTypedNotFoundShape()
     {
-        var result = GetOrderStatus.ServeFromFixture("CONTOSO-9999");
+        var result = McpToolApplication.GetOrderStatusFromFixture("CONTOSO-9999");
 
         var notFound = Assert.IsType<OrderNotFound>(result);
         Assert.Equal("CONTOSO-9999", notFound.OrderId);

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -5,18 +6,17 @@ using System.Text.Json.Serialization;
 namespace McpTools.Identity;
 
 /// <summary>
-/// The decoded X-MS-CLIENT-PRINCIPAL header Easy Auth (App Service / Functions
-/// built-in auth, auth_settings_v2) injects on every request it has validated.
+/// The decoded X-MS-CLIENT-PRINCIPAL header that App Service and Functions
+/// built-in auth (auth_settings_v2) injects on every validated request.
 /// The header value is Base64-encoded JSON whose envelope shape
 /// (<c>auth_typ</c> / <c>name_typ</c> / <c>role_typ</c> / a <c>claims</c> array
 /// of <c>{typ,val}</c> objects) is documented and verified (COMPATIBILITY.md,
 /// docs/security.md; Microsoft Learn "Work with user identities").
 ///
-/// This type is pure, host-independent parsing only: no claim-semantics
-/// decision lives here (that is <see cref="IdentityModeResolver"/>), so it is
-/// unit-testable with plain strings and no Functions/MCP-extension dependency.
+/// This type is part of the Functions host adapter. It parses the host-specific
+/// envelope but leaves claim semantics to the shared core.
 ///
-/// In this topology Easy Auth injects X-MS-CLIENT-PRINCIPAL purely from
+/// In this topology built-in auth injects X-MS-CLIENT-PRINCIPAL purely from
 /// validating the bearer APIM forwards; the token-store header
 /// X-MS-TOKEN-AAD-ACCESS-TOKEN is expected ABSENT because no token store is
 /// enabled (verified: the token-store header requires the token store; see
@@ -26,14 +26,14 @@ namespace McpTools.Identity;
 /// </summary>
 public sealed class ClientPrincipal
 {
-    /// <summary>The header name Easy Auth injects the decoded principal under.</summary>
+    /// <summary>The header name built-in auth injects the decoded principal under.</summary>
     public const string HeaderName = "X-MS-CLIENT-PRINCIPAL";
 
     private ClientPrincipal(IReadOnlyList<ClientPrincipalClaim> claims) => Claims = claims;
 
     /// <summary>
     /// The claims carried by the validated token, with their original claim
-    /// types as Easy Auth emits them. Never null; empty if the principal
+    /// types as built-in auth emits them. Never null; empty if the principal
     /// carried no claims array.
     /// </summary>
     public IReadOnlyList<ClientPrincipalClaim> Claims { get; }
@@ -48,6 +48,15 @@ public sealed class ClientPrincipal
     /// <summary>Returns the first non-empty value matching any supplied alias.</summary>
     public string? FirstValueFor(params string[] claimTypeAliases) =>
         ValuesFor(claimTypeAliases).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+    /// <summary>
+    /// Converts the built-in auth envelope into the host-neutral claims shape the
+    /// shared application core accepts.
+    /// </summary>
+    public ClaimsPrincipal ToClaimsPrincipal() =>
+        new(new ClaimsIdentity(
+            Claims.Select(claim => new Claim(claim.Typ, claim.Val)),
+            authenticationType: "EasyAuth"));
 
     /// <summary>
     /// Decodes and parses the Base64 JSON header value. Returns false (and a

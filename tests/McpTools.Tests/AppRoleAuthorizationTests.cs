@@ -152,7 +152,7 @@ public class AppRoleAuthorizationTests
     /// has no public constructor, so tests go through the real Base64 JSON parse
     /// path rather than a test-only back door.
     /// </summary>
-    private static ClientPrincipal PrincipalWith(params (string Typ, string Val)[] claims)
+    private static CallerIdentity PrincipalWith(params (string Typ, string Val)[] claims)
     {
         var payload = new
         {
@@ -163,6 +163,6 @@ public class AppRoleAuthorizationTests
             Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload)));
 
         Assert.True(ClientPrincipal.TryParse(header, out var principal));
-        return principal!;
+        return CallerIdentityResolver.Resolve(principal!.ToClaimsPrincipal());
     }
 }

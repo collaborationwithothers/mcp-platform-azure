@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    In-process unit tests for the tool logic (spec: Testing Decisions, "unit
-    seam"), with no Azure Functions host and no Azure dependency: the
-    identity-mode decision, the tool's mode branching, the pure fixture seam,
-    delegated and app-only downstream clients, and the startup auth guard. Package pins
+    In-process unit tests for the shared application core and the Functions
+    adapter (spec: Testing Decisions, "unit seam"). Core tests use normalized
+    callers and no Functions transport. Adapter tests use constructible SDK
+    context types but no running Functions host or Azure resource. Package pins
     verified 2026-07-12.
   -->
   <PropertyGroup>
@@ -22,6 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/McpTools.Core/McpTools.Core.csproj" />
     <ProjectReference Include="../../src/McpTools/McpTools.csproj" />
     <!--
       Test-only reference to the downstream app, purely so FixtureParityTests can
