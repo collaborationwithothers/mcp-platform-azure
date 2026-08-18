@@ -10,7 +10,7 @@ namespace McpTools.Tools;
 /// <summary>
 /// Azure Functions adapter for get_order_status. The shared application core
 /// owns authorization, branch selection, and typed results. This adapter owns
-/// the Functions trigger, HTTP headers, Easy Auth parsing, and logging.
+/// the Functions trigger, HTTP headers, built-in auth parsing, and logging.
 /// </summary>
 public sealed class GetOrderStatus
 {

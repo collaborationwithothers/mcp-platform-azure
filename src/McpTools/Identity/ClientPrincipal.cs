@@ -38,17 +38,6 @@ public sealed class ClientPrincipal
     /// </summary>
     public IReadOnlyList<ClientPrincipalClaim> Claims { get; }
 
-    /// <summary>Returns all values whose claim type matches any supplied alias.</summary>
-    public IEnumerable<string> ValuesFor(params string[] claimTypeAliases) =>
-        Claims
-            .Where(claim => claimTypeAliases.Any(alias =>
-                string.Equals(claim.Typ, alias, StringComparison.OrdinalIgnoreCase)))
-            .Select(claim => claim.Val);
-
-    /// <summary>Returns the first non-empty value matching any supplied alias.</summary>
-    public string? FirstValueFor(params string[] claimTypeAliases) =>
-        ValuesFor(claimTypeAliases).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-
     /// <summary>
     /// Converts the built-in auth envelope into the host-neutral claims shape the
     /// shared application core accepts.

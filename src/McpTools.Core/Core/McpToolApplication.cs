@@ -6,8 +6,8 @@ using McpTools.Tools;
 namespace McpTools.Core;
 
 /// <summary>
-/// Host-neutral application rules shared by the Functions and ASP.NET Core
-/// adapters.
+/// Host-neutral application rules used by the current Functions adapter and
+/// available to the future ASP.NET Core adapter introduced by issue #146.
 /// </summary>
 public sealed class McpToolApplication(IDownstreamOrdersClient downstreamOrdersClient)
 {
