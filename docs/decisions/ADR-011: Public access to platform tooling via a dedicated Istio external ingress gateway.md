@@ -1,9 +1,12 @@
 # ADR-011: Public access to platform tooling (Argo CD) via a dedicated Istio external ingress gateway
 
-Status: Proposed (2026-08-18; Terraform and config land in issue #121, live
-proof is a later gated run, see Consequences). Amended 2026-08-18 during #121
-implementation: the TLS challenge is DNS-01, not HTTP-01, because HTTP-01 is not
-feasible on this cluster (see "TLS: the challenge type changed" below).
+Status: Accepted (2026-08-18). Proven end to end by the `deploy-aks-platform.yml`
+bootstrap run 32107496634: cert-manager issued the Let's Encrypt certificate and
+`https://argocd.consultwithcloud.com/healthz` returned 200 over the pinned public
+IP, serving `issuer: Let's Encrypt, subject: CN=argocd.consultwithcloud.com`.
+Amended 2026-08-18 during #121 implementation: the TLS challenge is DNS-01, not
+HTTP-01, because HTTP-01 is not feasible on this cluster (see "TLS: the challenge
+type changed" below).
 Date: 2026-08-18
 
 ## Context
@@ -187,13 +190,20 @@ cert-manager:
 
 ## Live proof and the flip to Accepted
 
-This ADR stays Proposed until the first successful `bootstrap` run of
-`deploy-aks-platform.yml` proves the path end to end: the Cloudflare record
-resolves, cert-manager issues the certificate, and
-`https://argocd.consultwithcloud.com/healthz` returns 200 over the pinned public
-IP. That run is dispatched from the #121 branch: the `refs/heads/main` guard that
-once forced it to wait for merge was removed on this branch (2026-08-18, Hari's
-instruction), and the `live-test` Environment's branch policy was widened to
-admit `claude/*`, so the bot runs the live gate directly. The flip to Accepted is
-recorded the way the #110 idle-cycle measurement was, a dated COMPATIBILITY.md
-update citing the run id, once that run is green; it is not asserted here.
+Proven end to end by `deploy-aks-platform.yml` bootstrap run 32107496634
+(2026-08-18): the Cloudflare record resolves to the pinned public IP,
+cert-manager issued the Let's Encrypt certificate over the DNS-01 challenge, and
+`https://argocd.consultwithcloud.com/healthz` returned 200 with
+`issuer: Let's Encrypt, subject: CN=argocd.consultwithcloud.com`. The run was
+dispatched from the #121 branch: the `refs/heads/main` guard that once forced it
+to wait for merge was removed on this branch (2026-08-18, Hari's instruction),
+and the `live-test` Environment's branch policy was widened to admit `claude/*`,
+so the bot ran the live gate directly. Recorded in COMPATIBILITY.md with the run
+id, the way the #110 idle-cycle measurement was.
+
+One thing the live gate corrected that plan and validate could not: the node
+subnet's NSG needed an inbound Internet 80/443 allow with `destination = "*"`,
+not the node subnet CIDR. Azure Load Balancer uses floating IP (direct server
+return) for AKS LoadBalancer services, so the packet arrives at the node still
+addressed to the public frontend IP; a CIDR-scoped rule never matches and the
+endpoint times out at the NSG. See COMPATIBILITY.md.
