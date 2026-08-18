@@ -107,3 +107,28 @@ variable "managed_prometheus_enabled" {
   description = "Whether the AKS managed Prometheus add-on and collection attachment are enabled. Metrics teardown sets this to false before destroying the metrics state."
   default     = true
 }
+
+# --- Argo CD public entry point (issue 121, ADR-011) ---------------------------
+# The external Istio gateway itself is enabled inside mcp-aks-host. This
+# composition owns the two Azure-boundary resources that make it reachable: the
+# pinned public IP and the Cloudflare DNS record. The Kubernetes objects
+# (cert-manager, Gateway, VirtualService, argocd config) are applied by the
+# deploy workflow, not Terraform, matching how this repo already draws the
+# Terraform-stops-at-Azure line for the internal gateway.
+
+variable "argocd_hostname" {
+  type        = string
+  description = "Public DNS name for the Argo CD UI/API (ADR-011 fixes this to argocd.consultwithcloud.com). Used as the Cloudflare A record name and, in the deploy workflow, as the Istio Gateway host and the Argo CD OIDC base URL."
+  default     = "argocd.consultwithcloud.com"
+}
+
+variable "cloudflare_zone_id" {
+  type        = string
+  description = "Cloudflare zone id for consultwithcloud.com (Hari owns the domain on Cloudflare). Supplied out of band as a live-test environment variable; a zone id is not a secret but is account-specific, so it is never a literal in this repo."
+}
+
+variable "cloudflare_api_token" {
+  type        = string
+  description = "Cloudflare API token scoped to DNS edit on the consultwithcloud.com zone, for the cloudflare provider to manage the Argo CD A record. The repo's one permitted non-OIDC credential (AGENTS.md Hard-safety carve-out); injected from a live-test environment secret, never committed."
+  sensitive   = true
+}

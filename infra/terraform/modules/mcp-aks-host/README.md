@@ -5,8 +5,10 @@ to provision the AKS cluster the migrated MCP server will run on (epic 108
 child (b), issue 110 task 2): a system-assigned identity, OIDC issuer and
 workload identity enabled, Azure CNI Overlay with the Cilium dataplane, a
 two-node system pool on the caller's node subnet, and the Istio add-on with
-an internal ingress gateway. Ingress is Istio's own Gateway/VirtualService
-API, not the Kubernetes Gateway API standard -- see ADR-010 for why. This
+both an internal and an external ingress gateway. The internal gateway fronts
+the MCP backend (issue 110); the external gateway fronts Argo CD's public entry
+point (issue 121, ADR-011). Ingress is Istio's own Gateway/VirtualService API,
+not the Kubernetes Gateway API standard -- see ADR-010 for why. This
 module ships no application code -- the proof this platform works is the
 placeholder workload in issue 110 task 9, not this module.
 
@@ -41,8 +43,10 @@ azapi fallback needed.**
 - `oidc_issuer_profile.enabled` and `security_profile.workload_identity.
   enabled` express `--enable-oidc-issuer` / `--enable-workload-identity`.
 - `service_mesh_profile` (`mode`, `istio.revisions`,
-  `istio.components.ingress_gateways[].mode`) expresses the Istio add-on
-  with an internal ingress gateway at a pinned revision.
+  `istio.components.ingress_gateways[].mode`) expresses the Istio add-on at a
+  pinned revision with two ingress gateways: one `mode = "Internal"` (issue
+  110) and one `mode = "External"` (issue 121, ADR-011). The add-on allows
+  exactly one of each; re-verified against istio-deploy-ingress 2026-08-18.
 
 This module deliberately sets `ingress_profile.gateway_api.installation =
 "Disabled"` (Managed Gateway API left off; see "Known module defect worked
@@ -84,28 +88,35 @@ Routing, a separate AKS ingress add-on this module does not use, really is
 disabled). Both are real, intentional values that happen to also avoid the
 crash, not dummy values chosen only to route around it.
 
-## The ingress gateway's load balancer IP is not this module's job
+## Neither gateway's load balancer IP is this module's job
 
-`service_mesh_profile.istio.components.ingress_gateways[].mode = "Internal"`
-tells AKS to create the ingress gateway's Kubernetes `Service` (in the
-`aks-istio-ingress` namespace) as an internal load balancer, but pinning
-that load balancer to the predetermined private IP and the dedicated ingress
-subnet (`private-network`'s `istio_ingress_subnet_id`/`_name` outputs) means
-annotating that `Service` after cluster creation
-(`service.beta.kubernetes.io/azure-load-balancer-ipv4` and
-`-internal-subnet`) -- a Kubernetes-object-level step, not an ARM property
-this Terraform module can set. That step lives in the deploy-and-bootstrap
-workflow (issue 110 task 8), not here.
+Both gateways get their Kubernetes `Service` (in the `aks-istio-ingress`
+namespace) from AKS: the internal one as an internal load balancer, the
+external one as a public load balancer. Pinning either Service's frontend to a
+fixed address is a Kubernetes-object-level step, not an ARM property this
+Terraform module can set, so it lives in the deploy-and-bootstrap workflow, not
+here:
 
-The scenario composition, rather than this reusable module, grants the
-cluster identity Network Contributor on the platform VNet. This cross-module
-relationship joins the identity this module owns to the network scope owned
-by `private-network`. AKS uses the cluster identity to manage the internal
-load balancer. The kubelet identity only pulls workload images.
+- Internal gateway: annotate the `Service` with
+  `service.beta.kubernetes.io/azure-load-balancer-ipv4` (the predetermined
+  private IP) and `-internal-subnet` (the dedicated ingress subnet, from
+  `private-network`'s `istio_ingress_subnet_id`/`_name` outputs). Issue 110.
+- External gateway: annotate the `Service` with
+  `service.beta.kubernetes.io/azure-pip-name` (a pre-created Standard public IP)
+  and `-load-balancer-resource-group` (the node resource group). Issue 121,
+  ADR-011. The scenario composition pre-creates that public IP; this module does
+  not.
+
+The scenario composition, rather than this reusable module, grants the cluster
+identity Network Contributor on the platform VNet. This cross-module
+relationship joins the identity this module owns to the network scope owned by
+`private-network`. AKS uses the cluster identity to manage both load balancers.
+The kubelet identity only pulls workload images.
 
 ## Node resource group
 
-The Istio ingress gateway's load balancer and public IP resources (if any)
-land in the AKS-managed node resource group (`node_resource_group_name`
-output), not `resource_group_name`. This is standard AKS behaviour, not
-specific to this module.
+Both gateways' load balancers and the external gateway's pinned public IP land
+in the AKS-managed node resource group (`node_resource_group_name` output), not
+`resource_group_name`. This is standard AKS behaviour, not specific to this
+module. The scenario composition creates the external gateway's public IP in
+that node resource group for the same reason (issue 121).

@@ -1,0 +1,26 @@
+# Routes Argo CD's hostname from the external Gateway to the argocd-server
+# Service (issue 121, ADR-011).
+#
+# The route targets port 80 (plain HTTP) because Argo CD runs with
+# server.insecure = true (see argocd-server-values.yaml): TLS terminates once,
+# at the Istio gateway, and Argo CD serves the UI and the CLI's gRPC on the same
+# plaintext port behind it. One route carries both; read-only RBAC bounds them
+# equally (ADR-011).
+#
+# Rendered from an envsubst template by deploy-aks-platform.yml.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  hosts:
+    - ${ARGOCD_HOSTNAME}
+  gateways:
+    - argocd-external
+  http:
+    - route:
+        - destination:
+            host: argocd-server.argocd.svc.cluster.local
+            port:
+              number: 80

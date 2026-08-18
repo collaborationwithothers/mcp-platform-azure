@@ -27,3 +27,18 @@ output "placeholder_workload_client_id" {
   value       = azurerm_user_assigned_identity.placeholder_workload.client_id
   description = "Client id for the placeholder workload's ServiceAccount azure.workload.identity/client-id annotation, in the separate mcp-platform-kubernetes-manifests repo."
 }
+
+output "argocd_public_ip_name" {
+  value       = azurerm_public_ip.argocd.name
+  description = "Name of the pinned Standard public IP for Argo CD's external Istio gateway, for the service.beta.kubernetes.io/azure-pip-name annotation the deploy workflow sets."
+}
+
+output "argocd_public_ip_address" {
+  value       = azurerm_public_ip.argocd.ip_address
+  description = "The pinned public IPv4 address the external gateway's load balancer must report; the deploy workflow waits for the Service to reach exactly this address."
+}
+
+output "argocd_hostname" {
+  value       = var.argocd_hostname
+  description = "Public DNS name for Argo CD, passed straight through so the deploy workflow reads the Gateway host and OIDC base URL from one place."
+}

@@ -141,6 +141,22 @@ jobs:
         {"storage_account_name":"${{ vars.TF_STATE_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_STATE_CONTAINER }}","key":"shared-observability-core.tfstate"}
       TF_VAR_shared_observability_metrics_remote_state: >-
         {"storage_account_name":"${{ vars.TF_STATE_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_STATE_CONTAINER }}","key":"shared-observability-metrics.tfstate"}
+      # Argo CD public access (issue 121, ADR-011). The zone id and hostname are
+      # non-secret Environment variables; the Cloudflare API token is the repo's
+      # one permitted non-OIDC SECRET (AGENTS.md carve-out), so it comes from
+      # secrets, not vars, and is masked in logs.
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_argocd_hostname: ${{ vars.ARGOCD_HOSTNAME }}
+      # Non-secret render inputs for the Argo CD public-access manifests
+      # (infra/argocd/public-access/*, envsubst templates). Tenant id is not a
+      # secret but is account-specific and never a literal in this repo, so it
+      # too comes from the Environment.
+      ARGOCD_HOSTNAME: ${{ vars.ARGOCD_HOSTNAME }}
+      ACME_EMAIL: ${{ vars.ARGOCD_ACME_EMAIL }}
+      ARGOCD_OIDC_CLIENT_ID: ${{ vars.ARGOCD_OIDC_CLIENT_ID }}
+      ARGOCD_ADMIN_EMAIL: ${{ vars.ARGOCD_ADMIN_EMAIL }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -302,6 +318,116 @@ jobs:
 
           kubectl --request-timeout=10s get service "${service_name}" -n "${namespace}" -o wide
 
+      # Pins the EXTERNAL Istio gateway's public load balancer to the Standard
+      # static public IP Terraform pre-created (issue 121, ADR-011). Same
+      # pattern as the internal pin above, but the public path uses
+      # azure-pip-name (name a pre-created public IP) instead of
+      # azure-load-balancer-ipv4 (an internal address). Pinning keeps the
+      # address stable across az aks stop/start, so the Cloudflare A record
+      # Terraform manages keeps pointing at the right place.
+      - name: Pin the external Istio gateway's public load balancer
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_name="aks-istio-ingressgateway-external"
+          namespace="aks-istio-ingress"
+          expected_ip="$(terraform output -raw argocd_public_ip_address)"
+          pip_name="$(terraform output -raw argocd_public_ip_name)"
+          node_rg="$(terraform output -raw node_resource_group_name)"
+          timeout_seconds=900
+          deadline=$((SECONDS + timeout_seconds))
+          observed_service_uid=""
+          ready_observations=0
+
+          report_gateway_state() {
+            kubectl --request-timeout=10s get service -n "${namespace}" "${service_name}" -o wide || true
+            kubectl --request-timeout=10s get events -n "${namespace}" --sort-by=.lastTimestamp | tail -n 40 || true
+          }
+
+          while true; do
+            if (( SECONDS >= deadline )); then
+              echo "::error::Timed out after ${timeout_seconds}s waiting for external Istio gateway Service ${namespace}/${service_name} to report public IP ${expected_ip}."
+              report_gateway_state
+              exit 1
+            fi
+
+            service_state="$(kubectl --request-timeout=10s get service "${service_name}" -n "${namespace}" -o jsonpath='{.metadata.uid}{"|"}{.metadata.annotations.service\.beta\.kubernetes\.io/azure-pip-name}{"|"}{.metadata.annotations.service\.beta\.kubernetes\.io/azure-load-balancer-resource-group}{"|"}{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+            service_uid=""
+            configured_pip=""
+            configured_rg=""
+            actual_ip=""
+
+            if [ -n "${service_state}" ]; then
+              IFS="|" read -r service_uid configured_pip configured_rg actual_ip <<< "${service_state}"
+
+              if [ "${service_uid}" != "${observed_service_uid}" ]; then
+                if [ -n "${observed_service_uid}" ]; then
+                  echo "Detected replacement of external gateway Service ${namespace}/${service_name}; reconciling the replacement."
+                else
+                  echo "Discovered external gateway Service ${namespace}/${service_name}; applying its public-IP pin."
+                fi
+                observed_service_uid="${service_uid}"
+                ready_observations=0
+              fi
+
+              if [ "${configured_pip}" != "${pip_name}" ] || [ "${configured_rg}" != "${node_rg}" ]; then
+                echo "Ensuring the external gateway Service uses public IP ${pip_name} (${expected_ip}) in ${node_rg}."
+                if ! kubectl --request-timeout=10s annotate service "${service_name}" -n "${namespace}" --overwrite \
+                  service.beta.kubernetes.io/azure-pip-name="${pip_name}" \
+                  service.beta.kubernetes.io/azure-load-balancer-resource-group="${node_rg}"; then
+                  echo "::warning::Could not annotate external gateway Service ${namespace}/${service_name}; retrying while the 15-minute budget remains."
+                fi
+              fi
+
+              if [ "${configured_pip}" = "${pip_name}" ] && [ "${configured_rg}" = "${node_rg}" ] && [ "${actual_ip}" = "${expected_ip}" ]; then
+                ready_observations=$((ready_observations + 1))
+                if (( ready_observations == 3 )); then
+                  break
+                fi
+              else
+                ready_observations=0
+              fi
+            fi
+
+            if (( SECONDS >= deadline )); then
+              echo "::error::Timed out after ${timeout_seconds}s waiting for external Istio gateway Service ${namespace}/${service_name} to report public IP ${expected_ip}; current value: ${actual_ip:-<pending>}."
+              report_gateway_state
+              exit 1
+            fi
+            sleep 10
+          done
+
+          kubectl --request-timeout=10s get service "${service_name}" -n "${namespace}" -o wide
+
+      # cert-manager gets and renews the Let's Encrypt certificate for the
+      # public Argo CD hostname (issue 121, ADR-011). DNS-01 via Cloudflare, not
+      # HTTP-01: this cluster has no ingress controller and Gateway API is off
+      # (ADR-010), so an HTTP-01 solver has nothing to route the challenge
+      # through. The Cloudflare token secret is created here, in cert-manager's
+      # own namespace, straight from the live-test secret -- never rendered into
+      # a committed file.
+      - name: Install cert-manager (pinned chart) and the Argo CD ClusterIssuer
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update jetstack
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --version v1.21.1 \
+            --namespace cert-manager \
+            --create-namespace \
+            --set crds.enabled=true \
+            --wait --timeout 5m
+          kubectl create secret generic cloudflare-api-token \
+            --namespace cert-manager \
+            --from-literal=api-token="${CLOUDFLARE_API_TOKEN}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          envsubst '${ACME_EMAIL}' \
+            < infra/argocd/public-access/cluster-issuer.yaml | kubectl apply -f -
+
       # Two steps, not one apply (issue 110 task 7 and section 5): the argo-cd
       # chart's own extraObjects value CAN embed the root Application (see
       # ADR-010, "Argo CD bootstrap"), but this repo follows the two-step
@@ -316,8 +442,17 @@ jobs:
       - name: Install Argo CD (pinned chart)
         shell: bash
         run: |
+          set -euo pipefail
           helm repo add argo https://argoproj.github.io/argo-helm
           helm repo update argo
+          # Public-access overlay (issue 121, ADR-011): Entra OIDC via PKCE (no
+          # client secret), read-only-by-default RBAC, disabled local admin, and
+          # server.insecure so TLS terminates only at the Istio gateway. Rendered
+          # from the committed envsubst template; passed with -f so it layers
+          # onto the chart's own values, not replaces them.
+          argocd_values="$(mktemp)"
+          envsubst '${ARGOCD_HOSTNAME} ${AZURE_TENANT_ID} ${ARGOCD_OIDC_CLIENT_ID} ${ARGOCD_ADMIN_EMAIL}' \
+            < infra/argocd/public-access/argocd-server-values.yaml > "${argocd_values}"
           helm upgrade --install argocd argo/argo-cd \
             --version 10.3.2 \
             --namespace argocd \
@@ -326,11 +461,70 @@ jobs:
             --set controller.metrics.enabled=true \
             --set repoServer.metrics.enabled=true \
             --set server.metrics.enabled=true \
+            -f "${argocd_values}" \
             --wait --timeout 10m
 
       - name: Apply the app-of-apps
         shell: bash
         run: kubectl apply -f infra/argocd/bootstrap-app-of-apps.yaml
+
+      # The Certificate, Gateway, and VirtualService that put Argo CD on the
+      # public hostname (issue 121, ADR-011). Applied after the Argo CD install
+      # so the argocd-server Service the VirtualService routes to already
+      # exists. The Certificate triggers the DNS-01 issuance; the next step
+      # waits for it.
+      - name: Apply the Argo CD public ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          for manifest in certificate gateway virtualservice; do
+            envsubst '${ARGOCD_HOSTNAME}' \
+              < "infra/argocd/public-access/${manifest}.yaml" | kubectl apply -f -
+          done
+
+      # Proves the public path end to end (issue 121, ADR-011). This is the live
+      # gate that flips ADR-011 from Proposed to Accepted. The endpoint is a
+      # public IP with a public DNS name, so this ubuntu-latest runner reaches
+      # it directly -- no VNet runner needed, unlike the private MCP backend.
+      - name: Verify the public Argo CD endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${ARGOCD_HOSTNAME}"
+
+          echo "Waiting for cert-manager to issue the Let's Encrypt certificate..."
+          if ! kubectl wait --for=condition=Ready certificate/argocd-tls \
+            -n aks-istio-ingress --timeout=300s; then
+            echo "::error::The argocd-tls certificate was not Ready within 5m. cert-manager DNS-01 diagnostics follow."
+            kubectl describe certificate/argocd-tls -n aks-istio-ingress || true
+            kubectl get challenges,orders -A || true
+            exit 1
+          fi
+
+          echo "Checking https://${host}/healthz returns 200 over the public path..."
+          deadline=$((SECONDS + 300))
+          last_code=""
+          while true; do
+            last_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://${host}/healthz" || true)"
+            if [ "${last_code}" = "200" ]; then
+              echo "healthz returned 200."
+              break
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "::error::https://${host}/healthz did not return 200 within 5m (last: ${last_code:-none})."
+              exit 1
+            fi
+            echo "healthz=${last_code:-none}; DNS/LB may still be settling, retrying..."
+            sleep 15
+          done
+
+          # Informational, not a gate: show the serving certificate issuer and
+          # the SSO redirect target so the run records both. The exact Entra
+          # redirect URL varies, so the build does not assert on it.
+          echo "Serving certificate issuer:"
+          curl -sS -v --max-time 10 "https://${host}/healthz" 2>&1 | grep -iE 'issuer:|subject:' || true
+          echo "Unauthenticated UI redirect target:"
+          curl -sS -o /dev/null -w '%{redirect_url}\n' --max-time 10 "https://${host}/" || true
 
       - name: Report readiness
         shell: bash

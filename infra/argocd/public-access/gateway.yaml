@@ -1,0 +1,37 @@
+# Istio Gateway binding Argo CD's hostname to the external ingress gateway
+# (issue 121, ADR-011). Terminates TLS at the gateway with the cert-manager
+# certificate, and redirects plain HTTP to HTTPS.
+#
+# selector targets the add-on's external gateway pods by their istio label
+# (verified against Microsoft Learn, istio-deploy-ingress). credentialName is
+# the secret cert-manager wrote into aks-istio-ingress (see certificate.yaml).
+# The Gateway resource itself lives in the argocd namespace next to the
+# VirtualService and the argocd-server Service it fronts.
+#
+# Rendered from an envsubst template by deploy-aks-platform.yml.
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: argocd-external
+  namespace: argocd
+spec:
+  selector:
+    istio: aks-istio-ingressgateway-external
+  servers:
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      hosts:
+        - ${ARGOCD_HOSTNAME}
+      tls:
+        mode: SIMPLE
+        credentialName: argocd-tls
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - ${ARGOCD_HOSTNAME}
+      tls:
+        httpsRedirect: true

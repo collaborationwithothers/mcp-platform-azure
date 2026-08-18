@@ -1,0 +1,23 @@
+# The Let's Encrypt certificate for Argo CD (issue 121, ADR-011). cert-manager
+# obtains it via the letsencrypt-argocd ClusterIssuer and writes it into the
+# argocd-tls secret.
+#
+# The secret lives in aks-istio-ingress, not argocd: the Istio external gateway
+# resolves a Gateway's credentialName secret from the gateway proxy's own
+# namespace, which is aks-istio-ingress for the AKS add-on (verified against
+# Microsoft Learn, istio-secure-gateway). gateway.yaml references this secret by
+# that name.
+#
+# Rendered from an envsubst template by deploy-aks-platform.yml.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd-tls
+  namespace: aks-istio-ingress
+spec:
+  secretName: argocd-tls
+  issuerRef:
+    name: letsencrypt-argocd
+    kind: ClusterIssuer
+  dnsNames:
+    - ${ARGOCD_HOSTNAME}
