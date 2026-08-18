@@ -55,28 +55,40 @@ secret is not allowed.
    `http://localhost:8085/auth/callback`. This URI is fixed; do not change it.
 6. Open **API permissions**, add **Microsoft Graph > Delegated > User.Read**, and
    grant it.
-7. Optional, only if you later switch RBAC from email to group mapping: open
-   **Token configuration > Add groups claim** and include groups in the ID token.
-   The default RBAC in this repo maps admin by email, so this is not required now.
+7. Open **Token configuration > Add groups claim**, tick **Security groups**, and
+   include the groups claim in the **ID** token. This is required: Argo CD RBAC
+   grants admin by group membership, so the token must carry the `groups` claim.
 
 Do not create a client secret. If one exists from an earlier attempt, delete it;
 PKCE does not use it, and leaving it around invites the wrong login mode.
 
-## 3. Entra: invite the guests
+## 3. Entra: the admin group
+
+Admin in Argo CD is granted by membership of one Entra group, matched on the
+group's object id. This is more robust than naming individuals: add someone to
+the group to make them admin, remove them to revoke, with no config change.
+
+1. In the Entra admin center, open **Groups > New group**.
+2. Choose group type **Security**, name it, for example, `argocd-admins`.
+3. Add Hari (and anyone else who should administer Argo CD) as a member.
+4. Open the group and copy its **Object ID**. That id is the value of
+   `ARGOCD_ADMIN_GROUP` below.
+
+Everyone who is not in this group falls to the read-only default. That includes
+every invited guest, so guests need no group at all.
+
+## 4. Entra: invite the guests
 
 The audience is a handful of named people, invited as B2B guests. Each one logs
-in and lands read-only automatically; no per-guest Argo CD config is needed.
+in and lands read-only automatically; no per-guest Argo CD config and no group
+membership is needed.
 
 1. In the Entra admin center, open **Users > New user > Invite external user**.
 2. Enter each guest's email and send the invitation.
 3. Tell each guest to accept the invitation before the demo; first-time consent
    otherwise happens live.
 
-Only Hari is admin. His login email is mapped to `role:admin` through the
-`ARGOCD_ADMIN_EMAIL` variable below; everyone else falls to the read-only
-default.
-
-## 4. GitHub Environment: variables and the one secret
+## 5. GitHub Environment: variables and the one secret
 
 All on the existing `live-test` Environment (**Settings > Environments >
 live-test**), alongside the variables the AKS bootstrap already reads
@@ -91,7 +103,7 @@ Add these **Environment variables** (not secrets; none is a credential):
 | `CLOUDFLARE_ZONE_ID` | the zone id from step 1 | Account-specific, never committed. |
 | `ARGOCD_ACME_EMAIL` | Hari's email for the Let's Encrypt account | Where expiry warnings go. |
 | `ARGOCD_OIDC_CLIENT_ID` | the app client id from step 2 | A client id is a public identifier, not a secret. |
-| `ARGOCD_ADMIN_EMAIL` | Hari's login email | Mapped to `role:admin`; everyone else is read-only. |
+| `ARGOCD_ADMIN_GROUP` | the admin group object id from step 3 | Members of this Entra group get `role:admin`; everyone else is read-only. |
 
 Add this **Environment secret** (masked in logs):
 
@@ -104,11 +116,13 @@ Hard-safety carve-out). The workflow passes it to Terraform for the DNS record
 and creates it as a cert-manager Kubernetes secret for the DNS-01 challenge. It
 is never committed.
 
-## 5. Run the bootstrap and check the result
+## 6. Run the bootstrap and check the result
 
-1. Confirm every value in step 4 is set on the `live-test` Environment.
+1. Confirm every value in step 5 is set on the `live-test` Environment.
 2. Trigger **Deploy AKS platform** with `action = bootstrap` and `confirm =
-   bootstrap`, from `main` (the workflow's guard requires `main`).
+   bootstrap`. The `refs/heads/main` dispatch guard was removed 2026-08-18, so
+   the run may be dispatched from any branch; the actor allow-list
+   (haripraghash, haripraghash-bot) is the trigger control.
 3. Watch the run. The "Verify the public Argo CD endpoint" step is the gate: it
    waits for cert-manager to issue the certificate, then checks that
    `https://argocd.consultwithcloud.com/healthz` returns 200 over the public path.
@@ -118,7 +132,8 @@ is never committed.
    edit on the zone, or a wrong zone id.
 5. When the run is green, open `https://argocd.consultwithcloud.com` in a browser
    with no cluster credentials, confirm it redirects to Microsoft sign-in, log in
-   as a guest, and confirm the UI is read-only.
+   as a guest, and confirm the UI is read-only. Then log in as a member of the
+   admin group and confirm admin access.
 6. Record the successful run id in COMPATIBILITY.md and flip ADR-011 from
    Proposed to Accepted, the same way the #110 idle-cycle measurement was
    recorded.

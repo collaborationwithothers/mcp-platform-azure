@@ -34,9 +34,9 @@ application workloads Argo CD reconciles from the separate manifests repo.
 - `virtualservice.yaml` - routes the hostname to the `argocd-server` Service.
 - `argocd-server-values.yaml` - Helm values layered onto the existing Argo CD
   chart install: Entra OIDC (PKCE, so no client secret), read-only-by-default
-  RBAC with Hari as the only admin, the local admin account disabled, and
-  `server.insecure` so Argo CD serves plain HTTP behind the TLS-terminating
-  gateway.
+  RBAC with admin granted by membership of one Entra group, the local admin
+  account disabled, and `server.insecure` so Argo CD serves plain HTTP behind
+  the TLS-terminating gateway.
 
 ## Placeholders
 
@@ -50,7 +50,7 @@ email, or secret is ever committed:
 | `${ACME_EMAIL}` | `vars.ARGOCD_ACME_EMAIL` (Let's Encrypt account email) | no |
 | `${AZURE_TENANT_ID}` | `vars.AZURE_TENANT_ID` | no (but account-specific; never committed) |
 | `${ARGOCD_OIDC_CLIENT_ID}` | `vars.ARGOCD_OIDC_CLIENT_ID` (the Argo CD Entra app) | no |
-| `${ARGOCD_ADMIN_EMAIL}` | `vars.ARGOCD_ADMIN_EMAIL` (Hari's login, mapped to admin) | no |
+| `${ARGOCD_ADMIN_GROUP}` | `vars.ARGOCD_ADMIN_GROUP` (Entra admin group object id; its members get admin) | no |
 
 The one secret in the path, the Cloudflare API token, never appears in these
 files: the workflow creates it as a Kubernetes secret directly from

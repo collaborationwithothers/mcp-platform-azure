@@ -36,24 +36,25 @@
 #   https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_oidc
 #   Both mechanisms are configured below from the same OIDC identity.
 #
-# Actor and ref guards (issue 120; actor allow-list widened 2026-08-18 to
-# admit haripraghash-bot so autonomous goal/loop sessions can run this).
-# workflow_dispatch already requires write access to THIS repo, runs with
-# this repo's own workflow file, and cannot be reached from a fork -- a
-# GitHub platform guarantee, not something this file controls. The gap these
-# guards close is narrower: they restrict which write-access principals may
-# trigger this workflow, and from which ref. The actor guard is an allow-list
-# of exactly two: haripraghash and haripraghash-bot. The bot is allowed on
-# purpose -- a goal or loop session dispatches this gated workflow to run
-# live-run acceptance autonomously, and AGENTS.md's hard rule forbids
-# apply/destroy only OUTSIDE the live-test gate, which this workflow is. Any
-# other write-access actor fails the guard closed. By design the live-test
-# Environment requires no reviewer approval, so a loop session runs
-# unattended; the actor allow-list above is the sole control over who may
-# trigger. The ref guard is defense in depth beyond the Environment's branch
-# policy: that policy currently allows a stale non-main branch, so this guard
-# fails closed even if a weakened copy of this workflow is dispatched from a
-# resurrected branch.
+# Actor guard (issue 120; actor allow-list widened 2026-08-18 to admit
+# haripraghash-bot so autonomous goal/loop sessions can run this). The
+# refs/heads/main dispatch guard that #140 added was REMOVED 2026-08-18 at
+# Hari's instruction: this workflow can now be dispatched from ANY branch, and
+# a branch dispatch runs that branch's own workflow file. The consequences are
+# deliberate: the actor allow-list below is now the sole in-file control over
+# who may trigger, the live-test Environment's own branch policy (which
+# currently allows non-main branches) is the only remaining ref control, and a
+# real apply-call-destroy run can therefore execute from unreviewed branch
+# code. workflow_dispatch already requires write access to THIS repo and cannot
+# be reached from a fork -- a GitHub platform guarantee, not something this
+# file controls. The actor guard is an allow-list of exactly two: haripraghash
+# and haripraghash-bot. The bot is allowed on purpose -- a goal or loop session
+# dispatches this gated workflow to run live-run acceptance autonomously, and
+# AGENTS.md's hard rule forbids apply/destroy only OUTSIDE the live-test gate,
+# which this workflow is. Any other write-access actor fails the guard closed.
+# By design the live-test Environment requires no reviewer approval, so a loop
+# session runs unattended; the actor allow-list above is the sole control over
+# who may trigger.
 
 name: Ephemeral live-test gate
 
@@ -90,14 +91,6 @@ jobs:
         run: |
           if [ "${{ github.actor }}" != "haripraghash" ] && [ "${{ github.actor }}" != "haripraghash-bot" ]; then
             echo "::error::This workflow may only be triggered by haripraghash or haripraghash-bot. Triggering actor was '${{ github.actor }}'."
-            exit 1
-          fi
-
-      - name: Require dispatch from main
-        shell: bash
-        run: |
-          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
-            echo "::error::This workflow may only run from refs/heads/main. Dispatched ref was '${{ github.ref }}'."
             exit 1
           fi
 
