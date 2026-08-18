@@ -96,3 +96,5 @@ the AGENTS.md rules above them.
   PR, name them separately as the implementation PR and the generated PR.
 - 2026-08-18: Ask for one decision in plain words. Do not hide the decision
   inside a list of technical checks the reader must decode first.
+- 2026-08-18: If code changes a deployed path without changing topology, name
+  the behaviour change and its live-evidence gap; do not call deployment unchanged.

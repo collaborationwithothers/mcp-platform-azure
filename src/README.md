@@ -98,8 +98,15 @@ The ASP.NET Core adapter is the new host introduced by issue #146. It serves
 `get_order_status`, `get_service_info`, and `get_access_guidance` at `/mcp` in
 stateless mode. Each POST is independent, and the host registers no MCP GET or
 DELETE session route. The adapter calls the same `McpToolApplication` as the
-Functions adapter. The Functions project and live workflow stay unchanged until
-the later gateway-cutover issue.
+Functions adapter. The deployment topology and live workflow stay unchanged
+until the later gateway-cutover issue. Issue #147 does change the deployed
+Functions code path: delegated OBO now requires the validated `tid` claim and
+uses that tenant for the authority instead of the configured server tenant.
+The automated gate cannot mint a delegated user token. Before PR #157 merges,
+Hari must run the manual delegated happy path in
+`docs/runbooks/obo-app-registrations.md` against the deployed Functions host. If
+the run succeeds, Hari records the OBO evidence on PR #157. That evidence proves
+that built-in auth supplies a usable tenant claim.
 
 The adapter validates the signature, issuer, audience, and lifetime of each
 JSON Web Token (JWT) before MCP dispatch. Entry requires either existing
@@ -130,6 +137,21 @@ after the well-known metadata segment. `Authentication__Authority` supplies the
 Entra issuer. `Authentication__Audience` supplies the unchanged server App ID
 URI, which is Entra's identifier for the server resource, and the prefix for the
 two advertised delegated scopes.
+
+The ASP.NET Core host requires these environment variables. This table records
+formats only; it contains no real tenant, application, or endpoint value. Issue
+#150 must carry the keys into the GitOps workload, and issue #152 must supply
+their environment-specific values before the pod starts.
+
+| Environment variable | Required format |
+| --- | --- |
+| `Authentication__Authority` | Absolute tenant-specific Entra authority URI, such as `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+| `Authentication__Audience` | Exact MCP server App ID URI, such as `api://<server-app-client-id>` |
+| `MicrosoftEntra__ServerAppClientId` | MCP server application client ID as a UUID; this is an identifier, not a secret |
+| `MicrosoftEntra__TenantId` | MCP server home-tenant directory ID as a UUID; app-only token acquisition uses this tenant |
+| `DownstreamOrdersApi__BaseUrl` | Absolute HTTPS origin for Orders, with no `/api/orders` path |
+| `DownstreamOrdersApi__Scope` | Exact delegated Orders scope, such as `api://<orders-app-client-id>/user_impersonation` |
+| `DownstreamOrdersApi__ApplicationScope` | Orders application scope in `api://<orders-app-client-id>/.default` form |
 
 ### McpTestClient (`src/McpTestClient`)
 

@@ -95,6 +95,30 @@ public class GetOrderStatusRunTests
     }
 
     [Fact]
+    public async Task Run_Delegated_MissingTenantId_ThrowsBeforeDownstream()
+    {
+        var fakeClient = new FakeDownstreamOrdersClient(SampleDownstreamStatus);
+        var tool = CreateTool(fakeClient);
+        var context = ContextWithHeaders(WithPrincipal(
+            [
+                ("scp", "user_impersonation Orders.Read.AsUser"),
+                ("azp", "interactive-client-app-id"),
+                ("oid", "user-object-id"),
+            ],
+            [("Authorization", "Bearer inbound-token")]));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => tool.Run(
+            context,
+            "CONTOSO-1001",
+            CancellationToken.None));
+
+        Assert.Contains("must carry a tid claim", error.Message, StringComparison.Ordinal);
+        Assert.Null(fakeClient.LastOrderId);
+        Assert.Null(fakeClient.LastInboundUserAssertion);
+        Assert.Null(fakeClient.LastTenantId);
+    }
+
+    [Fact]
     public async Task Run_Delegated_MissingAuditIdentity_ProceedsWithoutCorrelation()
     {
         // Regression guard (governance review 2026-07-21): caller correlation is
