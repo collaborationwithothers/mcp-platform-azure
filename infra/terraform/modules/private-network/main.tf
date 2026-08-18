@@ -49,6 +49,16 @@ resource "azurerm_network_security_group" "aks_nodes" {
   # the platform. The internal ingress gateway uses an internal load balancer
   # with no public frontend, so it is unaffected, and the default
   # AllowAzureLoadBalancerInBound rule still permits the health probe.
+  #
+  # destination_address_prefix is "*", NOT the node subnet CIDR, on purpose:
+  # Azure Load Balancer uses floating IP (direct server return) for AKS
+  # LoadBalancer services, so the packet arrives at the node still addressed to
+  # the PUBLIC frontend IP, not the node's own address. A rule scoped to the node
+  # subnet CIDR never matches that packet and the traffic is dropped (confirmed
+  # live on the #121 gate: the endpoint timed out until this was widened to "*").
+  # AKS's own managed NIC-level rule scopes destination to the exact public IPs;
+  # this module cannot know those at plan time, so "*" is the equivalent, with
+  # source = Internet and ports 80/443 as the real scoping.
   dynamic "security_rule" {
     for_each = var.public_https_ingress_enabled ? [1] : []
     content {
@@ -60,7 +70,7 @@ resource "azurerm_network_security_group" "aks_nodes" {
       source_port_range          = "*"
       destination_port_ranges    = ["80", "443"]
       source_address_prefix      = "Internet"
-      destination_address_prefix = var.node_subnet_cidr
+      destination_address_prefix = "*"
     }
   }
 }
