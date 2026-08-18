@@ -127,9 +127,18 @@ measured behaviour recorded in COMPATIBILITY.md: whether the Istio add-on's
 configuration survived, whether the pinned ingress IP survived, what
 actually billed while stopped (Microsoft Learn's own pages disagree with
 each other on this; do not repeat a blanket claim either way), the run ID,
-and the date. Update the "AKS `az aks stop`/`az aks start` billing during
-idle" row in COMPATIBILITY.md directly; do not leave it UNMEASURED once a
-real cycle has run.
+and the date.
+
+The first cycle ran on 2026-08-18: idle-stop run 32088912839, idle-start run
+32090392364. The Istio add-on and the pinned ingress IP `10.20.2.4` both
+survived, measured by direct read-only ARM and kubectl reads and recorded in
+the "AKS `az aks stop`/`az aks start` behaviour across an idle cycle" row in
+COMPATIBILITY.md. Idle billing was left UNMEASURED deliberately, because
+Azure cost data lags the run by 8 to 24 hours.
+
+For any later cycle, re-measure the same way and update that row; do not
+treat the 2026-08-18 result as standing proof after an AKS Istio add-on
+revision rollout or a documented stop/start behaviour change.
 
 ## Values this runbook produces, and where they are consumed
 
