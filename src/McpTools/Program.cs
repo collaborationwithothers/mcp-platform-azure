@@ -1,5 +1,7 @@
 using McpTools.Downstream;
+using McpTools.Core;
 using McpTools.Hosting;
+using McpTools.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -72,6 +74,8 @@ var host = new HostBuilder()
                 scope,
                 applicationScope);
         });
+        services.AddSingleton<IOrderStatusAuthorizationObserver, OrderStatusAuditLogger>();
+        services.AddSingleton<McpToolApplication>();
     })
     .Build();
 

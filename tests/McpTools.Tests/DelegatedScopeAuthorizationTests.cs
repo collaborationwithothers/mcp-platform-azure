@@ -23,37 +23,37 @@ public class DelegatedScopeAuthorizationTests
     [InlineData("http://schemas.microsoft.com/identity/claims/scope")]
     public void HasScope_ScopePresentUnderEitherClaimType_ReturnsTrue(string scopeClaimType)
     {
-        var principal = PrincipalWith((scopeClaimType, "openid Orders.Read.AsUser profile"));
+        var caller = CallerWithClaims((scopeClaimType, "openid Orders.Read.AsUser profile"));
 
         Assert.True(DelegatedScopeAuthorization.HasScope(
-            principal, DelegatedScopeAuthorization.GetOrderStatusScope));
+            caller, DelegatedScopeAuthorization.GetOrderStatusScope));
     }
 
     [Fact]
     public void HasScope_ClaimTypeCasingDiffers_StillMatches()
     {
-        var principal = PrincipalWith(("SCP", DelegatedScopeAuthorization.GetOrderStatusScope));
+        var caller = CallerWithClaims(("SCP", DelegatedScopeAuthorization.GetOrderStatusScope));
 
         Assert.True(DelegatedScopeAuthorization.HasScope(
-            principal, DelegatedScopeAuthorization.GetOrderStatusScope));
+            caller, DelegatedScopeAuthorization.GetOrderStatusScope));
     }
 
     [Fact]
     public void HasScope_DifferentScopePresent_ReturnsFalse()
     {
-        var principal = PrincipalWith(("scp", "user_impersonation"));
+        var caller = CallerWithClaims(("scp", "user_impersonation"));
 
         Assert.False(DelegatedScopeAuthorization.HasScope(
-            principal, DelegatedScopeAuthorization.GetOrderStatusScope));
+            caller, DelegatedScopeAuthorization.GetOrderStatusScope));
     }
 
     [Fact]
     public void HasScope_NoScopeClaim_ReturnsFalse()
     {
-        var principal = PrincipalWith(("azp", "interactive-client-app-id"));
+        var caller = CallerWithClaims(("azp", "interactive-client-app-id"));
 
         Assert.False(DelegatedScopeAuthorization.HasScope(
-            principal, DelegatedScopeAuthorization.GetOrderStatusScope));
+            caller, DelegatedScopeAuthorization.GetOrderStatusScope));
     }
 
     [Theory]
@@ -61,22 +61,22 @@ public class DelegatedScopeAuthorizationTests
     [InlineData("Orders.Read.AsUser.Other")]
     public void HasScope_ScopeValueDoesNotExactlyMatch_ReturnsFalse(string differentScope)
     {
-        var principal = PrincipalWith(("scp", differentScope));
+        var caller = CallerWithClaims(("scp", differentScope));
 
         Assert.False(DelegatedScopeAuthorization.HasScope(
-            principal, DelegatedScopeAuthorization.GetOrderStatusScope));
+            caller, DelegatedScopeAuthorization.GetOrderStatusScope));
     }
 
     [Fact]
     public void HasScope_IsGenericAcrossDelegatedScopes()
     {
-        var principal = PrincipalWith(("scp", "Orders.Read.AsUser Reports.Read.AsUser"));
+        var caller = CallerWithClaims(("scp", "Orders.Read.AsUser Reports.Read.AsUser"));
 
-        Assert.True(DelegatedScopeAuthorization.HasScope(principal, "Reports.Read.AsUser"));
-        Assert.False(DelegatedScopeAuthorization.HasScope(principal, "Reports.Write.AsUser"));
+        Assert.True(DelegatedScopeAuthorization.HasScope(caller, "Reports.Read.AsUser"));
+        Assert.False(DelegatedScopeAuthorization.HasScope(caller, "Reports.Write.AsUser"));
     }
 
-    private static ClientPrincipal PrincipalWith(params (string Typ, string Val)[] claims)
+    private static CallerIdentity CallerWithClaims(params (string Typ, string Val)[] claims)
     {
         var payload = new
         {
@@ -87,6 +87,6 @@ public class DelegatedScopeAuthorizationTests
             Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload)));
 
         Assert.True(ClientPrincipal.TryParse(header, out var principal));
-        return principal!;
+        return CallerIdentityResolver.Resolve(principal!.ToClaimsPrincipal());
     }
 }

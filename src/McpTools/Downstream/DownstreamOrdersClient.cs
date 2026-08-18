@@ -58,7 +58,7 @@ public sealed class DownstreamOrdersClient : IDownstreamOrdersClient
     /// (contract unchanged): <see cref="OrderStatus"/> for a known id,
     /// <see cref="OrderNotFound"/> for any other id.
     /// </summary>
-    public async Task<object> GetOrderStatusOnBehalfOfAsync(
+    public async Task<OrderLookupResult> GetOrderStatusOnBehalfOfAsync(
         string orderId,
         string inboundUserAssertion,
         CallerIdentityCorrelation? caller,
@@ -70,7 +70,7 @@ public sealed class DownstreamOrdersClient : IDownstreamOrdersClient
         return await SendAsync(orderId, downstreamToken, caller, cancellationToken);
     }
 
-    public async Task<object> GetOrderStatusAsApplicationAsync(
+    public async Task<OrderLookupResult> GetOrderStatusAsApplicationAsync(
         string orderId,
         CallerIdentityCorrelation caller,
         CancellationToken cancellationToken)
@@ -81,7 +81,7 @@ public sealed class DownstreamOrdersClient : IDownstreamOrdersClient
         return await SendAsync(orderId, downstreamToken, caller, cancellationToken);
     }
 
-    private async Task<object> SendAsync(
+    private async Task<OrderLookupResult> SendAsync(
         string orderId,
         string downstreamToken,
         CallerIdentityCorrelation? caller,

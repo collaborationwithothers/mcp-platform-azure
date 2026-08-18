@@ -1,10 +1,10 @@
 using System.Text;
 using System.Text.Json;
+using McpTools.Core;
 using McpTools.Downstream;
 using McpTools.Identity;
 using McpTools.Tools;
 using Microsoft.Azure.Functions.Worker.Extensions.Mcp;
-using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using Xunit;
 
@@ -281,16 +281,16 @@ public class GetOrderStatusRunTests
         };
 
     private static GetOrderStatus CreateTool(IDownstreamOrdersClient downstreamOrdersClient) =>
-        new(downstreamOrdersClient, NullLogger<GetOrderStatus>.Instance);
+        new(new McpToolApplication(downstreamOrdersClient));
 
-    private sealed class FakeDownstreamOrdersClient(object resultToReturn) : IDownstreamOrdersClient
+    private sealed class FakeDownstreamOrdersClient(OrderLookupResult resultToReturn) : IDownstreamOrdersClient
     {
         public string? LastOrderId { get; private set; }
         public string? LastInboundUserAssertion { get; private set; }
         public DownstreamAccessMode? LastAccessMode { get; private set; }
         public CallerIdentityCorrelation? LastCaller { get; private set; }
 
-        public Task<object> GetOrderStatusOnBehalfOfAsync(
+        public Task<OrderLookupResult> GetOrderStatusOnBehalfOfAsync(
             string orderId,
             string inboundUserAssertion,
             CallerIdentityCorrelation? caller,
@@ -303,7 +303,7 @@ public class GetOrderStatusRunTests
             return Task.FromResult(resultToReturn);
         }
 
-        public Task<object> GetOrderStatusAsApplicationAsync(
+        public Task<OrderLookupResult> GetOrderStatusAsApplicationAsync(
             string orderId,
             CallerIdentityCorrelation caller,
             CancellationToken cancellationToken)
