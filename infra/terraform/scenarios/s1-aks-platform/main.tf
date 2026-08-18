@@ -108,6 +108,28 @@ resource "cloudflare_dns_record" "argocd" {
   comment = "Argo CD public UI/API (issue 121, ADR-011)."
 }
 
+# Workload identity for argocd-server's Entra OIDC token exchange (issue 121,
+# ADR-011). Argo CD 3.1+ redeems the OIDC code server-side, which Entra will not
+# do for an SPA/PKCE client, and a client secret is a second non-OIDC credential
+# this repo forbids. So argocd-server authenticates with a federated managed
+# identity instead: the Entra app (created out of band, read here by client id,
+# same pattern as s1-entra-mcp-server) gets a federated identity credential
+# trusting the argocd-server Kubernetes ServiceAccount through the cluster's OIDC
+# issuer. The matching pod label and ServiceAccount annotation live in the Argo
+# CD Helm values (infra/argocd/public-access/argocd-server-values.yaml).
+data "azuread_application" "argocd" {
+  client_id = var.argocd_oidc_client_id
+}
+
+resource "azuread_application_federated_identity_credential" "argocd_server" {
+  application_id = data.azuread_application.argocd.id
+  display_name   = "argocd-server-workload-identity"
+  description    = "Lets argocd-server use AKS workload identity for its Entra OIDC token exchange (issue 121)."
+  audiences      = ["api://AzureADTokenExchange"]
+  issuer         = module.aks.oidc_issuer_url
+  subject        = "system:serviceaccount:${var.argocd_namespace}:${var.argocd_server_service_account_name}"
+}
+
 module "registry" {
   source = "../../modules/container-registry"
 

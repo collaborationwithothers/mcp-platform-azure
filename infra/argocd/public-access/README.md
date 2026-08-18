@@ -33,10 +33,13 @@ application workloads Argo CD reconciles from the separate manifests repo.
   external gateway pods (`istio: aks-istio-ingressgateway-external`).
 - `virtualservice.yaml` - routes the hostname to the `argocd-server` Service.
 - `argocd-server-values.yaml` - Helm values layered onto the existing Argo CD
-  chart install: Entra OIDC (PKCE, so no client secret), read-only-by-default
-  RBAC with admin granted by membership of one Entra group, the local admin
-  account disabled, and `server.insecure` so Argo CD serves plain HTTP behind
-  the TLS-terminating gateway.
+  chart install: Entra OIDC authenticated by Azure workload identity (a federated
+  managed identity, so no client secret), read-only-by-default RBAC with admin
+  granted by membership of one Entra group, the local admin account disabled, and
+  `server.insecure` so Argo CD serves plain HTTP behind the TLS-terminating
+  gateway. It also labels the argocd-server pod and annotates its ServiceAccount
+  for the AKS workload-identity webhook; the matching federated identity
+  credential on the Entra app is Terraform-managed in s1-aks-platform.
 
 ## Placeholders
 
