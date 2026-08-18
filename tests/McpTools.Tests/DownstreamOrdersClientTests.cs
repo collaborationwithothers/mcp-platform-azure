@@ -28,6 +28,7 @@ public class DownstreamOrdersClientTests
     private const string AppDownstreamToken = "app-only-downstream-token";
     private const string DownstreamScope = "api://downstream-app/user_impersonation";
     private const string DownstreamApplicationScope = "api://downstream-app/.default";
+    private const string TenantId = "guest-tenant-id";
     private static readonly CallerIdentityCorrelation Caller =
         new("calling-client-app-id", "calling-principal-object-id");
 
@@ -51,7 +52,7 @@ public class DownstreamOrdersClientTests
         var client = CreateClient(handler);
 
         var result = await client.GetOrderStatusOnBehalfOfAsync(
-            "CONTOSO-1001", InboundAssertion, Caller, CancellationToken.None);
+            "CONTOSO-1001", InboundAssertion, TenantId, Caller, CancellationToken.None);
 
         var status = Assert.IsType<OrderStatus>(result);
         Assert.Equal("CONTOSO-1001", status.OrderId);
@@ -78,7 +79,7 @@ public class DownstreamOrdersClientTests
         var client = CreateClient(handler);
 
         var result = await client.GetOrderStatusOnBehalfOfAsync(
-            "CONTOSO-9999", InboundAssertion, Caller, CancellationToken.None);
+            "CONTOSO-9999", InboundAssertion, TenantId, Caller, CancellationToken.None);
 
         var notFound = Assert.IsType<OrderNotFound>(result);
         Assert.Equal("CONTOSO-9999", notFound.OrderId);
@@ -102,7 +103,7 @@ public class DownstreamOrdersClientTests
 
         var client = CreateClient(handler);
         await client.GetOrderStatusOnBehalfOfAsync(
-            "CONTOSO-1001", InboundAssertion, Caller, CancellationToken.None);
+            "CONTOSO-1001", InboundAssertion, TenantId, Caller, CancellationToken.None);
 
         Assert.NotNull(capturedRequest);
         var authorization = capturedRequest!.Headers.Authorization;
@@ -141,9 +142,10 @@ public class DownstreamOrdersClientTests
             DownstreamScope,
             DownstreamApplicationScope);
         await client.GetOrderStatusOnBehalfOfAsync(
-            "CONTOSO-1001", InboundAssertion, Caller, CancellationToken.None);
+            "CONTOSO-1001", InboundAssertion, TenantId, Caller, CancellationToken.None);
 
         Assert.Equal(InboundAssertion, tokenAcquirer.LastUserAssertion);
+        Assert.Equal(TenantId, tokenAcquirer.LastTenantId);
         Assert.Equal(DownstreamScope, tokenAcquirer.LastDownstreamScope);
     }
 
@@ -171,7 +173,7 @@ public class DownstreamOrdersClientTests
 
         await Assert.ThrowsAsync<OboExchangeRejectedException>(
             () => client.GetOrderStatusOnBehalfOfAsync(
-                "CONTOSO-1001", InboundAssertion, Caller, CancellationToken.None));
+                "CONTOSO-1001", InboundAssertion, TenantId, Caller, CancellationToken.None));
     }
 
     [Fact]
@@ -226,12 +228,17 @@ public class DownstreamOrdersClientTests
     private sealed class FakeTokenAcquirer(string tokenToReturn) : IOboTokenAcquirer
     {
         public string? LastUserAssertion { get; private set; }
+        public string? LastTenantId { get; private set; }
         public string? LastDownstreamScope { get; private set; }
 
         public Task<string> AcquireDownstreamTokenAsync(
-            string userAssertion, string downstreamScope, CancellationToken cancellationToken)
+            string userAssertion,
+            string tenantId,
+            string downstreamScope,
+            CancellationToken cancellationToken)
         {
             LastUserAssertion = userAssertion;
+            LastTenantId = tenantId;
             LastDownstreamScope = downstreamScope;
             return Task.FromResult(tokenToReturn);
         }
@@ -254,7 +261,10 @@ public class DownstreamOrdersClientTests
     private sealed class RejectingTokenAcquirer : IOboTokenAcquirer
     {
         public Task<string> AcquireDownstreamTokenAsync(
-            string userAssertion, string downstreamScope, CancellationToken cancellationToken) =>
+            string userAssertion,
+            string tenantId,
+            string downstreamScope,
+            CancellationToken cancellationToken) =>
             throw new OboExchangeRejectedException(
                 "Entra rejects this assertion for OBO (e.g. an app-only client-credentials token, "
                 + "which is not a valid user_assertion).");

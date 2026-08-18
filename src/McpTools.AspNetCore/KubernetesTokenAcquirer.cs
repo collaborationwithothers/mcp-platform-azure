@@ -1,44 +1,26 @@
 using System.Collections.Concurrent;
+using McpTools.Downstream;
 using Microsoft.Identity.Client;
 using Microsoft.Identity.Web;
 
-namespace McpTools.Downstream;
+namespace McpTools.AspNetCore;
 
 /// <summary>
-/// Real, Azure-aware <see cref="IOboTokenAcquirer"/>. Not unit-tested (it
-/// needs a live Entra token endpoint and a live managed identity); the thin,
-/// Azure-facing shim, analogous to <see cref="McpTools.Tools.GetOrderStatus.Run"/>
-/// over <c>Resolve</c>.
-///
-/// Authenticates the confidential client (the MCP server's own app
-/// registration) with NO stored secret or certificate: it presents a client
-/// assertion signed by the Function App's system-assigned managed identity,
-/// which the app registration trusts via a federated identity credential
-/// configured out of band (docs/runbooks/obo-app-registrations.md). This is
-/// GA Entra workload identity federation, not preview (azure-docs-verifier,
-/// 2026-07-18; see COMPATIBILITY.md). managedIdentityClientId is null: the
-/// Function App has both a system-assigned identity (used here) and a
-/// user-assigned identity (used for storage, see mcp-function-host/main.tf);
-/// null selects the system-assigned one, matching the principal id the
-/// mcp-function-host module's identity_principal_id output already exposes
-/// for exactly this purpose.
+/// Uses the AKS projected service-account token as the server app credential.
+/// One provider instance is reused so its assertion cache survives requests.
 /// </summary>
-public sealed class ManagedIdentityOboTokenAcquirer : IOboTokenAcquirer, IAppTokenAcquirer
+internal sealed class KubernetesTokenAcquirer : IOboTokenAcquirer, IAppTokenAcquirer
 {
     private readonly ConcurrentDictionary<string, IConfidentialClientApplication> _clients =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly ManagedIdentityClientAssertion _clientAssertion;
+    private readonly AzureIdentityForKubernetesClientAssertion _clientAssertion = new();
     private readonly string _serverAppClientId;
     private readonly string _serverTenantId;
 
-    public ManagedIdentityOboTokenAcquirer(string serverAppClientId, string tenantId)
+    internal KubernetesTokenAcquirer(string serverAppClientId, string serverTenantId)
     {
-        // Reused across calls so the signed assertion is cached until it
-        // expires (Microsoft Learn: "Reuse this instance so that the
-        // assertion is cached and only refreshed once it expires").
         _serverAppClientId = serverAppClientId;
-        _serverTenantId = tenantId;
-        _clientAssertion = new ManagedIdentityClientAssertion(managedIdentityClientId: null);
+        _serverTenantId = serverTenantId;
     }
 
     public async Task<string> AcquireDownstreamTokenAsync(
@@ -55,7 +37,8 @@ public sealed class ManagedIdentityOboTokenAcquirer : IOboTokenAcquirer, IAppTok
     }
 
     public async Task<string> AcquireDownstreamTokenForAppAsync(
-        string downstreamScope, CancellationToken cancellationToken)
+        string downstreamScope,
+        CancellationToken cancellationToken)
     {
         var result = await ClientForTenant(_serverTenantId)
             .AcquireTokenForClient([downstreamScope])

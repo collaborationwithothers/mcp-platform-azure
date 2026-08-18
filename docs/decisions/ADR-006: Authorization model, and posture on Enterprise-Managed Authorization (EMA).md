@@ -1,6 +1,7 @@
 # ADR-006: Authorization model, and posture on Enterprise-Managed Authorization (EMA)
 
-Status: Accepted (v1 tag, 2026-07-22; proof is uneven by branch, see Acceptance)
+Status: Superseded by ADR-012 on 2026-08-18. Kept as the historical record of
+the v1 authorization investigation and its dated evidence.
 Date: 2026-07-08
 Accepted: 2026-07-22
 

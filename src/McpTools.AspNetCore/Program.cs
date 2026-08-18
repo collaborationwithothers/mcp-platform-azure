@@ -11,6 +11,21 @@ using ModelContextProtocol.Authentication;
 var builder = WebApplication.CreateBuilder(args);
 var authority = RequiredConfiguration(builder.Configuration, "Authentication:Authority");
 var audience = RequiredConfiguration(builder.Configuration, "Authentication:Audience");
+var serverAppClientId = RequiredConfiguration(
+    builder.Configuration,
+    "MicrosoftEntra:ServerAppClientId");
+var serverTenantId = RequiredConfiguration(
+    builder.Configuration,
+    "MicrosoftEntra:TenantId");
+var downstreamBaseUrl = RequiredConfiguration(
+    builder.Configuration,
+    "DownstreamOrdersApi:BaseUrl");
+var downstreamScope = RequiredConfiguration(
+    builder.Configuration,
+    "DownstreamOrdersApi:Scope");
+var downstreamApplicationScope = RequiredConfiguration(
+    builder.Configuration,
+    "DownstreamOrdersApi:ApplicationScope");
 var scopePrefix = audience.TrimEnd('/');
 
 builder.Services
@@ -61,14 +76,30 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddSingleton<IDownstreamOrdersClient, TracerOnlyDownstreamOrdersClient>();
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton(
+    new KubernetesTokenAcquirer(serverAppClientId, serverTenantId));
+builder.Services.AddSingleton<IOboTokenAcquirer>(services =>
+    services.GetRequiredService<KubernetesTokenAcquirer>());
+builder.Services.AddSingleton<IAppTokenAcquirer>(services =>
+    services.GetRequiredService<KubernetesTokenAcquirer>());
+builder.Services.AddSingleton<IDownstreamOrdersClient>(services =>
+    new DownstreamOrdersClient(
+        services.GetRequiredService<IOboTokenAcquirer>(),
+        services.GetRequiredService<IAppTokenAcquirer>(),
+        services.GetRequiredService<IHttpClientFactory>().CreateClient(),
+        new Uri(downstreamBaseUrl),
+        downstreamScope,
+        downstreamApplicationScope));
 builder.Services.AddSingleton<McpToolApplication>();
 builder.Services.AddMcpServer()
     .WithHttpTransport(options =>
     {
         options.SessionMode = HttpServerSessionMode.Stateless;
     })
-    .WithTools<ServiceInfoTool>();
+    .WithTools<OrderStatusTool>()
+    .WithTools<ServiceInfoTool>()
+    .WithTools<AccessGuidanceTool>();
 
 var app = builder.Build();
 

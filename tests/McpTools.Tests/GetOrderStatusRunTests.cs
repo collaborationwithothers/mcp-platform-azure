@@ -31,6 +31,7 @@ public class GetOrderStatusRunTests
 
         Assert.Equal("CONTOSO-1001", fakeClient.LastOrderId);
         Assert.Equal("inbound-token", fakeClient.LastInboundUserAssertion);
+        Assert.Equal("guest-tenant-id", fakeClient.LastTenantId);
         Assert.Equal(DownstreamAccessMode.OnBehalfOf, fakeClient.LastAccessMode);
         Assert.Equal("interactive-client-app-id", fakeClient.LastCaller?.ApplicationId);
         Assert.Equal("user-object-id", fakeClient.LastCaller?.ObjectId);
@@ -65,6 +66,7 @@ public class GetOrderStatusRunTests
                 new { typ = "scp", val = "user_impersonation Orders.Read.AsUser" },
                 new { typ = "azp", val = "interactive-client-app-id" },
                 new { typ = "oid", val = "user-object-id" },
+                new { typ = "tid", val = "guest-tenant-id" },
             },
         };
         var principal = Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload)));
@@ -104,7 +106,7 @@ public class GetOrderStatusRunTests
         var fakeClient = new FakeDownstreamOrdersClient(SampleDownstreamStatus);
         var tool = CreateTool(fakeClient);
         var context = ContextWithHeaders(WithPrincipal(
-            [("scp", "user_impersonation Orders.Read.AsUser")],
+            [("scp", "user_impersonation Orders.Read.AsUser"), ("tid", "guest-tenant-id")],
             [("Authorization", "Bearer inbound-token")]));
 
         var result = await tool.Run(context, "CONTOSO-1001", CancellationToken.None);
@@ -239,7 +241,12 @@ public class GetOrderStatusRunTests
     private static Dictionary<string, string> Delegated(
         params (string Key, string Value)[] extraHeaders) =>
         WithPrincipal(
-            [("scp", "user_impersonation Orders.Read.AsUser"), ("azp", "interactive-client-app-id"), ("oid", "user-object-id")],
+            [
+                ("scp", "user_impersonation Orders.Read.AsUser"),
+                ("azp", "interactive-client-app-id"),
+                ("oid", "user-object-id"),
+                ("tid", "guest-tenant-id"),
+            ],
             extraHeaders);
 
     private static Dictionary<string, string> AppContext(string role = "Orders.Read") =>
@@ -289,15 +296,18 @@ public class GetOrderStatusRunTests
         public string? LastInboundUserAssertion { get; private set; }
         public DownstreamAccessMode? LastAccessMode { get; private set; }
         public CallerIdentityCorrelation? LastCaller { get; private set; }
+        public string? LastTenantId { get; private set; }
 
         public Task<OrderLookupResult> GetOrderStatusOnBehalfOfAsync(
             string orderId,
             string inboundUserAssertion,
+            string tenantId,
             CallerIdentityCorrelation? caller,
             CancellationToken cancellationToken)
         {
             LastOrderId = orderId;
             LastInboundUserAssertion = inboundUserAssertion;
+            LastTenantId = tenantId;
             LastAccessMode = DownstreamAccessMode.OnBehalfOf;
             LastCaller = caller;
             return Task.FromResult(resultToReturn);

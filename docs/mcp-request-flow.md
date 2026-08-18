@@ -10,6 +10,11 @@ v1.0.0. Where Microsoft Learn does not document a behaviour, that is stated as a
 gap, not filled by inference. The session-state maintenance mechanism for
 Streamable HTTP is one such gap (see below).
 
+The deployed request path and the diagram below still use the Functions host.
+Issue #147 also implements an alongside ASP.NET Core host with the same three
+tools, but does not deploy it or change gateway routing. The host comparison
+below describes its application boundary without presenting it as live proof.
+
 ## Session lifecycle
 
 ![MCP session lifecycle: an MCP client performs initialize (protocol and
@@ -26,7 +31,8 @@ ModelContextProtocol C# SDK) drives a real, multi-request session:
    protocol-version and capability negotiation. The client asserts a negotiated
    protocol version and live server capabilities as proof the session is up.
 2. `notifications/initialized`. The client signals readiness.
-3. `tools/list`. The client discovers `get_order_status`.
+3. `tools/list`. The client discovers `get_order_status`, `get_service_info`,
+   and `get_access_guidance`.
 4. `tools/call`. The client invokes the tool (known and unknown order ids) and
    reads the `CallToolResult` (`structuredContent`, or a JSON text block).
 5. Transport close on dispose.
@@ -67,11 +73,12 @@ spec behaviour the platform does not itself document.
 
 | Header | Hop / direction | Set by | Read / validated by | Status |
 | --- | --- | --- | --- | --- |
-| `Authorization: Bearer <token>` | client -> APIM -> Function | MCP client (server-audience token) | APIM `validate-azure-ad-token`, then Easy Auth on the Function; forwarded to the backend by the APIM policy; the tool reads it via `HttpTransport.Headers` for the OBO exchange | VERIFIED (repo policy + source; azure-docs-verifier prior passes) |
-| `WWW-Authenticate: Bearer resource_metadata="..."` | Function/APIM -> client (on 401) | APIM MCP-server policy (no-token) and `on-error` (invalid token) | MCP client, to discover the PRM document (RFC 9728) | VERIFIED (`infra/terraform/modules/apim-mcp-server/policies/mcp-server.xml`; ADR-006) |
-| `X-MS-CLIENT-PRINCIPAL` | injected at the Function | Easy Auth V2 (strips any client-supplied copy, injects its own base64-encoded claims JSON) | the app decodes and parses it (`ClientPrincipal.TryParse`), then `IdentityModeResolver` / authorization code does claims-based checks (no in-code signature check) | VERIFIED (ADR-006 "header trust chain"; docs/security.md; `src/McpTools/Identity/ClientPrincipal.cs`) |
+| `Authorization: Bearer <token>` | client -> APIM -> Function | MCP client (server-audience token) | APIM `validate-azure-ad-token`, then built-in auth on the Function; forwarded to the backend by the APIM policy; the delegated order tool reads it via `HttpTransport.Headers` for OBO only after authorization | VERIFIED for the deployed path (repo policy + source; prior documentation-verification passes) |
+| `Authorization: Bearer <token>` | client -> ASP.NET Core host | MCP client (server-audience token) | JWT bearer middleware validates it before MCP dispatch; delegated `get_order_status` reads the validated request bearer as the OBO assertion | VERIFIED from repo source and tests; not deployed by issue #147 |
+| `WWW-Authenticate: Bearer resource_metadata="..."` | Function/APIM -> client (on 401) | APIM MCP-server policy (no-token) and `on-error` (invalid token) | MCP client, to discover the PRM document (RFC 9728) | VERIFIED (`infra/terraform/modules/apim-mcp-server/policies/mcp-server.xml`; historical discovery evidence in ADR-006) |
+| `X-MS-CLIENT-PRINCIPAL` | injected at the Function | Built-in auth V2 (strips any client-supplied copy, injects its own base64-encoded claims JSON) | the Functions adapter decodes and normalizes it; the ASP.NET Core adapter never reads it | VERIFIED (ADR-006 historical Functions trust chain; docs/security.md; `src/McpTools/Identity/ClientPrincipal.cs`) |
 | `X-MS-TOKEN-AAD-ACCESS-TOKEN` | injected at the Function only when the token store is enabled | Easy Auth token store | the tool, as the preferred inbound-token source; falls back to `Authorization` | ABSENT in this deployment (token store not enabled; validation-only provider). The tool uses the `Authorization` fallback. See the note below. |
-| `X-Mcp-Caller-Azp`, `X-Mcp-Caller-Oid` | Function -> downstream Orders API | the tool (`get_order_status`) | downstream, as audit-grade correlation only (NOT authorization) | VERIFIED (repo source; ADR-006 issue 45) |
+| `X-Mcp-Caller-Azp`, `X-Mcp-Caller-Oid` | MCP host -> downstream Orders API | `get_order_status` downstream adapter | downstream, as audit-grade correlation only (NOT authorization) | VERIFIED (repo source; ADR-012) |
 | `x-functions-key` / `?code=` | client -> Function webhook | caller (or APIM in front) | the Functions host, gating the `mcp_extension` system key (401 if absent, unless `system.webhookAuthorizationLevel` is `Anonymous`) | VERIFIED (Functions MCP Learn docs) |
 | `Mcp-Session-Id` | client <-> Function (per MCP spec) | MCP SDK / server (spec) | MCP SDK / server (spec) | SPEC-GENERIC: the wire header is MCP-spec / SDK behaviour; NOT documented as the Functions extension's own contract (azure-docs-verifier 2026-08-04). The server-side `SessionId` on the invocation context is source-observed for the tool trigger (Learn documents it for resource/prompt triggers only). |
 | `Mcp-Protocol-Version` | client <-> Function (per MCP spec) | MCP SDK / server (spec) | MCP SDK / server (spec) | SPEC-GENERIC: not documented as the Functions extension's contract |
@@ -110,6 +117,14 @@ a federated credential; that case is not exercised here. The tool's working path
 is the `Authorization` fallback: the bearer API Management forwards, read via
 `HttpTransport.Headers`.
 
+The alongside ASP.NET Core path has no token-store-header fallback and no
+Functions transport object. JWT bearer middleware first validates the request.
+The adapter then reads that same request's bearer only for an admitted delegated
+`get_order_status` call. It uses the validated `tid` claim for the OBO authority,
+reuses one `AzureIdentityForKubernetesClientAssertion`, and sends only the
+exchanged Orders-audience token downstream. The Functions host keeps
+`ManagedIdentityClientAssertion` while both hosts coexist.
+
 ## Debugging map
 
 Each line names its evidence. **VERIFIED** means primary source or repository
@@ -123,7 +138,7 @@ requirement.
 - **VERIFIED.** Invalid / wrong-audience token -> HTTP 401 from
   `validate-azure-ad-token` or built-in auth (transport tier); the gateway
   `on-error` adds the same challenge.
-- **VERIFIED; INFERRED plus OBSERVED for HTTP 200.** Missing or malformed
+- **VERIFIED; INFERRED plus OBSERVED for HTTP 200 on Functions.** Missing or malformed
   `X-MS-CLIENT-PRINCIPAL` makes the tool throw. The caller receives HTTP 200
   with `CallToolResult.isError = true` and `An error occurred invoking
   '<tool>'.`; the detailed reason is in server logs only. Separately,
@@ -138,6 +153,10 @@ requirement.
   are `Orders.Read` for `get_order_status` and `ServiceInfo.Read` for
   `get_service_info`. This is the backend result, not the usual gateway result
   when the map enforces the same role.
+- **VERIFIED from ASP.NET Core source and tests; not live.** The alongside host
+  exposes exactly the same three tools. The unchanged core refuses a tool when
+  its role or delegated scope is absent, even after the caller passed the
+  server-entry union.
 - **VERIFIED from tool source and unit tests.** A delegated caller that reaches
   the Function directly without `Orders.Read.AsUser` receives the tool-level
   error `403 Forbidden: get_order_status requires the delegated scope
@@ -182,13 +201,14 @@ The table prevents a false live assertion: adding a role-gated map entry does
 not itself make a caller missing that role reach the backend.
 
 The three response tiers (transport 401 vs JSON-RPC error vs tool `isError`) are
-diagrammed and explained in ADR-006, "Reference diagrams" and "Request outcomes".
+diagrammed and explained in the historical ADR-006, "Reference diagrams" and
+"Request outcomes".
 Read those three as the tiers produced by the transport, the MCP runtime, and the
 tool; the gateway-issued surface described below is a fourth producer that ADR's
 diagram does not depict, and that THIS file, not the ADR, enumerates. It is also
 the only place all three instances are listed: `per-tool-deny-path` draws the
 issue-18 and issue-88 ones but starts after the issue-17 403 has already passed.
-The identity flows (app-only vs delegated OBO) are also in ADR-006.
+ADR-012 owns the current two-host identity and delegated OBO decision.
 
 ### The fourth surface: gateway denial, before the backend
 

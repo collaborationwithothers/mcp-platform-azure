@@ -12,6 +12,7 @@ public interface IDownstreamOrdersClient
     Task<OrderLookupResult> GetOrderStatusOnBehalfOfAsync(
         string orderId,
         string inboundUserAssertion,
+        string tenantId,
         CallerIdentityCorrelation? caller,
         CancellationToken cancellationToken);
 

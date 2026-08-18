@@ -1,11 +1,15 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using McpTools.Downstream;
+using McpTools.Identity;
+using McpTools.Tools;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
@@ -19,6 +23,8 @@ internal sealed class TestMcpHostFactory : WebApplicationFactory<Program>
 
     private readonly RSA _rsa = RSA.Create(2048);
     private readonly RsaSecurityKey _signingKey;
+
+    internal RecordingDownstreamOrdersClient Downstream { get; } = new();
 
     internal TestMcpHostFactory()
     {
@@ -50,6 +56,15 @@ internal sealed class TestMcpHostFactory : WebApplicationFactory<Program>
     {
         builder.UseSetting("Authentication:Authority", Issuer);
         builder.UseSetting("Authentication:Audience", Audience);
+        builder.UseSetting("MicrosoftEntra:ServerAppClientId", "mcp-server-app-id");
+        builder.UseSetting("MicrosoftEntra:TenantId", "server-tenant-id");
+        builder.UseSetting("DownstreamOrdersApi:BaseUrl", "https://orders.example.test");
+        builder.UseSetting(
+            "DownstreamOrdersApi:Scope",
+            "api://orders-api/user_impersonation");
+        builder.UseSetting(
+            "DownstreamOrdersApi:ApplicationScope",
+            "api://orders-api/.default");
         builder.ConfigureTestServices(services =>
         {
             services.PostConfigure<JwtBearerOptions>(
@@ -64,6 +79,8 @@ internal sealed class TestMcpHostFactory : WebApplicationFactory<Program>
                     options.ConfigurationManager =
                         new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration);
                 });
+            services.RemoveAll<IDownstreamOrdersClient>();
+            services.AddSingleton<IDownstreamOrdersClient>(Downstream);
         });
     }
 
@@ -74,5 +91,36 @@ internal sealed class TestMcpHostFactory : WebApplicationFactory<Program>
         {
             _rsa.Dispose();
         }
+    }
+}
+
+internal sealed class RecordingDownstreamOrdersClient : IDownstreamOrdersClient
+{
+    internal DownstreamAccessMode? LastAccessMode { get; private set; }
+    internal string? LastInboundUserAssertion { get; private set; }
+    internal string? LastTenantId { get; private set; }
+
+    public Task<OrderLookupResult> GetOrderStatusOnBehalfOfAsync(
+        string orderId,
+        string inboundUserAssertion,
+        string tenantId,
+        CallerIdentityCorrelation? caller,
+        CancellationToken cancellationToken)
+    {
+        LastAccessMode = DownstreamAccessMode.OnBehalfOf;
+        LastInboundUserAssertion = inboundUserAssertion;
+        LastTenantId = tenantId;
+        return Task.FromResult(McpTools.Core.McpToolApplication.GetOrderStatusFromFixture(orderId));
+    }
+
+    public Task<OrderLookupResult> GetOrderStatusAsApplicationAsync(
+        string orderId,
+        CallerIdentityCorrelation caller,
+        CancellationToken cancellationToken)
+    {
+        LastAccessMode = DownstreamAccessMode.Application;
+        LastInboundUserAssertion = null;
+        LastTenantId = null;
+        return Task.FromResult(McpTools.Core.McpToolApplication.GetOrderStatusFromFixture(orderId));
     }
 }
