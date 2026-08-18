@@ -340,10 +340,15 @@ Live preflight before review: when a PR changes an existing read-only
 dispatch that workflow at the PR branch ref and record the successful run in the
 PR before requesting review. `workflow_dispatch` must exist on the default
 branch before GitHub can dispatch it, but a branch ref is valid once it does.
-This preflight is read-only. It does not authorize `bootstrap`, `teardown`,
-Terraform apply, or Terraform destroy from an unmerged branch. Static CI proves
-repository behaviour only. It does not replace an Azure control-plane or
-data-plane check. See https://docs.github.com/actions/managing-workflow-runs/manually-running-a-workflow.
+This preflight is read-only. Static CI proves repository behaviour only. It does
+not replace an Azure control-plane or data-plane check. See https://docs.github.com/actions/managing-workflow-runs/manually-running-a-workflow.
+
+The `refs/heads/main` dispatch guard that once blocked `bootstrap`, `teardown`,
+apply, and destroy from a branch was removed 2026-08-18 at Hari's instruction
+(see the gated workflows' header comments), so a gated lifecycle workflow may now
+be dispatched from an unmerged branch. That is an operator choice, not a
+weakening of the hard safety rule above: apply and destroy still run only inside
+the gated `live-test` Environment, never outside it.
 
 Finish: complete the PR template's review summary section, including the
 Microsoft Learn links justifying every Terraform, azapi, policy, or auth
