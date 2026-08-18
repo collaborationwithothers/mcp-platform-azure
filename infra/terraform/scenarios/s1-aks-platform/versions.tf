@@ -38,6 +38,15 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 5.23"
     }
+    # Adds the federated identity credential that lets argocd-server authenticate
+    # its Entra OIDC token exchange with workload identity instead of a client
+    # secret (issue 121, ADR-011). Same provider and pin s1-entra-mcp-server
+    # already uses; the Entra app itself is created out of band and only read
+    # here by client id (see the runbook).
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 3.9"
+    }
   }
 }
 
@@ -55,4 +64,8 @@ provider "azapi" {
 
 provider "cloudflare" {
   api_token = var.cloudflare_api_token
+}
+
+provider "azuread" {
+  use_oidc = true
 }

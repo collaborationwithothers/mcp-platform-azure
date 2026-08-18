@@ -51,11 +51,19 @@ APIM MCP path.
   gateway proxy's own namespace). The ACME challenge is DNS-01 via Cloudflare,
   not the HTTP-01 this ADR first proposed; see "TLS: the challenge type changed"
   below.
-- **Authentication client model.** Argo CD is configured as a public OIDC client
-  using PKCE (`enablePKCEAuthentication`), so the login needs no client secret at
-  all. This is deliberate: AGENTS.md permits exactly one non-OIDC credential in
-  this repo (the Cloudflare token), so a static Entra client secret is not
-  allowed. PKCE keeps the credential model clean.
+- **Authentication client model.** Argo CD authenticates its Entra OIDC token
+  exchange with Azure workload identity (`azure.useWorkloadIdentity`), so the
+  login needs no client secret at all. This is deliberate: AGENTS.md permits
+  exactly one non-OIDC credential in this repo (the Cloudflare token), so a
+  static Entra client secret is not allowed. PKCE alone does not solve this:
+  Argo CD 3.1+ redeems the authorization code server-side, and Entra rejects
+  server-side redemption of an SPA/PKCE-typed redirect (AADSTS9002327), so a
+  server-side client must authenticate with either a secret or a federated
+  credential. Workload identity is the federated, secret-free option:
+  argocd-server presents a projected federated token (from a federated identity
+  credential on the Entra app trusting its Kubernetes ServiceAccount) as its
+  client assertion. The Entra app's redirect URI is therefore a Web-platform URI,
+  not SPA.
 - **Authentication.** A dedicated Entra app registration, separate from the MCP
   server's. Argo CD OIDC. The named people are invited as Entra B2B guests.
 - **Authorization.** Every guest is pinned to read-only via `argocd-rbac-cm`.
@@ -174,8 +182,9 @@ Azure (Microsoft Learn):
   https://learn.microsoft.com/azure/templates/microsoft.containerservice/managedclusters
 
 Argo CD (stable docs):
-- Microsoft Entra OIDC and PKCE (`enablePKCEAuthentication`, redirect URIs,
-  the SPA/public-client registration):
+- Microsoft Entra OIDC via workload identity (`azure.useWorkloadIdentity`, Web
+  redirect URI, groups claim), and the 3.1 note that the code flow moved
+  server-side:
   https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/microsoft/
 - RBAC (`policy.default: role:readonly`, the built-in roles, `scopes`):
   https://argo-cd.readthedocs.io/en/stable/operator-manual/rbac/
