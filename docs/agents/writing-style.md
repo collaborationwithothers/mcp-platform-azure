@@ -94,3 +94,5 @@ the AGENTS.md rules above them.
   call. Never write "the X half of Y" before Y has been described plainly.
 - 2026-08-17: When one merged PR installs a workflow that later opens another
   PR, name them separately as the implementation PR and the generated PR.
+- 2026-08-18: Ask for one decision in plain words. Do not hide the decision
+  inside a list of technical checks the reader must decode first.
