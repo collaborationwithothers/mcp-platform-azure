@@ -98,7 +98,8 @@ resource "cloudflare_dns_record" "argocd" {
   content = azurerm_public_ip.argocd.ip_address
   ttl     = 300
   proxied = false
-  comment = "Argo CD public UI/API (issue 121, ADR-011). Points at the pinned AKS external Istio ingress public IP."
+  # Cloudflare caps this field at 100 characters.
+  comment = "Argo CD public UI/API (issue 121, ADR-011)."
 }
 
 module "registry" {
