@@ -141,6 +141,9 @@ jobs:
       TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
       TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       TF_VAR_argocd_hostname: ${{ vars.ARGOCD_HOSTNAME }}
+      # The Argo CD Entra app client id, also fed to Terraform so it can attach
+      # the workload-identity federated credential to that app (ADR-011).
+      TF_VAR_argocd_oidc_client_id: ${{ vars.ARGOCD_OIDC_CLIENT_ID }}
       # Non-secret render inputs for the Argo CD public-access manifests
       # (infra/argocd/public-access/*, envsubst templates). Tenant id is not a
       # secret but is account-specific and never a literal in this repo, so it

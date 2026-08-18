@@ -132,3 +132,20 @@ variable "cloudflare_api_token" {
   description = "Cloudflare API token scoped to DNS edit on the consultwithcloud.com zone, for the cloudflare provider to manage the Argo CD A record. The repo's one permitted non-OIDC credential (AGENTS.md Hard-safety carve-out); injected from a live-test environment secret, never committed."
   sensitive   = true
 }
+
+variable "argocd_oidc_client_id" {
+  type        = string
+  description = "Application (client) id of the dedicated Argo CD Entra app registration (issue 121, ADR-011). Created out of band (see the runbook) and only read here to attach a federated identity credential so argocd-server can use workload identity for its OIDC token exchange instead of a client secret. A client id is a public identifier, not a secret, but is account-specific, so it is never a literal in this repo."
+}
+
+variable "argocd_namespace" {
+  type        = string
+  description = "Kubernetes namespace Argo CD is installed in. Used to build the federated identity credential subject; must match the namespace the deploy workflow installs the Argo CD chart into."
+  default     = "argocd"
+}
+
+variable "argocd_server_service_account_name" {
+  type        = string
+  description = "Name of the argocd-server Kubernetes ServiceAccount. Used to build the federated identity credential subject (system:serviceaccount:<argocd_namespace>:<this>); it must match the ServiceAccount the argocd-server pod runs as, which the workload-identity pod label and annotation in the Helm values also target."
+  default     = "argocd-server"
+}

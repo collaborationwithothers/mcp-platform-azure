@@ -5,13 +5,19 @@
 #
 # Three things happen here, all governance-driven:
 #
-# 1. Entra OIDC with PKCE, NOT a client secret. enablePKCEAuthentication makes
-#    Argo CD a public OIDC client, so the login needs no client secret at all.
-#    That is deliberate: AGENTS.md permits exactly one non-OIDC credential in
-#    this repo (the Cloudflare token), so a static Entra client secret is not
-#    allowed. PKCE keeps the credential model clean. The Entra app must be
-#    registered as an SPA/public client with the /auth/callback redirect URI --
-#    see docs/runbooks/argocd-public-access.md.
+# 1. Entra OIDC via Azure Workload Identity, NOT a client secret. Argo CD 3.1+
+#    redeems the OIDC authorization code SERVER-SIDE, so a browser-only PKCE
+#    (SPA) flow does not work with Entra (it rejects server-side redemption of an
+#    SPA-typed redirect with AADSTS9002327). Server-side redemption on Entra
+#    needs the client to authenticate, which normally means a client secret --
+#    but AGENTS.md permits exactly one non-OIDC credential (the Cloudflare
+#    token). Workload identity is the way out: argocd-server authenticates the
+#    token exchange with a FEDERATED managed identity (no static secret). The
+#    server:{} block below labels the argocd-server pod and annotates its
+#    ServiceAccount so the AKS workload-identity webhook injects the federated
+#    token; the Entra app carries a federated identity credential trusting that
+#    ServiceAccount (Terraform-managed in s1-aks-platform). The Entra app's
+#    redirect URI must be under the WEB platform, not SPA -- see the runbook.
 #
 # 2. Read-only by default, admin by GROUP membership. policy.default:
 #    role:readonly means every SSO user who logs in gets Argo CD's built-in
@@ -38,7 +44,8 @@ configs:
       name: Microsoft Entra
       issuer: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
       clientID: ${ARGOCD_OIDC_CLIENT_ID}
-      enablePKCEAuthentication: true
+      azure:
+        useWorkloadIdentity: true
       requestedScopes:
         - openid
         - profile
@@ -53,3 +60,16 @@ configs:
     scopes: "[groups]"
   params:
     server.insecure: true
+
+# Azure Workload Identity for the argocd-server pod: the SA annotation names the
+# Entra app (client id) and tenant, and the pod label opts the pod into the AKS
+# workload-identity webhook, which projects a federated token argocd-server uses
+# as its OIDC client assertion (no static secret). The matching federated
+# identity credential on the Entra app is Terraform-managed in s1-aks-platform.
+server:
+  serviceAccount:
+    annotations:
+      azure.workload.identity/client-id: "${ARGOCD_OIDC_CLIENT_ID}"
+      azure.workload.identity/tenant-id: "${AZURE_TENANT_ID}"
+  podLabels:
+    azure.workload.identity/use: "true"

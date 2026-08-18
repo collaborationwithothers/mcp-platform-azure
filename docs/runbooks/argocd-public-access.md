@@ -38,17 +38,21 @@ so it is never committed to the repo either.
 
 ## 2. Entra: the Argo CD app registration
 
-Argo CD logs users in as a **public OIDC client using PKCE**, so this app
-registration has **no client secret**. That is deliberate: the repo permits
-exactly one non-OIDC credential (the Cloudflare token), so a static client
-secret is not allowed.
+Argo CD authenticates its OIDC token exchange with **Azure workload identity**, a
+federated managed identity, so this app registration has **no client secret**.
+That is deliberate: the repo permits exactly one non-OIDC credential (the
+Cloudflare token), so a static client secret is not allowed. Do not use the
+Single-page application platform: Argo CD 3.1+ redeems the authorization code
+server-side, and Entra rejects server-side redemption of an SPA redirect
+(AADSTS9002327). The redirect URI is a **Web** platform URI, and the client is
+authenticated by a federated credential instead of a secret.
 
 1. In the Microsoft Entra admin center, open **App registrations > New
    registration**.
 2. Name it, for example, `argocd-mcp-platform`.
-3. Under **Redirect URI**, choose platform **Single-page application (SPA)** and
-   enter `https://argocd.consultwithcloud.com/auth/callback`. The SPA platform is
-   what makes Entra enforce PKCE without a client secret.
+3. Under **Redirect URI**, choose platform **Web** and enter
+   `https://argocd.consultwithcloud.com/auth/callback`. It must be **Web**, not
+   Single-page application.
 4. Register the app, then copy the **Application (client) ID**.
 5. To let the `argocd` CLI log in too, open **Authentication > Add a platform >
    Mobile and desktop applications** and add the redirect URI
@@ -58,9 +62,21 @@ secret is not allowed.
 7. Open **Token configuration > Add groups claim**, tick **Security groups**, and
    include the groups claim in the **ID** token. This is required: Argo CD RBAC
    grants admin by group membership, so the token must carry the `groups` claim.
+8. Make the live-test service principal (the `AZURE_CLIENT_ID` this workflow
+   uses) able to write to this app, so Terraform can attach the federated
+   identity credential: open **Owners > Add owners** and add that service
+   principal. (If it already holds `Application.ReadWrite.All` tenant-wide from
+   the S1 Entra work, this is belt and braces.)
 
 Do not create a client secret. If one exists from an earlier attempt, delete it;
-PKCE does not use it, and leaving it around invites the wrong login mode.
+workload identity does not use it, and leaving it around invites the wrong login
+mode.
+
+The federated identity credential itself is **Terraform-managed** (in
+`s1-aks-platform`): the bootstrap apply adds a credential to this app trusting
+`system:serviceaccount:argocd:argocd-server` through the cluster's OIDC issuer,
+audience `api://AzureADTokenExchange`. You do not create it by hand; you only
+make the app writable to the deploying principal (step 8 above).
 
 ## 3. Entra: the admin group
 
