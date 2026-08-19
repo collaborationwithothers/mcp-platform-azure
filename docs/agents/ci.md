@@ -22,6 +22,11 @@ label change re-runs only this check and not the heavier jobs, and it carries
 a stable job name (compat-sync) for branch protection. The workflow ships the
 check; promoting it to required in branch protection is Hari's step.
 
+The pr-size job lives in .github/workflows/pr-size.yml. It measures the current
+PR base against the current head, including after base, label, or body changes.
+The job reads `.github/pr-size-policy.json`, runs its behavior tests, and prints
+the largest changed files. Hari promotes the job to required after it is green.
+
 ## Why no path filters
 
 There are no trigger-level path filters, so the required jobs always run on

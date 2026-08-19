@@ -46,6 +46,20 @@ Create a GitHub issue.
 
 Run `gh issue view <number> --comments`.
 
+## Readiness size forecast
+
+Before Hari applies `ready-for-agent`, an issue must name one independently
+verified behavior and state:
+
+- the expected changed files;
+- the expected additions plus deletions; and
+- the verification command, test, or live check.
+
+Hari compares the forecast with `.github/pr-size-policy.json`. If either limit
+is exceeded, Hari splits the issue into smaller issues. Each issue keeps one
+behavior with its tests and required docs. See `docs/agents/pr-size.md` for
+exceptions and for updating child branches after their parent merges.
+
 ## Wayfinding operations
 
 Used by /wayfinder. The map is a single issue with child issues as tickets.

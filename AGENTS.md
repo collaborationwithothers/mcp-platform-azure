@@ -341,6 +341,11 @@ documentation-verification agent (see the truth and verification rules) and the
 terraform MCP registry tools. Record the outcome as the ticket requires before
 implementing against it. If the ticket defines no such step, proceed.
 
+PR size gate: before coding, the implementation agent reads
+docs/agents/pr-size.md and forecasts the behavior, changed files, changed lines,
+and verification method. If the forecast exceeds `.github/pr-size-policy.json`,
+the agent stops and proposes a split. Before review, the agent measures again.
+
 Then: create a branch from up-to-date main, named for the issue and prefixed
 with the acting agent's branch prefix (claude/ or codex/), and implement the
 ticket, honouring its acceptance checklist and out-of-scope list exactly. Open a
@@ -406,6 +411,8 @@ Then:
 6. If the PR is a mixed-agent PR (carries both agent:claude and agent:codex),
    apply the harder review pass described in "Dual-agent operation": scrutinise
    the seam between the two agents' work for drifted intent or convention.
+7. The governance reviewer applies docs/agents/pr-size.md. Inherited parent
+   changes, an unjustified size excess, or displaced tests and docs are findings.
 
 Output: a verdict (APPROVE or REQUEST CHANGES) followed by a numbered findings
 list ordered by severity, each finding citing the file and line or claim it
@@ -454,7 +461,7 @@ docs/agents/ci.md.
 - Toolchain pins live in ci.yml and .terraform-version. When infra adds a
   required_version, keep it in step with the setup-terraform pin.
 - Non-required jobs (mcp-parity, drift-agent-tests,
-  compatibility-drift-structure, compat-sync-tests) may be promoted to
+  compatibility-drift-structure, compat-sync-tests, pr-size) may be promoted to
   required only by Hari.
 
 ### Drift verification agent
