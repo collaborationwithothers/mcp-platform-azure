@@ -98,3 +98,5 @@ the AGENTS.md rules above them.
   inside a list of technical checks the reader must decode first.
 - 2026-08-18: If code changes a deployed path without changing topology, name
   the behaviour change and its live-evidence gap; do not call deployment unchanged.
+- 2026-08-19: When a generated PR makes Argo CD deploy a workload, call it a
+  deployment PR; do not call that step activation.
