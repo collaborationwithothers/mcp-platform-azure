@@ -112,7 +112,12 @@ From the repository's **Actions** tab, run **Deploy AKS platform**,
    that pulls images.
 4. Installs the pinned cert-manager chart. The workflow creates the existing
    Cloudflare token secret in the `cert-manager` namespace and applies separate
-   Argo CD and MCP ClusterIssuers. It does not create an MCP Certificate.
+   Argo CD and MCP ClusterIssuers. It does not create an MCP Certificate. For
+   DNS-01 certificate checks, cert-manager proves domain control by finding a
+   public TXT record. The controller sends only that lookup to public DNS
+   servers. This avoids split-horizon DNS, where the cluster sees the private
+   Azure DNS zone while Let's Encrypt sees Cloudflare's public challenge
+   record. Ordinary pod and service DNS still uses cluster DNS.
 5. Installs the pinned `argo-cd` Helm chart and applies the app-of-apps
    (`infra/argocd/bootstrap-app-of-apps.yaml`), which points Argo CD at the
    separate `mcp-platform-kubernetes-manifests` repository.
