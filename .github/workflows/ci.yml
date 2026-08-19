@@ -38,6 +38,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: MCP promotion payload contract
+        shell: bash
+        run: bash scripts/ci/test-mcp-promotion-payload.sh
+
       - name: Detect Terraform files under infra/
         id: detect
         shell: bash

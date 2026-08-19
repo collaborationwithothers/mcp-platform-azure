@@ -133,7 +133,38 @@ sends both values to the manifests repository. That repository validates them
 and opens a draft promotion PR. Review and merge that PR. Do not copy either
 value or edit a manifest by hand.
 
-## 6. Idling the cluster
+## 6. Publishing the MCP server image
+
+Issue #151 adds **Publish MCP server image**
+(`.github/workflows/publish-mcp-server-image.yml`) in an implementation PR.
+Merging that implementation PR installs the workflow only. It does not publish
+an image or open a deployment PR.
+
+Issue #152 runs the workflow and produces the later deployment PR. Use this
+order:
+
+1. Hari runs **Deploy AKS platform** with `action: plan` at the selected source
+   ref.
+2. Hari reviews the plan for every forbidden replacement or deletion in issue
+   #152.
+3. If the plan contains a forbidden replacement or deletion, Hari stops.
+4. Hari runs **Deploy AKS platform** with `action: bootstrap` at the selected
+   source ref.
+5. If the gated foundation apply succeeds, Hari runs **Publish MCP server
+   image** at the same selected source ref.
+6. The publisher pushes the MCP server image with the selected source commit
+   as its tag.
+7. The publisher sends the validated, non-secret deployment values to the
+   companion manifests repository.
+8. The companion workflow writes those values into the manifests.
+9. The companion workflow opens issue #152's generated deployment PR.
+10. Hari reviews the generated deployment PR before merge.
+
+The generated deployment PR is not issue #151's implementation PR. The
+implementation PR adds the publishing mechanism. The generated deployment PR
+contains the image and runtime values that Argo CD will deploy.
+
+## 7. Idling the cluster
 
 `action: idle-stop` runs `az aks stop`. Wait 15 to 30 minutes (Microsoft
 Learn's documented settle window; no tighter SLA is published) before
@@ -143,7 +174,7 @@ requirement into something silently masked, not enforced. Running
 `idle-start` too soon after `idle-stop` fails; if it does, wait longer and
 retry.
 
-## 7. Recording the first live measurement
+## 8. Recording the first live measurement
 
 Issue #110's acceptance criteria require the FIRST stop/start cycle's
 measured behaviour recorded in COMPATIBILITY.md: whether the Istio add-on's
