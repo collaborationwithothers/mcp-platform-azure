@@ -107,15 +107,15 @@ workflow_contract=(
 )
 for required in "${workflow_contract[@]}"; do
   tests_run=$((tests_run + 1))
-  rg -Fq -- "${required}" "${workflow}" || {
+  grep -Fq -- "${required}" "${workflow}" || {
     echo "FAIL: publisher workflow is missing ${required}." >&2
     exit 1
   }
 done
 
-payload_line="$(rg -n -F 'prepare-mcp-promotion-payload.sh build' "${workflow}" | cut -d: -f1)"
-push_line="$(rg -n -F 'docker push' "${workflow}" | cut -d: -f1)"
-dispatch_line="$(rg -n -F -- '--input "${RUNNER_TEMP}/mcp-promotion-payload.json"' "${workflow}" | cut -d: -f1)"
+payload_line="$(grep -n -F -- 'prepare-mcp-promotion-payload.sh build' "${workflow}" | cut -d: -f1)"
+push_line="$(grep -n -F -- 'docker push' "${workflow}" | cut -d: -f1)"
+dispatch_line="$(grep -n -F -- '--input "${RUNNER_TEMP}/mcp-promotion-payload.json"' "${workflow}" | cut -d: -f1)"
 tests_run=$((tests_run + 1))
 ((payload_line < push_line && push_line < dispatch_line)) || {
   echo "FAIL: the workflow must validate before push and dispatch after push." >&2
