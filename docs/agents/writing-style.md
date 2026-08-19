@@ -100,3 +100,5 @@ the AGENTS.md rules above them.
   the behaviour change and its live-evidence gap; do not call deployment unchanged.
 - 2026-08-19: When a generated PR makes Argo CD deploy a workload, call it a
   deployment PR; do not call that step activation.
+- 2026-08-19: When Argo CD does not reference stored manifests, say that
+  directly. Describe a workflow by the checks it performs and the PR it opens.
