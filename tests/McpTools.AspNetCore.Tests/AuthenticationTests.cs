@@ -66,8 +66,12 @@ public sealed class AuthenticationTests
         request.Headers.Add("X-Forwarded-Proto", "https");
 
         using var response = await client.SendAsync(request);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            "https://mcp.internal.consultwithcloud.com/mcp",
+            document.RootElement.GetProperty("resource").GetString());
     }
 
     [Fact]

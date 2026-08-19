@@ -167,6 +167,23 @@ is the ASP.NET Core pattern for a TLS-terminating proxy. The framework's trusted
 proxy and network defaults stay in force outside Development. See
 [proxy and load balancer configuration](https://learn.microsoft.com/aspnet/core/host-and-deploy/proxy-load-balancer?view=aspnetcore-10.0).
 
+Envoy is Istio's proxy process that runs beside the app. This placement is
+called a sidecar.
+
+REDIRECT is Istio's interception mode that rewrites the inbound connection
+address and loses the original source network address. This design relies on
+Envoy opening the app-facing connection from a loopback address, which ASP.NET
+Core trusts by default. The production contract therefore requires an AKS Istio
+sidecar using REDIRECT. Issue #150 must label the MCP namespace with the active
+managed Istio revision. Issue #152 must prove the running pod contains
+`istio-proxy` and prove its effective interception mode is REDIRECT. Issue #154
+must prove the real private ingress leaves the app seeing a loopback peer and
+the HTTPS scheme. The current proxy trust does not support a sidecarless path.
+It also does not support TPROXY interception, which preserves the original
+source address. See
+[AKS sidecar injection](https://learn.microsoft.com/azure/aks/istio-deploy-addon#enable-sidecar-injection)
+and [Istio inbound interception modes](https://istio.io/latest/docs/reference/config/istio.mesh.v1alpha1/#InboundInterceptionMode).
+
 The final image contains the ASP.NET Core runtime and published application
 output. The .NET SDK, source, test projects, and other repository content stay
 in the build stage or outside the narrow Docker build context. CI proves those
