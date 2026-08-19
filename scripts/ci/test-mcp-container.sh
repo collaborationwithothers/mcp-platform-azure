@@ -42,6 +42,12 @@ docker image inspect "$image" \
   | jq --exit-status '.[0].Config.ExposedPorts | keys == ["8080/tcp"]' \
   >/dev/null
 
+image_user="$(docker image inspect "$image" --format '{{.Config.User}}')"
+if ! [[ "$image_user" =~ ^[1-9][0-9]*$ ]]; then
+  echo "The image user must be a non-root numeric UID for Kubernetes runAsNonRoot." >&2
+  exit 1
+fi
+
 free_port() {
   python3 - <<'PY'
 import socket
