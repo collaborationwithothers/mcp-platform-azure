@@ -32,6 +32,18 @@ Supporting:
 
 -
 
+## PR size
+
+Independently verified behavior:
+
+Verification evidence:
+
+Measured size: <!-- files; additions; deletions; additions plus deletions -->
+
+Approved exception justification: N/A
+
+Approved exception link: N/A
+
 ## Merge class
 
 <!-- Exactly one. See CLAUDE.md GOVERNANCE > Merge classes. -->
