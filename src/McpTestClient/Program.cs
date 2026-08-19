@@ -14,7 +14,8 @@ using ModelContextProtocol.Protocol;
 // (spec: Testing Decisions). Any assertion failure throws, which exits non-zero
 // and fails the gate's call stage.
 
-const string ToolName = "get_order_status";
+const string OrderStatusToolName = "get_order_status";
+const string ServiceInfoToolName = "get_service_info";
 // A known id (CONTOSO-1003 -> "Processing" in the synthetic fixture) and an
 // unknown id, matching the ticket's acceptance checklist.
 const string KnownOrderId = "CONTOSO-1003";
@@ -32,6 +33,17 @@ string endpoint =
 string? accessToken = Environment.GetEnvironmentVariable("MCP_ACCESS_TOKEN");
 string? expectedForbiddenRole = Environment.GetEnvironmentVariable("MCP_EXPECT_FORBIDDEN_ROLE");
 string? expectedForbiddenScope = Environment.GetEnvironmentVariable("MCP_EXPECT_FORBIDDEN_SCOPE");
+string testProfile = Environment.GetEnvironmentVariable("MCP_TEST_PROFILE") ?? "order-status";
+
+if (testProfile is not ("order-status" or "service-info"))
+{
+    throw new InvalidOperationException(
+        "MCP_TEST_PROFILE must be 'order-status' or 'service-info'.");
+}
+
+string expectedToolName = testProfile == "service-info"
+    ? ServiceInfoToolName
+    : OrderStatusToolName;
 
 if (!string.IsNullOrEmpty(expectedForbiddenRole) && !string.IsNullOrEmpty(expectedForbiddenScope))
 {
@@ -69,12 +81,21 @@ foreach (var tool in tools)
 {
     Console.WriteLine($"  - {tool.Name}");
 }
-AssertToolListed(tools);
+AssertToolListed(tools, expectedToolName);
+
+if (testProfile == "service-info")
+{
+    var serviceInfo = await client.CallToolAsync(ServiceInfoToolName);
+    Console.WriteLine($"[McpTestClient] call(service-info) -> {Render(serviceInfo)}");
+    AssertServiceInfo(serviceInfo);
+    Console.WriteLine("[McpTestClient] Container session and tool assertions passed.");
+    return;
+}
 
 if (!string.IsNullOrEmpty(expectedForbiddenRole) || !string.IsNullOrEmpty(expectedForbiddenScope))
 {
     var forbidden = await client.CallToolAsync(
-        ToolName,
+        OrderStatusToolName,
         new Dictionary<string, object?> { ["orderId"] = KnownOrderId });
     var rendered = Render(forbidden);
     var expected = !string.IsNullOrEmpty(expectedForbiddenRole)
@@ -93,13 +114,13 @@ if (!string.IsNullOrEmpty(expectedForbiddenRole) || !string.IsNullOrEmpty(expect
 
 // Step 4 - tools/call for a known id and an unknown id (the two tool contracts).
 var known = await client.CallToolAsync(
-    ToolName,
+    OrderStatusToolName,
     new Dictionary<string, object?> { ["orderId"] = KnownOrderId });
 Console.WriteLine($"[McpTestClient] call(known)   -> {Render(known)}");
 AssertKnownIdReturnsTypedStatus(known);
 
 var unknown = await client.CallToolAsync(
-    ToolName,
+    OrderStatusToolName,
     new Dictionary<string, object?> { ["orderId"] = UnknownOrderId });
 Console.WriteLine($"[McpTestClient] call(unknown) -> {Render(unknown)}");
 AssertUnknownIdReturnsTypedNotFound(unknown);
@@ -134,13 +155,33 @@ static void AssertInitialized(McpClient client)
         + $"server {client.ServerInfo.Name}.");
 }
 
-static void AssertToolListed(IList<McpClientTool> tools)
+static void AssertToolListed(IList<McpClientTool> tools, string expectedToolName)
 {
-    if (!tools.Any(t => t.Name == ToolName))
+    if (!tools.Any(t => t.Name == expectedToolName))
     {
         throw new InvalidOperationException(
-            $"tools/list did not contain '{ToolName}'. Saw: "
+            $"tools/list did not contain '{expectedToolName}'. Saw: "
             + string.Join(", ", tools.Select(t => t.Name)));
+    }
+}
+
+static void AssertServiceInfo(CallToolResult result)
+{
+    if (result.IsError == true)
+    {
+        throw new InvalidOperationException(
+            "get_service_info returned an MCP error result.");
+    }
+
+    var json = ResultJson(result);
+    if (RequireString(json, "serverName") != "contoso-orders-mcp"
+        || RequireString(json, "transport") != "streamable-http"
+        || !RequireString(json, "dataDisclaimer").Contains(
+            "SYNTHETIC",
+            StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "get_service_info did not return the frozen service contract.");
     }
 }
 

@@ -225,6 +225,18 @@ jobs:
             echo "No test projects found under src/**/tests; nothing to test."
           fi
 
+      - name: Build and test MCP server container
+        shell: bash
+        run: |
+          dockerfile="src/McpTools.AspNetCore/Dockerfile"
+          if [ ! -f "${dockerfile}" ]; then
+            echo "SKIPPED: ${dockerfile} is not present."
+            exit 0
+          fi
+          image="mcp-tools-aspnetcore:${GITHUB_SHA}"
+          docker build --file "${dockerfile}" --tag "${image}" .
+          bash scripts/ci/test-mcp-container.sh "${image}"
+
   # NOT a required status check (the two required checks are terraform-checks and
   # dotnet-build; their names must stay stable). This job enforces the MCP config
   # parity rule between .mcp.json and .codex/config.toml (AGENTS.md > MCP servers
