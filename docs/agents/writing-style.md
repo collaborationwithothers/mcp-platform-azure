@@ -104,3 +104,5 @@ the AGENTS.md rules above them.
   directly. Describe a workflow by the checks it performs and the PR it opens.
 - 2026-08-19: Name a script for the files it produces. If it prepares files
   for a later deployment PR, say that directly in the script name.
+- 2026-08-19: Before calling a test boundary a seam, name what runs, the inputs
+  it accepts, and the result the test checks.

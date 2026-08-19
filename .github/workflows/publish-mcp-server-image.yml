@@ -1,0 +1,164 @@
+# Manual image publication for issue 151. The selected workflow_dispatch ref
+# supplies both the workflow and the source code. This job validates the full
+# promotion contract before it pushes the commit-tagged image.
+name: Publish MCP server image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish-mcp-server-image:
+    name: publish-mcp-server-image
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      AKS_PLATFORM_STATE_KEY: s1-aks-platform.tfstate
+      S1_STATE_KEY: s1-entra-mcp-server.tfstate
+    steps:
+      - name: Require authorized actor
+        shell: bash
+        run: |
+          if [ "${{ github.actor }}" != "haripraghash" ] && [ "${{ github.actor }}" != "haripraghash-bot" ]; then
+            echo "::error::This workflow may only be triggered by haripraghash or haripraghash-bot. Triggering actor was '${{ github.actor }}'."
+            exit 1
+          fi
+
+      - name: Checkout the selected ref
+        uses: actions/checkout@v7
+
+      - name: Verify the checked-out commit
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_commit="$(git rev-parse HEAD)"
+          if [ "${source_commit}" != "${GITHUB_SHA}" ]; then
+            echo "::error::The checked-out commit does not match the selected workflow_dispatch ref."
+            exit 1
+          fi
+          echo "commit=${source_commit}" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Build and validate the promotion payload
+        id: promotion
+        shell: bash
+        env:
+          DOWNSTREAM_SCOPE: ${{ fromJSON(secrets.S1_TFVARS_JSON).downstream_app.api_scope }}
+          DOWNSTREAM_APPLICATION_SCOPE: ${{ fromJSON(secrets.S1_TFVARS_JSON).downstream_app.application_scope }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+          DEPLOYMENT_ISSUE: "152"
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/terraform/scenarios/s1-aks-platform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${AKS_PLATFORM_STATE_KEY}"
+          registry_login_server="$(terraform -chdir=infra/terraform/scenarios/s1-aks-platform output -raw registry_login_server)"
+          WORKLOAD_IDENTITY_CLIENT_ID="$(terraform -chdir=infra/terraform/scenarios/s1-aks-platform output -raw mcp_workload_client_id)"
+          SERVER_APPLICATION_CLIENT_ID="$(terraform -chdir=infra/terraform/scenarios/s1-aks-platform output -raw mcp_server_application_client_id)"
+          RESOURCE_AUDIENCE="$(terraform -chdir=infra/terraform/scenarios/s1-aks-platform output -raw mcp_resource_audience)"
+          MANAGED_ISTIO_REVISION="$(terraform -chdir=infra/terraform/scenarios/s1-aks-platform output -raw istio_revision)"
+
+          terraform -chdir=infra/terraform/scenarios/s1-entra-mcp-server init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${S1_STATE_KEY}"
+          DOWNSTREAM_BASE_URL="$(terraform -chdir=infra/terraform/scenarios/s1-entra-mcp-server output -raw downstream_base_url)"
+          IMAGE_REFERENCE="${registry_login_server}/mcp-tools-aspnetcore:${SOURCE_COMMIT}"
+          export IMAGE_REFERENCE WORKLOAD_IDENTITY_CLIENT_ID MANAGED_ISTIO_REVISION
+          export SERVER_APPLICATION_CLIENT_ID RESOURCE_AUDIENCE DOWNSTREAM_BASE_URL
+          export DOWNSTREAM_SCOPE DOWNSTREAM_APPLICATION_SCOPE SOURCE_COMMIT DEPLOYMENT_ISSUE
+          ./scripts/prepare-mcp-promotion-payload.sh build \
+            > "${RUNNER_TEMP}/mcp-promotion-payload.json"
+          echo "image=${IMAGE_REFERENCE}" >> "$GITHUB_OUTPUT"
+          echo "registry_name=${registry_login_server%%.*}" >> "$GITHUB_OUTPUT"
+
+      - name: Require GitHub App promotion credentials
+        shell: bash
+        env:
+          GITOPS_PROMOTION_APP_CLIENT_ID: ${{ vars.GITOPS_PROMOTION_APP_CLIENT_ID }}
+          GITOPS_PROMOTION_APP_PRIVATE_KEY: ${{ secrets.GITOPS_PROMOTION_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          for required in GITOPS_PROMOTION_APP_CLIENT_ID GITOPS_PROMOTION_APP_PRIVATE_KEY; do
+            if [ -z "${!required}" ]; then
+              echo "::error::${required} is required on the live-test Environment."
+              exit 1
+            fi
+          done
+
+      - name: Build the commit-tagged MCP image
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.promotion.outputs.image }}
+        run: docker build --file src/McpTools.AspNetCore/Dockerfile --tag "${IMAGE_REFERENCE}" .
+
+      - name: Log in to ACR
+        shell: bash
+        run: az acr login --name "${{ steps.promotion.outputs.registry_name }}"
+
+      - name: Push the commit-tagged MCP image
+        id: push
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.promotion.outputs.image }}
+        run: docker push "${IMAGE_REFERENCE}"
+
+      - name: Create companion promotion token
+        id: promotion-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.GITOPS_PROMOTION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GITOPS_PROMOTION_APP_PRIVATE_KEY }}
+          owner: collaborationwithothers
+          repositories: mcp-platform-kubernetes-manifests
+          permission-contents: write
+
+      - name: Request the MCP deployment PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.promotion-token.outputs.token }}
+        run: |
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY_OWNER}/mcp-platform-kubernetes-manifests/dispatches" \
+            --input "${RUNNER_TEMP}/mcp-promotion-payload.json"
+
+      - name: Report an image pushed without a deployment request
+        if: failure() && steps.push.outcome == 'success'
+        shell: bash
+        run: |
+          echo "## MCP image pushed, deployment request failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "No deployment PR exists for this workflow run." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report the promotion request
+        if: success()
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.promotion.outputs.image }}
+        run: |
+          {
+            echo "## MCP deployment promotion requested"
+            echo "Image reference: \`${IMAGE_REFERENCE}\`"
+            echo "The companion repository will open issue #152's draft deployment PR."
+          } >> "$GITHUB_STEP_SUMMARY"
