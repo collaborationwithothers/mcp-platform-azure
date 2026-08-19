@@ -102,3 +102,5 @@ the AGENTS.md rules above them.
   deployment PR; do not call that step activation.
 - 2026-08-19: When Argo CD does not reference stored manifests, say that
   directly. Describe a workflow by the checks it performs and the PR it opens.
+- 2026-08-19: Name a script for the files it produces. If it prepares files
+  for a later deployment PR, say that directly in the script name.
