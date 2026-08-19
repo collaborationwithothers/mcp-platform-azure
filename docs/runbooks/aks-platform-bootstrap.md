@@ -1,7 +1,8 @@
 # Runbook: AKS platform bootstrap and idle cycle
 
 Out-of-band setup and operating procedure for `.github/workflows/deploy-aks-platform.yml`
-(epic 108 child (b1), issue #110). Unlike `ephemeral-env.yml`, this workflow
+(epic 108 platform bootstrap, issues #110, #121, and #149). Unlike
+`ephemeral-env.yml`, this workflow
 manages a PERSISTENT platform: a stable resource group, cluster, and
 registry that are stopped and started, never destroyed by this workflow.
 Read [ADR-010](../decisions/ADR-010:%20Compute-plane%20re-platform%20to%20AKS.md)
@@ -25,6 +26,12 @@ why.
 | `AKS_PLATFORM_REGISTRY_NAME` | e.g. `acrmcpplatform` | Globally unique, alphanumeric only (ACR naming rule). |
 | `AKS_PLATFORM_RUNNER_VNET_ID` | the existing GitHub Actions VNet runner network's ARM resource ID | Non-secret (a resource ID, not a credential) but never committed to this repo -- it embeds a real subscription ID, which AGENTS.md's hard safety rules forbid committing. Ask whoever manages that runner network for the exact value. |
 | `AKS_PLATFORM_INGRESS_PRIVATE_IP` | an address inside the ingress subnet, see step 2 | Pinned once; changing it after the first bootstrap re-pins a live load balancer. |
+
+The workflow also reads the existing `S1_TFVARS_JSON` Environment secret. It
+selects only `entra_auth.server_app_client_id` so Terraform can find the
+existing MCP server application. Terraform reads that application's single App
+ID URI for the resource-audience output. Do not create a second application
+registration or derive the resource audience from the client ID.
 
 ## 2. GitHub App setup for image promotion
 
@@ -69,15 +76,28 @@ reject a value outside the subnet -- see `private-network/variables.tf`'s
 If you changed `ingress_gateway_subnet_cidr` from its default, recompute the
 usable range accordingly before choosing an address.
 
-## 4. Running bootstrap
+## 4. Running the read-only plan and bootstrap
+
+From the repository's **Actions** tab, first run **Deploy AKS platform** with
+`action: plan`, and type `plan` into the confirmation input. The workflow reads
+the persistent S1 AKS state and fails if Terraform proposes any delete or
+replacement action. The workflow does not upload the plan file because a plan
+can contain sensitive values.
+
+The S1 AKS state owns the placeholder and Argo CD platform resources, so this
+plan proves their preservation. Functions and APIM use separate Terraform
+states. Confirm their compositions are absent from the diff; this plan cannot
+make a state assertion about them.
 
 From the repository's **Actions** tab, run **Deploy AKS platform**,
 `action: bootstrap`, and type `bootstrap` into the confirmation input. This:
 
 1. Ensures the platform resource group exists.
-2. Runs `terraform apply` for `infra/terraform/scenarios/s1-aks-platform`
-   (creates or updates the VNet, AKS cluster, registry, and the placeholder
-   workload's user-assigned identity -- idempotent on re-run).
+2. Runs `terraform apply` for `infra/terraform/scenarios/s1-aks-platform`.
+   Terraform adds the MCP workload identity and both federation targets. It
+   grants Monitoring Metrics Publisher only on shared Application Insights.
+   It also adds the private zone, A record, and both VNet links. Existing
+   placeholder and Argo CD resources remain separately owned.
 3. Pins the Istio internal ingress gateway's load balancer to the chosen
    private IP and the dedicated ingress subnet. The workflow waits up to 15
    minutes for AKS to create the fixed-name Service
@@ -90,10 +110,13 @@ From the repository's **Actions** tab, run **Deploy AKS platform**,
    AKS cluster identity needs on the platform VNet before this step. The
    cluster identity manages the load balancer. It is not the kubelet identity
    that pulls images.
-4. Installs the pinned `argo-cd` Helm chart and applies the app-of-apps
+4. Installs the pinned cert-manager chart. The workflow creates the existing
+   Cloudflare token secret in the `cert-manager` namespace and applies separate
+   Argo CD and MCP ClusterIssuers. It does not create an MCP Certificate.
+5. Installs the pinned `argo-cd` Helm chart and applies the app-of-apps
    (`infra/argocd/bootstrap-app-of-apps.yaml`), which points Argo CD at the
    separate `mcp-platform-kubernetes-manifests` repository.
-5. Prints readiness: Argo CD `Application` sync status and the Istio
+6. Prints readiness: Argo CD `Application` sync status and the Istio
    ingress pods.
 
 Argo CD then reconciles the placeholder workload asynchronously; check
@@ -147,6 +170,11 @@ revision rollout or a documented stop/start behaviour change.
 | `AKS_PLATFORM_RESOURCE_GROUP`, `AKS_PLATFORM_CLUSTER_NAME`, `AKS_PLATFORM_REGISTRY_NAME` | `deploy-aks-platform.yml`'s `TF_VAR_*` env vars, `s1-aks-platform`'s `resource_group_name`/`cluster_name`/`registry_name` inputs |
 | `AKS_PLATFORM_RUNNER_VNET_ID` | `TF_VAR_runner_vnet_id`, `private-network`'s spoke-to-runner peering link |
 | `AKS_PLATFORM_INGRESS_PRIVATE_IP` | `TF_VAR_ingress_gateway_private_ip`, `private-network`'s subnet-containment validation and the Istio ingress gateway's Service annotation |
+| Existing `S1_TFVARS_JSON` `entra_auth.server_app_client_id` | `TF_VAR_mcp_server_application_client_id`, the existing MCP server app lookup and federation target |
+| Existing MCP server application's App ID URI | `mcp_resource_audience` output, read from `azuread_application.identifier_uris` |
+| Terraform outputs `mcp_workload_client_id`, `mcp_namespace`, `mcp_service_account_name` | Companion ServiceAccount annotation and workload placement |
+| Terraform outputs `mcp_private_hostname`, `mcp_resource_audience` | Companion Gateway and MCP authentication settings |
+| Terraform output `istio_revision` | Companion namespace label after the later live-gate step confirms that revision is installed |
 
 None of these values are secrets (no key, connection string, or credential
 among them), but `AKS_PLATFORM_RUNNER_VNET_ID` is still never committed to

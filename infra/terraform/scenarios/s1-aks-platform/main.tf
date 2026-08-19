@@ -24,7 +24,13 @@ data "terraform_remote_state" "shared_observability_metrics" {
 
 locals {
   log_analytics_workspace_id = data.terraform_remote_state.shared_observability_core.outputs.log_analytics_workspace_id
+  application_insights_id    = data.terraform_remote_state.shared_observability_core.outputs.application_insights_id
   azure_monitor_workspace_id = data.terraform_remote_state.shared_observability_metrics.outputs.azure_monitor_workspace_id
+
+  mcp_workload_subject  = "system:serviceaccount:${var.mcp_namespace}:${var.mcp_service_account_name}"
+  mcp_private_dns_zone  = "internal.consultwithcloud.com"
+  mcp_private_hostname  = "mcp.${local.mcp_private_dns_zone}"
+  mcp_resource_audience = one(data.azuread_application.mcp_server.identifier_uris)
 }
 
 module "network" {
@@ -130,6 +136,86 @@ resource "azuread_application_federated_identity_credential" "argocd_server" {
   subject        = "system:serviceaccount:${var.argocd_namespace}:${var.argocd_server_service_account_name}"
 }
 
+# The migrated MCP server uses one Kubernetes ServiceAccount but two distinct
+# federation targets. The managed identity is the pod's Azure resource identity.
+# The existing Entra server application is the confidential client identity
+# MSAL uses for the on-behalf-of exchange. Both credentials trust the same AKS
+# issuer and ServiceAccount subject; neither credential contains a secret.
+resource "azurerm_user_assigned_identity" "mcp_workload" {
+  name                = "${var.name_prefix}-mcp-workload-id"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  tags                = var.tags
+}
+
+resource "azurerm_federated_identity_credential" "mcp_workload" {
+  name                      = "${var.name_prefix}-mcp-workload-fic"
+  user_assigned_identity_id = azurerm_user_assigned_identity.mcp_workload.id
+  issuer                    = module.aks.oidc_issuer_url
+  subject                   = local.mcp_workload_subject
+  audience                  = ["api://AzureADTokenExchange"]
+}
+
+data "azuread_application" "mcp_server" {
+  client_id = var.mcp_server_application_client_id
+}
+
+resource "azuread_application_federated_identity_credential" "mcp_server" {
+  application_id = data.azuread_application.mcp_server.id
+  display_name   = "mcp-server-workload-identity"
+  description    = "Lets the AKS MCP server use workload identity as its confidential client credential for OBO (issue 149)."
+  audiences      = ["api://AzureADTokenExchange"]
+  issuer         = module.aks.oidc_issuer_url
+  subject        = local.mcp_workload_subject
+}
+
+# The MCP pod can publish custom metrics and availability telemetry only to the
+# shared Application Insights component. This grant does not disable local auth;
+# that enforcement remains deferred to the migration cutover.
+resource "azurerm_role_assignment" "mcp_monitoring_metrics_publisher" {
+  scope                            = local.application_insights_id
+  role_definition_name             = "Monitoring Metrics Publisher"
+  principal_id                     = azurerm_user_assigned_identity.mcp_workload.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
+# Azure Private DNS is owned by this composition because it joins the platform
+# VNet created here to the existing runner VNet supplied by the live-test
+# environment. No public DNS record is created for this hostname.
+resource "azurerm_private_dns_zone" "mcp" {
+  name                = local.mcp_private_dns_zone
+  resource_group_name = var.resource_group_name
+  tags                = var.tags
+}
+
+resource "azurerm_private_dns_a_record" "mcp" {
+  name                = "mcp"
+  zone_name           = azurerm_private_dns_zone.mcp.name
+  resource_group_name = var.resource_group_name
+  ttl                 = 300
+  records             = [var.ingress_gateway_private_ip]
+  tags                = var.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "mcp_platform" {
+  name                  = "${var.name_prefix}-mcp-platform-link"
+  resource_group_name   = var.resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.mcp.name
+  virtual_network_id    = module.network.vnet_id
+  registration_enabled  = false
+  tags                  = var.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "mcp_runner" {
+  name                  = "${var.name_prefix}-mcp-runner-link"
+  resource_group_name   = var.resource_group_name
+  private_dns_zone_name = azurerm_private_dns_zone.mcp.name
+  virtual_network_id    = var.runner_vnet_id
+  registration_enabled  = false
+  tags                  = var.tags
+}
+
 module "registry" {
   source = "../../modules/container-registry"
 
@@ -166,18 +252,9 @@ resource "azurerm_user_assigned_identity" "placeholder_workload" {
 }
 
 resource "azurerm_federated_identity_credential" "placeholder_workload" {
-  # resource_group_name deliberately omitted: azurerm provider ~> 4.80
-  # (this repo's pin) warns "This field is no longer used and will be
-  # removed in the next major version of the Azure Provider" -- confirmed
-  # live (Hari's bootstrap apply, 2026-08-13), not from static docs, since
-  # the Terraform Registry's rendered docs for this resource already show
-  # only the next-major argument shape (user_assigned_identity_id) and do
-  # not preserve this provider line's exact deprecated-vs-required argument
-  # set. parent_id alone already fully identifies the resource group and
-  # parent identity.
-  name      = "${var.name_prefix}-placeholder-workload-fic"
-  parent_id = azurerm_user_assigned_identity.placeholder_workload.id
-  issuer    = module.aks.oidc_issuer_url
-  subject   = "system:serviceaccount:${var.placeholder_namespace}:${var.placeholder_service_account_name}"
-  audience  = ["api://AzureADTokenExchange"]
+  name                      = "${var.name_prefix}-placeholder-workload-fic"
+  user_assigned_identity_id = azurerm_user_assigned_identity.placeholder_workload.id
+  issuer                    = module.aks.oidc_issuer_url
+  subject                   = "system:serviceaccount:${var.placeholder_namespace}:${var.placeholder_service_account_name}"
+  audience                  = ["api://AzureADTokenExchange"]
 }

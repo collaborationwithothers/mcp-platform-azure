@@ -19,7 +19,10 @@
 # from ephemeral-env.yml's per-run rg-mcp-tracer-<run id> groups, so the two
 # workflows never collide on state or on the cleanup sweep's expiry tag.
 #
-# Three actions, chosen at dispatch time:
+# Four actions, chosen at dispatch time:
+# - plan: read the persistent state and fail if Terraform proposes any delete
+#   or replacement action. The plan file remains on the ephemeral runner and is
+#   never uploaded because Terraform plans can contain sensitive values.
 # - bootstrap: terraform apply (create-or-update the persistent platform),
 #   pin the Istio ingress gateway's load balancer, install Argo CD, apply
 #   the app-of-apps.
@@ -68,6 +71,7 @@ on:
         required: true
         type: choice
         options:
+          - plan
           - bootstrap
           - idle-stop
           - idle-start
@@ -104,6 +108,95 @@ jobs:
             echo "::error::confirm must exactly match action ('${{ inputs.action }}'). This workflow affects a real, persistent Azure cluster; the input exists so nobody triggers it by accident."
             exit 1
           fi
+
+  plan:
+    name: plan
+    if: inputs.action == 'plan'
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      AKS_PLATFORM_STATE_KEY: s1-aks-platform.tfstate
+      TF_VAR_resource_group_name: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
+      TF_VAR_location: ${{ vars.LIVE_TEST_LOCATION }}
+      TF_VAR_cluster_name: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
+      TF_VAR_registry_name: ${{ vars.AKS_PLATFORM_REGISTRY_NAME }}
+      TF_VAR_runner_vnet_id: ${{ vars.AKS_PLATFORM_RUNNER_VNET_ID }}
+      TF_VAR_ingress_gateway_private_ip: ${{ vars.AKS_PLATFORM_INGRESS_PRIVATE_IP }}
+      TF_VAR_shared_observability_core_remote_state: >-
+        {"storage_account_name":"${{ vars.TF_STATE_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_STATE_CONTAINER }}","key":"shared-observability-core.tfstate"}
+      TF_VAR_shared_observability_metrics_remote_state: >-
+        {"storage_account_name":"${{ vars.TF_STATE_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_STATE_CONTAINER }}","key":"shared-observability-metrics.tfstate"}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_argocd_hostname: ${{ vars.ARGOCD_HOSTNAME }}
+      TF_VAR_argocd_oidc_client_id: ${{ vars.ARGOCD_OIDC_CLIENT_ID }}
+      TF_VAR_mcp_server_application_client_id: ${{ fromJSON(secrets.S1_TFVARS_JSON).entra_auth.server_app_client_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Look up the OIDC principal's object id
+        id: principal
+        shell: bash
+        run: |
+          object_id="$(az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" --query id -o tsv)"
+          echo "object_id=${object_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Plan and reject destructive actions
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        env:
+          TF_VAR_acr_push_principal_ids: ${{ format('["{0}"]', steps.principal.outputs.object_id) }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f issue-149.tfplan' EXIT
+          terraform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${AKS_PLATFORM_STATE_KEY}"
+          terraform plan -input=false -lock-timeout=5m -out=issue-149.tfplan
+
+          destructive_addresses="$(terraform show -json issue-149.tfplan | jq -r '
+            .resource_changes[]
+            | select(.change.actions | index("delete"))
+            | .address
+          ')"
+          if [ -n "${destructive_addresses}" ]; then
+            echo "::error::The S1 AKS plan contains delete or replacement actions."
+            printf '%s\n' "${destructive_addresses}"
+            exit 1
+          fi
+
+          change_count="$(terraform show -json issue-149.tfplan | jq '[.resource_changes[] | select(.change.actions != ["no-op"])] | length')"
+          {
+            echo "## S1 AKS read-only plan"
+            echo ""
+            echo "Changed resource count: ${change_count}"
+            echo "Delete or replacement actions: 0"
+            echo ""
+            echo "Functions and APIM use separate Terraform states. Their absence from this plan is an ownership boundary, not a plan assertion about those resources."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   bootstrap:
     name: bootstrap
@@ -144,6 +237,10 @@ jobs:
       # The Argo CD Entra app client id, also fed to Terraform so it can attach
       # the workload-identity federated credential to that app (ADR-011).
       TF_VAR_argocd_oidc_client_id: ${{ vars.ARGOCD_OIDC_CLIENT_ID }}
+      # The existing S1 MCP server app is also the resource application after
+      # the AKS migration. Select only its non-secret client id from the
+      # governed S1 configuration; do not create a second app registration.
+      TF_VAR_mcp_server_application_client_id: ${{ fromJSON(secrets.S1_TFVARS_JSON).entra_auth.server_app_client_id }}
       # Non-secret render inputs for the Argo CD public-access manifests
       # (infra/argocd/public-access/*, envsubst templates). Tenant id is not a
       # secret but is account-specific and never a literal in this repo, so it
@@ -215,6 +312,33 @@ jobs:
             echo "run **Promote AKS placeholder image** in the companion manifests"
             echo "repository with both values. That workflow opens the GitOps manifest PR"
             echo "that Argo CD will reconcile."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report MCP runtime foundation inputs
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          workload_identity_client_id="$(terraform output -raw mcp_workload_client_id)"
+          server_application_client_id="$(terraform output -raw mcp_server_application_client_id)"
+          namespace="$(terraform output -raw mcp_namespace)"
+          service_account="$(terraform output -raw mcp_service_account_name)"
+          private_hostname="$(terraform output -raw mcp_private_hostname)"
+          resource_audience="$(terraform output -raw mcp_resource_audience)"
+          istio_revision="$(terraform output -raw istio_revision)"
+          {
+            echo "## MCP runtime foundation inputs"
+            echo ""
+            echo "Workload identity client ID: \`${workload_identity_client_id}\`"
+            echo "Server application client ID: \`${server_application_client_id}\`"
+            echo "Namespace: \`${namespace}\`"
+            echo "ServiceAccount: \`${service_account}\`"
+            echo "Private hostname: \`${private_hostname}\`"
+            echo "Resource audience: \`${resource_audience}\`"
+            echo "Configured Istio revision: \`${istio_revision}\`"
+            echo ""
+            echo "These are non-secret inputs for the companion manifests."
+            echo "The configured Istio revision still needs a live installed-revision check before promotion."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: kubelogin and az aks get-credentials
@@ -396,14 +520,13 @@ jobs:
 
           kubectl --request-timeout=10s get service "${service_name}" -n "${namespace}" -o wide
 
-      # cert-manager gets and renews the Let's Encrypt certificate for the
-      # public Argo CD hostname (issue 121, ADR-011). DNS-01 via Cloudflare, not
-      # HTTP-01: this cluster has no ingress controller and Gateway API is off
-      # (ADR-010), so an HTTP-01 solver has nothing to route the challenge
-      # through. The Cloudflare token secret is created here, in cert-manager's
-      # own namespace, straight from the live-test secret -- never rendered into
-      # a committed file.
-      - name: Install cert-manager (pinned chart) and the Argo CD ClusterIssuer
+      # cert-manager gets and renews the Let's Encrypt certificates for the
+      # public Argo CD hostname and private MCP hostname. Both use DNS-01 via
+      # Cloudflare because the cluster has no HTTP-01 ingress controller. The
+      # issuers reuse one Cloudflare token secret but keep separate ACME account
+      # keys. The token is created in cert-manager's namespace straight from the
+      # live-test secret and is never rendered into a committed file.
+      - name: Install cert-manager (pinned chart) and ClusterIssuers
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -423,6 +546,8 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
           envsubst '${ACME_EMAIL}' \
             < infra/argocd/public-access/cluster-issuer.yaml | kubectl apply -f -
+          envsubst '${ACME_EMAIL}' \
+            < infra/cert-manager/mcp-cluster-issuer.yaml | kubectl apply -f -
 
       # Two steps, not one apply (issue 110 task 7 and section 5): the argo-cd
       # chart's own extraObjects value CAN embed the root Application (see

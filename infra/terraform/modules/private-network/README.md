@@ -62,5 +62,6 @@ GitHub Environment.
   they need over Azure-managed control-plane paths that do not require one.
   A future PR that needs a specific rule has a named NSG per subnet to add it
   to.
-- No private DNS. Issue 110's task list assigns private DNS for the backend
-  to a later step in the same composition, not to this module.
+- No private DNS. The `s1-aks-platform` composition owns the MCP private zone,
+  record, and VNet links because those resources join this module's platform
+  VNet to an existing runner VNet that is outside this module's boundary.
