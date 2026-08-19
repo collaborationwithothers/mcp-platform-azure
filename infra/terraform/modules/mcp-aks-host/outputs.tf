@@ -38,3 +38,8 @@ output "managed_prometheus_data_collection_rule_id" {
   value       = try(azurerm_monitor_data_collection_rule.managed_prometheus[0].id, null)
   description = "ARM resource ID of the managed Prometheus data collection rule, or null when managed Prometheus is disabled."
 }
+
+output "istio_revision" {
+  value       = var.istio_revision
+  description = "Istio add-on revision configured on the AKS cluster. Consumers must still verify that this revision is installed before labelling a namespace."
+}

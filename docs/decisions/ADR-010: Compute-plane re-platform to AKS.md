@@ -120,14 +120,17 @@ pin.** AKS supports an `n-2` revision only until six weeks after revision
 `n` STARTS rolling out to all regions (not "finishes," which an earlier
 draft of this platform's planning notes had backwards), and keeps at least
 two revisions alive at any time. `mcp-aks-host`'s `istio_revision` variable
-defaults to `asm-1-27`: one revision below the newest AKS-released revision
-at issue-start verification (`asm-1-28`, itself close to or past its
-documented expected end-of-life window), chosen for headroom. This platform
-does not use Managed Gateway API (see above), which would otherwise need at
+now defaults to `asm-1-29`. The earlier `asm-1-27` default aged out before
+the first live bootstrap and Azure rejected it. The replacement was verified
+against the live region's revision profiles and is recorded in
+COMPATIBILITY.md. This platform does not use Managed Gateway API (see above),
+which would otherwise need at
 least `asm-1-26`. That default is a point-in-time choice. The module's
-own variable description and COMPATIBILITY.md both say to re-run
-`az aks mesh get-revisions --location <region> -o table` immediately before
-any live apply rather than trust the default.
+own variable description and COMPATIBILITY.md both say to query the live
+region's mesh revision profiles immediately before any live apply
+rather than trust the default. Terraform exports the configured revision for
+the companion manifests. That output is not proof that the revision is still
+installed in the live cluster.
 https://learn.microsoft.com/azure/aks/istio-support-policy
 
 **The internal ingress gateway gets its own subnet, and a pinned,
@@ -161,16 +164,15 @@ exact rejection).
 https://learn.microsoft.com/azure/api-management/integrate-vnet-outbound
 https://learn.microsoft.com/azure/api-management/upgrade-and-scale
 
-**No private DNS zone in this child.** The AGENTS.md carve-out names
-"private DNS for the backend" as in scope for epic 108 child (b) generally,
-but issue #110's own task breakdown (section 4) never lists a private DNS
-step, and nothing in this child yet needs one: APIM does not route real MCP
-traffic to the AKS backend by name (or at all) until child (b4), issue
-#117, repoints it. A DNS zone with no consumer would be built ahead of the
-thing that needs it. This platform's backend is reached, when #117 wires
-it, by the pinned private IP this child already establishes; whether that
-graduates to a private DNS name is #117's decision to make when it actually
-builds the route, not this child's to pre-empt.
+**The private MCP name resolves only inside the two networks that need it.**
+The `s1-aks-platform` composition owns the Azure Private DNS zone
+`internal.consultwithcloud.com`. Its `mcp` A record points to the pinned
+internal ingress IP. Zone links cover the platform VNet and the existing
+GitHub Actions runner VNet, with auto-registration disabled. This establishes
+the name contract before APIM routing changes, but it does not change APIM's
+current route. No public A record exists for the MCP hostname. Cert-manager's
+DNS-01 TXT record can still be public without making the host routable.
+https://learn.microsoft.com/azure/dns/private-dns-virtual-network-links
 
 **GitOps is Argo CD, self-installed from a pinned upstream Helm chart, not
 the `Microsoft.ArgoCD` managed extension.** That extension is public
@@ -220,16 +222,17 @@ credential (an SSH key or token secret), which this platform's hard rule
 against stored secrets forbids outright. A public repo sidesteps the
 question entirely: it is read anonymously, so there is nothing to store.
 
-**A user-assigned managed identity for workload identity, not
-system-assigned.** A system-assigned identity cannot hold a federated
-identity credential at all -- the AKS cluster's own control-plane identity
-stays system-assigned (unaffected), but the placeholder workload's pod
-identity is a separate `azurerm_user_assigned_identity` plus
-`azurerm_federated_identity_credential`, federated against
-`mcp-aks-host`'s OIDC issuer, subject
-`system:serviceaccount:<namespace>:<serviceaccount>`, audience
-`api://AzureADTokenExchange`.
+**Each workload gets a separate user-assigned managed identity.** The existing
+placeholder identity stays unchanged. The migrated MCP server gets a new
+identity and a dedicated Kubernetes subject,
+`system:serviceaccount:mcp-platform:mcp-server`. The same subject is trusted
+by two federated identity credentials. The managed identity credential gives
+the pod Azure resource access. The existing MCP server application credential
+lets MSAL use the ServiceAccount token as the confidential client assertion
+for on-behalf-of exchange. These targets are not interchangeable and neither
+stores a secret. Both use the audience `api://AzureADTokenExchange`.
 https://learn.microsoft.com/entra/workload-id/workload-identity-federation-create-trust-user-assigned-managed-identity
+https://learn.microsoft.com/entra/workload-id/workload-identity-federation-config-app-trust-kubernetes
 
 **Images are pulled by role assignment, never an image pull secret; the
 registry admin account is disabled.** `container-registry` grants AcrPull
@@ -306,15 +309,14 @@ with no default, supplied out of band.
 
 ## Consequences
 
-- Live proof is still outstanding. This ADR's Terraform is proven by
-  `terraform fmt` / `init -backend=false` / `validate` / `tflint` /
-  `checkov` only, per the hard rule that agents never run `terraform apply`
-  or `destroy` outside the gated live-test environment. A real bootstrap
-  run, a real stop/start cycle with its measured Istio-add-on and
-  pinned-IP behaviour recorded in COMPATIBILITY.md, and a real placeholder
-  deploy through Argo CD are all still needed before this ADR's Status
-  moves to Accepted, matching how ADR-002 itself only reached Accepted at
-  the v1 tag once its own live proof existed.
+- Live proof of the MCP foundation is still outstanding. Static checks and a
+  Terraform-native mocked plan prove the configuration contract. A real state
+  plan must still show no replacement or deletion of the existing platform.
+  Issue #149 deliberately defers apply, DNS resolution from both linked VNets,
+  installed Istio revision confirmation, and runtime identity proof to the
+  later live-gate step. The earlier placeholder and stop/start evidence does
+  not prove this new foundation. This ADR stays Proposed until the combined
+  migration path is proven live.
 - `avm-res-containerservice-managedcluster` 0.8.1 has a validation defect:
   `terraform validate` fails with a `coalesce` error if EITHER
   `ingress_profile.web_app_routing` OR `ingress_profile.gateway_api` is left

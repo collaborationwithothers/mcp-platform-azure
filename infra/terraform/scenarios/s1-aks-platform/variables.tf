@@ -84,6 +84,25 @@ variable "placeholder_service_account_name" {
   default     = "mcp-platform-placeholder"
 }
 
+# The migration target gets its own subject. It must not reuse the placeholder
+# subject because the two workloads have different lifecycles and permissions.
+variable "mcp_namespace" {
+  type        = string
+  description = "Kubernetes namespace for the migrated MCP server workload identity subject."
+  default     = "mcp-platform"
+}
+
+variable "mcp_service_account_name" {
+  type        = string
+  description = "Kubernetes ServiceAccount name for the migrated MCP server workload identity subject."
+  default     = "mcp-server"
+}
+
+variable "mcp_server_application_client_id" {
+  type        = string
+  description = "Application (client) id of the existing MCP server Entra application. Terraform reads the app to attach the AKS ServiceAccount federation used for OBO; the account-specific identifier is supplied out of band."
+}
+
 variable "shared_observability_core_remote_state" {
   type = object({
     storage_account_name = string

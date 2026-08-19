@@ -28,6 +28,41 @@ output "placeholder_workload_client_id" {
   description = "Client id for the placeholder workload's ServiceAccount azure.workload.identity/client-id annotation, in the separate mcp-platform-kubernetes-manifests repo."
 }
 
+output "mcp_workload_client_id" {
+  value       = azurerm_user_assigned_identity.mcp_workload.client_id
+  description = "Client id for the migrated MCP server ServiceAccount azure.workload.identity/client-id annotation."
+}
+
+output "mcp_server_application_client_id" {
+  value       = var.mcp_server_application_client_id
+  description = "Existing MCP server Entra application client id for the migrated workload's OBO configuration."
+}
+
+output "mcp_namespace" {
+  value       = var.mcp_namespace
+  description = "Kubernetes namespace that must be used by the migrated MCP server manifests."
+}
+
+output "mcp_service_account_name" {
+  value       = var.mcp_service_account_name
+  description = "Kubernetes ServiceAccount name that must be used by the migrated MCP server manifests."
+}
+
+output "mcp_private_hostname" {
+  value       = local.mcp_private_hostname
+  description = "Private MCP hostname resolved only from the platform and runner VNets."
+}
+
+output "mcp_resource_audience" {
+  value       = local.mcp_resource_audience
+  description = "App ID URI the migrated MCP server validates as its resource audience."
+}
+
+output "istio_revision" {
+  value       = module.aks.istio_revision
+  description = "Istio revision configured by Terraform for the AKS service mesh. The companion namespace label must use an installed revision with this value."
+}
+
 output "argocd_public_ip_name" {
   value       = azurerm_public_ip.argocd.name
   description = "Name of the pinned Standard public IP for Argo CD's external Istio gateway, for the service.beta.kubernetes.io/azure-pip-name annotation the deploy workflow sets."
