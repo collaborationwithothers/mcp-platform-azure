@@ -10,6 +10,7 @@ internal sealed class UnusedDownstreamOrdersClient : IDownstreamOrdersClient
     public Task<OrderLookupResult> GetOrderStatusOnBehalfOfAsync(
         string orderId,
         string inboundUserAssertion,
+        string tenantId,
         CallerIdentityCorrelation? caller,
         CancellationToken cancellationToken) =>
         throw new InvalidOperationException("This tool must not call the downstream Orders API.");

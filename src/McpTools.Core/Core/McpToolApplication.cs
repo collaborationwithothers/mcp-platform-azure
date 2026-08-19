@@ -6,8 +6,8 @@ using McpTools.Tools;
 namespace McpTools.Core;
 
 /// <summary>
-/// Host-neutral application rules used by the current Functions adapter and
-/// available to the future ASP.NET Core adapter introduced by issue #146.
+/// Host-neutral application rules used by the Functions and ASP.NET Core
+/// adapters.
 /// </summary>
 public sealed class McpToolApplication
 {
@@ -101,10 +101,16 @@ public sealed class McpToolApplication
             throw new InboundAccessTokenRequiredException();
         }
 
+        var tenantId = caller.TenantId
+            ?? throw new InvalidOperationException(
+                "get_order_status: the validated delegated caller must carry a tid claim "
+                + "so OBO uses the caller's tenant instead of a shared authority.");
+
         _orderStatusAuthorizationObserver?.OnAuthorized(caller);
         var result = await _downstreamOrdersClient.GetOrderStatusOnBehalfOfAsync(
             orderId,
             inboundAccessToken,
+            tenantId,
             caller.Correlation,
             cancellationToken);
         return ToolOutcome<OrderLookupResult>.Success(result);

@@ -145,7 +145,8 @@ public class McpToolApplicationCoreTests
             IdentityMode.Delegated,
             [],
             scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries),
-            new CallerIdentityCorrelation("interactive-client-app-id", "user-object-id"));
+            new CallerIdentityCorrelation("interactive-client-app-id", "user-object-id"),
+            "guest-tenant-id");
 
     private static CallerIdentity AppCaller(params string[] roles) =>
         new(
@@ -164,6 +165,7 @@ public class McpToolApplicationCoreTests
         public Task<OrderLookupResult> GetOrderStatusOnBehalfOfAsync(
             string orderId,
             string inboundUserAssertion,
+            string tenantId,
             CallerIdentityCorrelation? caller,
             CancellationToken cancellationToken)
         {
@@ -197,6 +199,7 @@ public class McpToolApplicationCoreTests
         public Task<OrderLookupResult> GetOrderStatusOnBehalfOfAsync(
             string orderId,
             string inboundUserAssertion,
+            string tenantId,
             CallerIdentityCorrelation? caller,
             CancellationToken cancellationToken)
         {

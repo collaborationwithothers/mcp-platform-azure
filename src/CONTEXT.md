@@ -35,9 +35,10 @@ The code that connects a hosting framework to the MCP application core. It parse
 the host's request and identity, supplies the downstream implementation, and maps
 core outcomes to the host SDK. `src/McpTools` is the Azure Functions adapter and
 the still-deployed host. `src/McpTools.AspNetCore` is the alongside adapter that
-validates JSON Web Tokens (JWTs) in the application and currently exposes only
-get_service_info.
-Both adapters call `src/McpTools.Core`; neither owns tool rules.
+validates JSON Web Tokens (JWTs) in the application. It reads raw and
+framework-mapped claim aliases from the validated `ClaimsPrincipal`. Both
+adapters expose the same three tools through `src/McpTools.Core`; neither owns
+tool rules.
 _Avoid_: application core, business logic
 
 **MCP server**:
@@ -78,8 +79,12 @@ _Avoid_: auth error, 401 response
 
 **OBO**:
 The Entra on-behalf-of token exchange the server uses to call a downstream as the
-user. The sanctioned alternative to token passthrough. Lands in the issue after the
-tracer.
+user. The host uses the validated inbound server-audience bearer as the user
+assertion, selects the authority from the validated `tid` tenant claim, and
+sends only the exchanged downstream-audience token to Orders. Functions uses a
+managed-identity client assertion. ASP.NET Core uses a reused Kubernetes
+workload-identity client assertion backed by the projected service-account
+token.
 _Avoid_: delegation, impersonation, token exchange
 
 **Token passthrough**:

@@ -85,14 +85,57 @@ gate's negative test (system key present, no Entra token, expect 401) proves
 this against both the gateway and the backend host directly
 (docs/specs/v1-tracer-bullet.md, Compute and the tool (S1)).
 
-## OBO and downstream auth (issue 10)
+## Two backend authorization paths (issue 147)
+
+The repository now has two host adapters for one MCP application core. The
+Functions adapter remains deployed. The alongside ASP.NET Core adapter is
+implemented but is not deployed or routed through the gateway by issue #147.
+Both expose exactly `get_order_status`, `get_service_info`, and
+`get_access_guidance`, with the same typed results and core authorization rules.
+
+The server-entry rule is unchanged. A delegated caller needs `Orders.Invoke` or
+`Catalog.Invoke`. An application caller needs `Orders.Invoke.All` or
+`Catalog.Invoke.All`. Entry only admits the caller to the server. The core still
+checks each tool independently and fails closed when the required role or scope
+is absent.
+
+The host adapters establish the caller in different ways:
+
+- Azure Functions built-in auth validates before the trigger runs. The adapter
+  parses the trusted `X-MS-CLIENT-PRINCIPAL` header.
+- ASP.NET Core JWT bearer middleware validates signature, issuer, audience, and
+  lifetime before MCP dispatch. The adapter reads the validated
+  `ClaimsPrincipal` and accepts raw and framework-mapped aliases for scope,
+  role, application id, object id, and tenant id.
+
+ASP.NET Core never reads `X-MS-CLIENT-PRINCIPAL`. The two adapters normalize
+their host-specific claims into the same caller identity before the core makes a
+tool decision. This is why a framework claim-name mapping cannot silently change
+the role or scope the core sees.
+
+For a delegated `get_order_status` call, the inbound bearer has the MCP server
+as its audience. Call it token A. After the shared delegated-scope check accepts
+`Orders.Read.AsUser`, the host uses token A only as the OBO user assertion. The
+core repeats that check before any downstream call. Entra returns an
+Orders-audience token, token B. Only token B reaches the Orders API. The
+authority tenant comes from the validated `tid` claim, not `/common`, so a guest
+call stays with the tenant that issued its validated token.
+
+Both client assertions are secret-free, but they belong to different hosting
+environments. Functions keeps `ManagedIdentityClientAssertion`. ASP.NET Core
+reuses one `AzureIdentityForKubernetesClientAssertion`, which reads the
+projected service-account token from `AZURE_FEDERATED_TOKEN_FILE` and caches its
+signed assertion. Reusing the provider preserves that cache. No client secret is
+stored for either path. ADR-012 records the decision and the rejected
+alternatives.
+
+## Functions-host OBO and downstream evidence (issue 10)
 
 The synthetic downstream Orders API (`src/DownstreamOrdersApi`) is a second
 Function App instance with its OWN Entra built-in auth, `allowed_audiences`
 scoped to ONLY the downstream app registration -- a separate audience
-check from the MCP server's, not a shared one (docs/decisions/ADR-006,
-"OBO exchange: confused deputy, audience validation, and the inbound-token
-gap").
+check from the MCP server's, not a shared one (ADR-012, "OBO uses two
+audience-specific tokens").
 
 **Token passthrough is forbidden, and the evidence for it comes at two
 different confidence levels -- keep them distinct:**
@@ -140,7 +183,8 @@ The downstream access path depends on the caller identity mode.
   inbound bearer, logs the call, starts OBO, or contacts the downstream API.
   Only an admitted call reads the inbound token via the MCP extension's
   `TryGetHttpTransport`/`HttpTransport.Headers` and exchanges it for a
-  downstream-audience token via Entra. The server uses no stored client secret.
+  downstream-audience token via Entra. The validated `tid` claim selects the
+  OBO authority tenant. The server uses no stored client secret.
   It uses a federated identity credential that trusts the Function App managed
   identity. The token-store header (`X-MS-TOKEN-AAD-ACCESS-TOKEN`) is absent in
   this topology, so the raw `Authorization` bearer is the OBO user assertion.
@@ -262,7 +306,7 @@ Because one tool can be authorized two different ways depending on caller
 identity mode, the list remains total over tool TIMES identity mode.
 `ToolEntitlementParityTests` fails the build if a tool ships without both rows.
 
-### Header trust chain (issue 10)
+### Functions header trust chain (issue 10)
 
 The server does **not** perform full in-code JWT signature validation. It
 relies on a layered trust chain and asserts, rather than re-checks, the parts

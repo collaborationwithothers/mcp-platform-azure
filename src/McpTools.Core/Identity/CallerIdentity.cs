@@ -7,7 +7,8 @@ public sealed record CallerIdentity(
     IdentityMode Mode,
     IReadOnlyList<string> Roles,
     IReadOnlyList<string> DelegatedScopes,
-    CallerIdentityCorrelation? Correlation);
+    CallerIdentityCorrelation? Correlation,
+    string? TenantId = null);
 
 /// <summary>
 /// Caller identity used for audit correlation. It is optional on the delegated
@@ -52,6 +53,9 @@ public static class CallerIdentityResolver
     private static readonly string[] ObjectIdClaimTypes =
         ["oid", "http://schemas.microsoft.com/identity/claims/objectidentifier"];
 
+    private static readonly string[] TenantIdClaimTypes =
+        ["tid", "http://schemas.microsoft.com/identity/claims/tenantid"];
+
     public static CallerIdentity Resolve(ClaimsPrincipal principal)
     {
         ArgumentNullException.ThrowIfNull(principal);
@@ -75,8 +79,9 @@ public static class CallerIdentityResolver
         var correlation = applicationId is not null && objectId is not null
             ? new CallerIdentityCorrelation(applicationId, objectId)
             : null;
+        var tenantId = FirstNonEmptyValue(claims, TenantIdClaimTypes);
 
-        return new CallerIdentity(mode, roles, delegatedScopes, correlation);
+        return new CallerIdentity(mode, roles, delegatedScopes, correlation, tenantId);
     }
 
     private static IEnumerable<string> ValuesFor(

@@ -82,8 +82,9 @@ public sealed class AuthenticationTests
 
         var tools = await mcpClient.ListToolsAsync();
 
-        var tool = Assert.Single(tools);
-        Assert.Equal("get_service_info", tool.Name);
+        Assert.Equal(
+            ["get_access_guidance", "get_order_status", "get_service_info"],
+            tools.Select(tool => tool.Name).Order(StringComparer.Ordinal).ToArray());
     }
 
     [Fact]
@@ -202,8 +203,7 @@ public sealed class AuthenticationTests
             new HttpClientTransport(transportOptions, httpClient));
 
         var tools = await mcpClient.ListToolsAsync();
-        var tool = Assert.Single(tools);
-        Assert.Equal("get_service_info", tool.Name);
+        Assert.Contains(tools, tool => tool.Name == "get_service_info");
 
         var result = await mcpClient.CallToolAsync("get_service_info");
 
