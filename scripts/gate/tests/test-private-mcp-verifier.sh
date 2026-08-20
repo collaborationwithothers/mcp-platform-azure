@@ -149,6 +149,7 @@ for required in \
   'terraform_version: 1.15.8' \
   'terraform -chdir=infra/compositions/shared-observability-core init -input=false' \
   'terraform -chdir=infra/compositions/shared-observability-core output -raw application_insights_id' \
+  'Private MCP deployment image reference: ${deployed_image}' \
   '::add-mask::${component_id}' \
   'az rest' \
   '--method get' \
@@ -216,7 +217,7 @@ for required in \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https .* ${prm_verification_id}$' \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https (127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$' \
   '::error title=Private MCP forwarded PRM context missing::' \
-  '::error title=Private MCP forwarded PRM peer is not loopback::' \
+  '::error title=Private MCP forwarded PRM peer is not loopback::The correlated PRM request recorded immediate peer ${observed_peer:-unparsed}.' \
   'Private MCP PRM request context observed: scheme=https; peer=loopback'; do
   if ! grep --fixed-strings --quiet "${required}" <<< "${request_context_job}"; then
     echo "private request-context verifier contract missing: ${required}" >&2

@@ -766,6 +766,9 @@ jobs:
           done
 
           kubectl rollout status deployment/mcp-server -n mcp-platform --timeout=120s
+          deployed_image="$(kubectl get deployment mcp-server -n mcp-platform -o json \
+            | jq -er '.spec.template.spec.containers[] | select(.name == "mcp-server") | .image')"
+          echo "Private MCP deployment image reference: ${deployed_image}"
           kubectl rollout status deployment/mcp-platform-placeholder \
             -n mcp-platform-demo --timeout=120s
           certificate_json="$(kubectl get certificate mcp-platform-mcp-tls \
@@ -929,7 +932,10 @@ jobs:
             <<< "${request_context}" || true)"
           loopback_context_count="$(grep --count . <<< "${loopback_context}" || true)"
           if [ "${loopback_context_count}" != 1 ]; then
-            echo "::error title=Private MCP forwarded PRM peer is not loopback::The correlated PRM request did not record an IPv4 or IPv6 loopback proxy peer."
+            observed_peer="$(awk -v marker="${prm_verification_id}" \
+              '{ for (field = 1; field <= NF; field++) if ($field == "https" && $(field + 2) == marker) print $(field + 1) }' \
+              <<< "${request_context}")"
+            echo "::error title=Private MCP forwarded PRM peer is not loopback::The correlated PRM request recorded immediate peer ${observed_peer:-unparsed}."
             exit 1
           fi
           echo "Private MCP PRM request context observed: scheme=https; peer=loopback"
