@@ -795,7 +795,7 @@ jobs:
           fi
           echo "MCP pod ${pod}: Istio init interception=REDIRECT"
           iptables_rules="$(kubectl exec "${pod}" -n mcp-platform -c istio-proxy -- \
-            env XTABLES_LOCKFILE=/dev/null iptables -t nat -S)"
+            iptables-save -t nat)"
           if ! grep --fixed-strings --quiet REDIRECT <<< "${iptables_rules}"; then
             echo "::error title=Istio REDIRECT rule missing::MCP pod ${pod} has no REDIRECT rule in the NAT table."
             exit 1
