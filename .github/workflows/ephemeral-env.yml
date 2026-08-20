@@ -710,13 +710,22 @@ jobs:
             health_message="$(jq -r '.status.health.message // "none reported"' <<< "${application_json}")"
             echo "Argo CD application ${application}: sync=${sync_status}; health=${health_status}; message=${health_message}"
             if [ "${sync_status}" != "Synced" ] || [ "${health_status}" != "Healthy" ]; then
-              unhealthy_resources="$(jq -r '
-                [.status.resources[]?
-                 | select(.health.status == "Degraded")
-                 | "\(.kind // "Unknown")/\(.namespace // "default")/\(.name // "Unknown"): sync=\(.status // "Unknown"); health=\(.health.status // "Unknown")"]
-                | if length == 0 then "none reported" else join(", ") end
-              ' <<< "${application_json}")"
-              echo "::error title=Argo CD application not ready::${application}: sync=${sync_status}; health=${health_status}; message=${health_message}; unhealthy resources: ${unhealthy_resources}"
+              if [ "${application}" = "mcp-platform-mcp" ]; then
+                mcp_deployment_json="$(kubectl get deployment mcp-server -n mcp-platform -o json)"
+                desired_replicas="$(jq -r '.spec.replicas // 0' <<< "${mcp_deployment_json}")"
+                updated_replicas="$(jq -r '.status.updatedReplicas // 0' <<< "${mcp_deployment_json}")"
+                available_replicas="$(jq -r '.status.availableReplicas // 0' <<< "${mcp_deployment_json}")"
+                echo "MCP deployment mcp-server: desired=${desired_replicas}; updated=${updated_replicas}; available=${available_replicas}"
+                mcp_pod_selector="$(jq -er '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")' <<< "${mcp_deployment_json}")"
+                mcp_pod_states="$(kubectl get pods -n mcp-platform -l "${mcp_pod_selector}" -o json \
+                  | jq -r '
+                    [.items[]
+                     | "\(.metadata.name): phase=\(.status.phase // "Unknown"); ready=\([.status.containerStatuses[]? | select(.ready)] | length)/\([.status.containerStatuses[]?] | length); waiting=\([.status.containerStatuses[]?.state.waiting.reason // empty] | join(","))"]
+                    | if length == 0 then "none reported" else join("; ") end
+                  ')"
+                echo "MCP pod states: ${mcp_pod_states}"
+              fi
+              echo "::error title=Argo CD application not ready::${application}: sync=${sync_status}; health=${health_status}; message=${health_message}"
               exit 1
             fi
           done
