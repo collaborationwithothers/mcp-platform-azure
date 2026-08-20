@@ -66,6 +66,7 @@ for required in \
   '::error title=Argo CD application not ready::' \
   "MCP deployment mcp-server: desired=\${desired_replicas}; updated=\${updated_replicas}; available=\${available_replicas}" \
   "MCP pod states: \${mcp_pod_states}" \
+  "MCP ReplicaSet states: \${mcp_replica_set_states}" \
   '::error title=Private MCP certificate not ready::' \
   '::error title=Istio sidecar missing::' \
   '::error title=Istio REDIRECT init mode missing::' \
