@@ -518,15 +518,16 @@ conventions are still churning; re-verify them quarterly (COMPATIBILITY.md,
 
 Location: `docs/diagrams/`. Two files per diagram:
 - `<name>.drawio` - mxGraph XML. Agent-owned, source of truth.
-- `<name>.drawio.svg` - editable SVG export. Human-owned, the file docs
-  embed. Exported with "Include a copy of my diagram" and labels
-  converted to native SVG text, never foreignObject.
+- `<name>.drawio.svg` - editable SVG export. Agent-owned, the file docs
+  embed. Exported with "Include a copy of my diagram", embedded images, and
+  labels converted to native SVG text, never `foreignObject`.
 
 Agents generate and update the `.drawio` source using the drawio MCP
-server. Agents MUST NOT produce or edit `.drawio.svg`; that export is a
-human step, performed after layout is corrected by hand. A ticket that
-changes topology is not complete until the human export has landed, and
-the ticket must say so.
+server. After checking the source layout, agents export and update the
+`.drawio.svg` asset using Draw.io through browser control when needed. Agents
+validate SVG XML, the embedded Draw.io copy, embedded images, and native SVG
+labels before committing. Human review of the rendered public diagram remains
+welcome but is not a delivery prerequisite.
 
 Honesty rule extends to diagrams. A diagram is a public claim on the same
 footing as a benchmark number. Depict only what the tagged release

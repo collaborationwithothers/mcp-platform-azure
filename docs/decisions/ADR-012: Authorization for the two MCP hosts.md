@@ -93,6 +93,14 @@ The core applies that same check before any downstream call from either host.
 The OBO exchange uses token A as its user assertion and asks Entra for an
 Orders-audience token, token B. Only token B reaches the Orders API.
 
+![Target delegated OBO path: a VNet client reaches the MCP server through the
+private Istio gateway. The server exchanges the delegated MCP token for an
+Orders-audience token before calling the Orders Function.](../diagrams/identity-obo-aks.drawio.svg)
+
+*Issue #154 target topology. The private route and delegated call remain
+pending live evidence. API Management stays on the Functions route until issue
+#117.*
+
 The OBO authority uses the `tid` tenant id from the validated caller. It does
 not use `/common`. This preserves the caller's tenant for guest and home-tenant
 users without parsing an unvalidated token.
@@ -112,6 +120,14 @@ each call would discard that cache. Neither host stores a client secret.
 Application callers do not use OBO. The server acquires an Orders-audience
 application token for its own identity. The original caller identifiers remain
 audit correlation only.
+
+![Target app-only path: a VNet client reaches the MCP server through the
+private Istio gateway. The server acquires its own Orders-audience token before
+calling the Orders Function.](../diagrams/identity-app-only-aks.drawio.svg)
+
+*Issue #154 target topology. The private route and app-only downstream call
+remain pending live evidence. API Management stays on the Functions route until
+issue #117.*
 
 ## Alternatives considered
 
