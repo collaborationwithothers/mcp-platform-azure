@@ -34,6 +34,16 @@ for required in \
   fi
 done
 
+workflow_job() {
+  local job_name="$1"
+
+  awk -v header="  ${job_name}:" '
+    $0 == header { capture = 1 }
+    capture && /^  [[:alnum:]_-]+:$/ && $0 != header { exit }
+    capture { print }
+  ' "${workflow}"
+}
+
 for required in \
   '          - verify-private' \
   'group: ${{ vars.PRIVATE_MCP_VNET_RUNNER_GROUP }}' \
@@ -45,7 +55,35 @@ for required in \
   fi
 done
 
-data_plane_job="$(grep --after-context=55 '^  verify-private-data-plane:' "${workflow}")"
+control_plane_job="$(workflow_job verify-private-control-plane)"
+if [ -z "${control_plane_job}" ]; then
+  echo "private control-plane job is missing" >&2
+  exit 1
+fi
+
+for required in \
+  "Argo CD application \${application}: sync=\${sync_status}; health=\${health_status}" \
+  '::error title=Argo CD application not ready::' \
+  '::error title=Private MCP certificate not ready::' \
+  '::error title=Istio sidecar missing::' \
+  '::error title=Istio REDIRECT init mode missing::' \
+  '::error title=Istio REDIRECT rule missing::' \
+  "Private MCP certificate mcp-platform-mcp-tls: Ready=\${certificate_ready}" \
+  "MCP pod \${pod}: istio-proxy present" \
+  "MCP pod \${pod}: Istio init interception=REDIRECT" \
+  "MCP pod \${pod}: NAT REDIRECT rule observed"; do
+  if ! grep --fixed-strings --quiet "${required}" <<< "${control_plane_job}"; then
+    echo "private control-plane diagnostic missing: ${required}" >&2
+    exit 1
+  fi
+done
+
+if grep --fixed-strings --quiet 'jq --exit-status' <<< "${control_plane_job}"; then
+  echo "private control-plane checks must report failed prerequisites" >&2
+  exit 1
+fi
+
+data_plane_job="$(workflow_job verify-private-data-plane)"
 if grep -E --quiet '(^|[[:space:];|&])(terraform|kubectl|az|dotnet|pwsh|apt|pip|npm)([[:space:];|&]|$)' <<< "${data_plane_job}"; then
   echo "the VNet data-plane job contains a forbidden command" >&2
   exit 1

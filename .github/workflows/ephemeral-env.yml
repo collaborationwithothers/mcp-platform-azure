@@ -705,9 +705,13 @@ jobs:
 
           for application in mcp-platform-mcp mcp-platform-placeholder; do
             application_json="$(kubectl get application "${application}" -n argocd -o json)"
-            jq --exit-status \
-              '.status.sync.status == "Synced" and .status.health.status == "Healthy"' \
-              <<< "${application_json}" > /dev/null
+            sync_status="$(jq -r '.status.sync.status // "Unknown"' <<< "${application_json}")"
+            health_status="$(jq -r '.status.health.status // "Unknown"' <<< "${application_json}")"
+            echo "Argo CD application ${application}: sync=${sync_status}; health=${health_status}"
+            if [ "${sync_status}" != "Synced" ] || [ "${health_status}" != "Healthy" ]; then
+              echo "::error title=Argo CD application not ready::${application}: sync=${sync_status}; health=${health_status}"
+              exit 1
+            fi
           done
 
           kubectl rollout status deployment/mcp-server -n mcp-platform --timeout=120s
@@ -715,22 +719,41 @@ jobs:
             -n mcp-platform-demo --timeout=120s
           certificate_json="$(kubectl get certificate mcp-platform-mcp-tls \
             -n aks-istio-ingress -o json)"
-          jq --exit-status \
+          certificate_ready="$(jq -r \
             'any(.status.conditions[]?; .type == "Ready" and .status == "True")' \
-            <<< "${certificate_json}" > /dev/null
+            <<< "${certificate_json}")"
+          if [ "${certificate_ready}" != "true" ]; then
+            echo "::error title=Private MCP certificate not ready::mcp-platform-mcp-tls is not Ready."
+            exit 1
+          fi
+          echo "Private MCP certificate mcp-platform-mcp-tls: Ready=${certificate_ready}"
           pod_selector="$(kubectl get deployment mcp-server -n mcp-platform -o json \
             | jq -er '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')"
           pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
           pod_json="$(kubectl get pod "${pod}" -n mcp-platform -o json)"
-          jq --exit-status \
+          sidecar_present="$(jq -r \
             '[.spec.containers[].name] | index("istio-proxy") != null' \
-            <<< "${pod_json}" > /dev/null
-          jq --exit-status \
+            <<< "${pod_json}")"
+          if [ "${sidecar_present}" != "true" ]; then
+            echo "::error title=Istio sidecar missing::MCP pod ${pod} has no istio-proxy container."
+            exit 1
+          fi
+          echo "MCP pod ${pod}: istio-proxy present"
+          redirect_init_present="$(jq -r \
             'any(.spec.initContainers[]?; .name == "istio-init" and ([.args[]?] | join(" ") | contains("REDIRECT")))' \
-            <<< "${pod_json}" > /dev/null
-          kubectl exec "${pod}" -n mcp-platform -c istio-proxy -- iptables -t nat -S \
-            | grep --fixed-strings --quiet REDIRECT
+            <<< "${pod_json}")"
+          if [ "${redirect_init_present}" != "true" ]; then
+            echo "::error title=Istio REDIRECT init mode missing::MCP pod ${pod} is not configured for REDIRECT interception."
+            exit 1
+          fi
+          echo "MCP pod ${pod}: Istio init interception=REDIRECT"
+          iptables_rules="$(kubectl exec "${pod}" -n mcp-platform -c istio-proxy -- iptables -t nat -S)"
+          if ! grep --fixed-strings --quiet REDIRECT <<< "${iptables_rules}"; then
+            echo "::error title=Istio REDIRECT rule missing::MCP pod ${pod} has no REDIRECT rule in the NAT table."
+            exit 1
+          fi
+          echo "MCP pod ${pod}: NAT REDIRECT rule observed"
 
           component_id="$(az resource list \
             --resource-group "${SHARED_OBSERVABILITY_RESOURCE_GROUP}" \
