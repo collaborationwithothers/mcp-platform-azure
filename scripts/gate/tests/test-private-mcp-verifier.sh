@@ -62,6 +62,7 @@ if [ -z "${control_plane_job}" ]; then
 fi
 
 for required in \
+  'for application in mcp-platform-mcp mcp-platform-demo; do' \
   "Argo CD application \${application}: sync=\${sync_status}; health=\${health_status}; message=\${health_message}" \
   '::error title=Argo CD application not ready::' \
   "MCP deployment mcp-server: desired=\${desired_replicas}; updated=\${updated_replicas}; available=\${available_replicas}" \

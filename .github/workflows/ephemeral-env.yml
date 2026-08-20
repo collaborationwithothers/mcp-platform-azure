@@ -703,7 +703,7 @@ jobs:
           az aks install-cli --only-show-errors || true
           kubelogin convert-kubeconfig -l azurecli
 
-          for application in mcp-platform-mcp mcp-platform-placeholder; do
+          for application in mcp-platform-mcp mcp-platform-demo; do
             application_json="$(kubectl get application "${application}" -n argocd -o json)"
             sync_status="$(jq -r '.status.sync.status // "Unknown"' <<< "${application_json}")"
             health_status="$(jq -r '.status.health.status // "Unknown"' <<< "${application_json}")"
