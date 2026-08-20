@@ -703,6 +703,21 @@ jobs:
           az aks install-cli --only-show-errors || true
           kubelogin convert-kubeconfig -l azurecli
 
+          installed_istio_revisions_json="$(az aks show \
+            --resource-group "${AKS_RESOURCE_GROUP}" \
+            --name "${AKS_CLUSTER_NAME}" \
+            --query 'serviceMeshProfile.istio.revisions' \
+            --output json)"
+          mcp_namespace_json="$(kubectl get namespace mcp-platform -o json)"
+          mcp_namespace_revision="$(jq -r '.metadata.labels["istio.io/rev"] // empty' <<< "${mcp_namespace_json}")"
+          installed_istio_revisions="$(jq -r 'join(",")' <<< "${installed_istio_revisions_json}")"
+          if [ -z "${mcp_namespace_revision}" ] || ! jq -e --arg revision "${mcp_namespace_revision}" \
+            'index($revision) != null' <<< "${installed_istio_revisions_json}" > /dev/null; then
+            echo "::error title=Istio revision label mismatch::mcp-platform has istio.io/rev=${mcp_namespace_revision:-<missing>}; installed revisions=${installed_istio_revisions:-<none>}."
+            exit 1
+          fi
+          echo "Istio revision contract mcp-platform: installed=${installed_istio_revisions}; namespace=${mcp_namespace_revision}"
+
           for application in mcp-platform-mcp mcp-platform-demo; do
             application_json="$(kubectl get application "${application}" -n argocd -o json)"
             sync_status="$(jq -r '.status.sync.status // "Unknown"' <<< "${application_json}")"
@@ -756,10 +771,18 @@ jobs:
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
           pod_json="$(kubectl get pod "${pod}" -n mcp-platform -o json)"
           sidecar_present="$(jq -r \
-            '[.spec.containers[].name] | index("istio-proxy") != null' \
+            '(
+              ([.spec.containers[]?.name] | index("istio-proxy") != null)
+              or
+              (
+                ([.spec.initContainers[]? | select(.name == "istio-proxy" and .restartPolicy == "Always")] | length > 0)
+                and
+                ([.status.initContainerStatuses[]? | select(.name == "istio-proxy" and .ready and .state.running)] | length > 0)
+              )
+            )' \
             <<< "${pod_json}")"
           if [ "${sidecar_present}" != "true" ]; then
-            echo "::error title=Istio sidecar missing::MCP pod ${pod} has no istio-proxy container."
+            echo "::error title=Istio sidecar missing::MCP pod ${pod} has no injected istio-proxy."
             exit 1
           fi
           echo "MCP pod ${pod}: istio-proxy present"

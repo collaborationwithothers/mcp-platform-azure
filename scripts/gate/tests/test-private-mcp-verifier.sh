@@ -63,6 +63,9 @@ fi
 
 for required in \
   'for application in mcp-platform-mcp mcp-platform-demo; do' \
+  'Istio revision contract mcp-platform: installed=${installed_istio_revisions}; namespace=${mcp_namespace_revision}' \
+  'restartPolicy == "Always"' \
+  '.status.initContainerStatuses[]?' \
   "Argo CD application \${application}: sync=\${sync_status}; health=\${health_status}; message=\${health_message}" \
   '::error title=Argo CD application not ready::' \
   "MCP deployment mcp-server: desired=\${desired_replicas}; updated=\${updated_replicas}; available=\${available_replicas}" \
