@@ -64,20 +64,16 @@ that anti-pattern is downstream reuse, out of the tracer's scope until the
 OBO issue).
 
 **Honest limitation of the public-demo profile:** the Functions endpoint is
-still public in v1 (the private-network module and profile are v1.1, out of
-this scenario's scope). A caller who has a valid Entra token for the server
-app can reach the Functions backend directly, bypassing the gateway
-entirely -- and with it, every governance control the gateway would
-otherwise enforce (rate limiting, quotas, content safety on tool-call
-arguments; all v1.1/S2-thickening features, not yet built). The Functions
-built-in auth check is real and independent, so a direct-to-backend caller
-is not unauthenticated -- but "authenticated" and "governed by the
-gateway's policies" are not the same guarantee, and public-demo only
-provides the former for a caller who bypasses APIM. This reframes to
-belt-and-braces (a second, redundant check behind a gateway that is the only
-reachable path) once the v1.1 private-network module closes the Functions
-endpoint's public network access. Until then, Easy Auth on the backend is a
-compensating control, not a substitute for the gateway's governance.
+still public. A caller who has a valid Entra token for the server app can reach
+that backend directly, bypassing the gateway and its governance controls. The
+Functions built-in auth check is real and independent, but authentication is
+not the same guarantee as gateway enforcement.
+
+Issue #154 adds a separate private AKS MCP host. A VNet runner reaches it only
+through the internal Istio gateway. This alongside route does not close the
+Functions endpoint and does not change API Management routing. Issue #117 owns
+that cutover. The private host validates the bearer in application code and
+does not use Functions Easy Auth headers.
 
 The shadow `mcp_extension` system-key access path is closed on the backend
 (see `mcp-function-host`'s README, "mcp_extension key posture"); the live
@@ -88,9 +84,9 @@ this against both the gateway and the backend host directly
 ## Two backend authorization paths (issue 147)
 
 The repository now has two host adapters for one MCP application core. The
-Functions adapter remains deployed. The alongside ASP.NET Core adapter is
-implemented but is not deployed or routed through the gateway by issue #147.
-Both expose exactly `get_order_status`, `get_service_info`, and
+Functions adapter remains the API Management backend. The issue #154 target
+deploys the ASP.NET Core adapter beside it on the private Istio route. Both expose exactly
+`get_order_status`, `get_service_info`, and
 `get_access_guidance`, with the same typed results and core authorization rules.
 
 The server-entry rule is unchanged. A delegated caller needs `Orders.Invoke` or
