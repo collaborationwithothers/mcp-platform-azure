@@ -13,10 +13,21 @@ workspace and a workspace-based Application Insights resource. Both have a
 not a cost estimate. Reaching it stops collection and leaves an unrecoverable
 gap until the next day.
 
-The core Log Analytics workspace disables local authentication. The Application
-Insights resource keeps local authentication enabled because APIM's existing
-managed-identity logger reads its connection string at deployment time. Both
-resources allow public ingestion and query for the public-demo profile.
+The core Log Analytics workspace disables local authentication. The issue #154 target disables Application Insights local authentication. The existing APIM
+audit logger uses its system-assigned managed identity. The target MCP pod uses its workload identity. Both need the `Monitoring Metrics Publisher` role on
+the Application Insights component.
+
+The target Azure Monitor OpenTelemetry distribution still needs the component connection string to select the ingestion endpoint. That string is not an
+ingestion credential when the distribution has an Entra credential. The target
+pod will read it at startup through ARM with its workload identity. A live-only
+Kubernetes Secret will supply only the component resource ID. Neither value is committed or dispatched to the GitOps repository. The workload identity will
+have component-scoped Reader for that ARM read and `Monitoring Metrics
+Publisher` for telemetry ingestion.
+
+Both resources allow public ingestion and query for the public-demo profile.
+Public network access does not allow anonymous ingestion. The issue #154 target
+requires both writers to authenticate through Entra. Live evidence remains
+pending until the recorded run.
 
 S1 and S2 read the core state through OIDC-authenticated Terraform remote
 state. S1 uses the Log Analytics workspace ID for Function-host diagnostic
