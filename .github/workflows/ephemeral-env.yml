@@ -678,9 +678,16 @@ jobs:
     runs-on: ubuntu-latest
     environment: live-test
     env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
       AKS_RESOURCE_GROUP: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
       AKS_CLUSTER_NAME: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
-      SHARED_OBSERVABILITY_RESOURCE_GROUP: ${{ vars.SHARED_OBSERVABILITY_RESOURCE_GROUP }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -691,6 +698,12 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
 
       - name: Check private MCP control-plane prerequisites
         shell: bash
@@ -703,7 +716,22 @@ jobs:
           az aks install-cli --only-show-errors || true
           kubelogin convert-kubeconfig -l azurecli
 
-          for application in mcp-platform-mcp mcp-platform-placeholder; do
+          installed_istio_revisions_json="$(az aks show \
+            --resource-group "${AKS_RESOURCE_GROUP}" \
+            --name "${AKS_CLUSTER_NAME}" \
+            --query 'serviceMeshProfile.istio.revisions' \
+            --output json)"
+          mcp_namespace_json="$(kubectl get namespace mcp-platform -o json)"
+          mcp_namespace_revision="$(jq -r '.metadata.labels["istio.io/rev"] // empty' <<< "${mcp_namespace_json}")"
+          installed_istio_revisions="$(jq -r 'join(",")' <<< "${installed_istio_revisions_json}")"
+          if [ -z "${mcp_namespace_revision}" ] || ! jq -e --arg revision "${mcp_namespace_revision}" \
+            'index($revision) != null' <<< "${installed_istio_revisions_json}" > /dev/null; then
+            echo "::error title=Istio revision label mismatch::mcp-platform has istio.io/rev=${mcp_namespace_revision:-<missing>}; installed revisions=${installed_istio_revisions:-<none>}."
+            exit 1
+          fi
+          echo "Istio revision contract mcp-platform: installed=${installed_istio_revisions}; namespace=${mcp_namespace_revision}"
+
+          for application in mcp-platform-mcp mcp-platform-demo; do
             application_json="$(kubectl get application "${application}" -n argocd -o json)"
             sync_status="$(jq -r '.status.sync.status // "Unknown"' <<< "${application_json}")"
             health_status="$(jq -r '.status.health.status // "Unknown"' <<< "${application_json}")"
@@ -738,6 +766,9 @@ jobs:
           done
 
           kubectl rollout status deployment/mcp-server -n mcp-platform --timeout=120s
+          deployed_image="$(kubectl get deployment mcp-server -n mcp-platform -o json \
+            | jq -er '.spec.template.spec.containers[] | select(.name == "mcp-server") | .image')"
+          echo "Private MCP deployment image reference: ${deployed_image}"
           kubectl rollout status deployment/mcp-platform-placeholder \
             -n mcp-platform-demo --timeout=120s
           certificate_json="$(kubectl get certificate mcp-platform-mcp-tls \
@@ -756,10 +787,18 @@ jobs:
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
           pod_json="$(kubectl get pod "${pod}" -n mcp-platform -o json)"
           sidecar_present="$(jq -r \
-            '[.spec.containers[].name] | index("istio-proxy") != null' \
+            '(
+              ([.spec.containers[]?.name] | index("istio-proxy") != null)
+              or
+              (
+                ([.spec.initContainers[]? | select(.name == "istio-proxy" and .restartPolicy == "Always")] | length > 0)
+                and
+                ([.status.initContainerStatuses[]? | select(.name == "istio-proxy" and .ready and .state.running)] | length > 0)
+              )
+            )' \
             <<< "${pod_json}")"
           if [ "${sidecar_present}" != "true" ]; then
-            echo "::error title=Istio sidecar missing::MCP pod ${pod} has no istio-proxy container."
+            echo "::error title=Istio sidecar missing::MCP pod ${pod} has no injected istio-proxy."
             exit 1
           fi
           echo "MCP pod ${pod}: istio-proxy present"
@@ -770,32 +809,41 @@ jobs:
             echo "::error title=Istio REDIRECT init mode missing::MCP pod ${pod} is not configured for REDIRECT interception."
             exit 1
           fi
-          echo "MCP pod ${pod}: Istio init interception=REDIRECT"
-          iptables_rules="$(kubectl exec "${pod}" -n mcp-platform -c istio-proxy -- iptables -t nat -S)"
-          if ! grep --fixed-strings --quiet REDIRECT <<< "${iptables_rules}"; then
-            echo "::error title=Istio REDIRECT rule missing::MCP pod ${pod} has no REDIRECT rule in the NAT table."
-            exit 1
-          fi
-          echo "MCP pod ${pod}: NAT REDIRECT rule observed"
+          echo "MCP pod ${pod}: Istio init interception=REDIRECT configured"
 
-          component_id="$(az resource list \
-            --resource-group "${SHARED_OBSERVABILITY_RESOURCE_GROUP}" \
-            --resource-type Microsoft.Insights/components \
-            --query '[0].id' \
-            --output tsv)"
+          terraform -chdir=infra/compositions/shared-observability-core init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_CORE_STATE_KEY}" > /dev/null
+          component_id="$(terraform -chdir=infra/compositions/shared-observability-core output -raw application_insights_id)"
           if [ -z "${component_id}" ]; then
-            echo "::error::No Application Insights component was found in the shared observability resource group."
+            echo "::error::Shared observability state returned no Application Insights component ID."
             exit 1
           fi
-          disable_local_auth="$(az resource show \
-            --ids "${component_id}" \
-            --api-version 2020-02-02 \
-            --query properties.DisableLocalAuth \
-            --output tsv)"
-          if [ "${disable_local_auth,,}" != true ]; then
-            echo "::error::Application Insights local authentication is not disabled."
-            exit 1
-          fi
+          echo "::add-mask::${component_id}"
+          disable_local_auth_json="$(az rest \
+            --method get \
+            --url "https://management.azure.com${component_id}?api-version=2020-02-02-preview" \
+            --query '{upper: properties.DisableLocalAuth, lower: properties.disableLocalAuth}' \
+            --output json)"
+          disable_local_auth="$(jq -r 'if .upper != null then if (.upper | type) == "boolean" then .upper else "invalid" end elif .lower != null then if (.lower | type) == "boolean" then .lower else "invalid" end else "missing" end' <<< "${disable_local_auth_json}")"
+          case "${disable_local_auth,,}" in
+            true)
+              echo "Application Insights DisableLocalAuth=true"
+              ;;
+            false)
+              echo "::error title=Application Insights local authentication enabled::Application Insights DisableLocalAuth=false; expected true."
+              exit 1
+              ;;
+            missing)
+              echo "::error title=Application Insights local authentication state missing::Application Insights DisableLocalAuth was not returned; expected true."
+              exit 1
+              ;;
+            invalid)
+              echo "::error title=Application Insights local authentication state invalid::Application Insights DisableLocalAuth was not a Boolean; expected true."
+              exit 1
+              ;;
+          esac
 
   # PRIVATE_MCP_VNET_RUNNER_GROUP and PRIVATE_MCP_VNET_RUNNER_LABEL must be
   # repository or organization variables. They are intentionally not defined
@@ -804,6 +852,8 @@ jobs:
     name: verify-private-data-plane
     if: inputs.action == 'verify-private'
     needs: verify-private-control-plane
+    outputs:
+      prm_verification_id: ${{ steps.private_mcp_data_plane.outputs.prm_verification_id }}
     runs-on:
       group: ${{ vars.PRIVATE_MCP_VNET_RUNNER_GROUP }}
       labels: ${{ vars.PRIVATE_MCP_VNET_RUNNER_LABEL }}
@@ -820,6 +870,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Verify private MCP data plane
+        id: private_mcp_data_plane
         shell: bash
         run: |
           set -euo pipefail
@@ -830,3 +881,61 @@ jobs:
           AZURE_TENANT_ID="${tenant_id}" \
           TEST_CLIENT_ID="${test_client_id}" \
           bash scripts/gate/verify-private-mcp.sh
+
+  verify-private-request-context:
+    name: verify-private-request-context
+    if: inputs.action == 'verify-private'
+    needs: verify-private-data-plane
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      AKS_RESOURCE_GROUP: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
+      AKS_CLUSTER_NAME: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Record private MCP forwarded request context
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks get-credentials \
+            --resource-group "${AKS_RESOURCE_GROUP}" \
+            --name "${AKS_CLUSTER_NAME}" \
+            --overwrite-existing
+          az aks install-cli --only-show-errors || true
+          kubelogin convert-kubeconfig -l azurecli
+
+          pod_selector="$(kubectl get deployment mcp-server -n mcp-platform -o json \
+            | jq -er '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')"
+          pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
+            | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
+          prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"
+          if [[ ! "${prm_verification_id}" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error title=Private MCP PRM correlation missing::The VNet verifier did not record the final PRM request identifier."
+            exit 1
+          fi
+          request_context="$(kubectl logs "${pod}" -n mcp-platform -c mcp-server \
+            | grep --extended-regexp "Private MCP request context /\\.well-known/oauth-protected-resource/mcp https .* ${prm_verification_id}$" \
+            || true)"
+          request_context_count="$(grep --count . <<< "${request_context}" || true)"
+          if [ "${request_context_count}" != 1 ]; then
+            echo "::error title=Private MCP forwarded PRM context missing::The final VNet PRM request did not record exactly one correlated scheme=https context."
+            exit 1
+          fi
+          loopback_context="$(grep --extended-regexp \
+            "Private MCP request context /\\.well-known/oauth-protected-resource/mcp https ((::ffff:)?127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$" \
+            <<< "${request_context}" || true)"
+          loopback_context_count="$(grep --count . <<< "${loopback_context}" || true)"
+          if [ "${loopback_context_count}" != 1 ]; then
+            observed_peer="$(awk -v marker="${prm_verification_id}" \
+              '{ for (field = 1; field <= NF; field++) if ($field == "https" && $(field + 2) == marker) print $(field + 1) }' \
+              <<< "${request_context}")"
+            echo "::error title=Private MCP forwarded PRM peer is not loopback::The correlated PRM request recorded immediate peer ${observed_peer:-unparsed}."
+            exit 1
+          fi
+          echo "Private MCP PRM request context observed: scheme=https; peer=loopback"

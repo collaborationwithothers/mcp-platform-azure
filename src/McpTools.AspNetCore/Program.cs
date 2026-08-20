@@ -20,6 +20,18 @@ var serverAppClientId = RequiredConfiguration(
 var serverTenantId = RequiredConfiguration(
     builder.Configuration,
     "MicrosoftEntra:TenantId");
+var entraV1MetadataAddress =
+    $"https://login.microsoftonline.com/{serverTenantId}/"
+    + ".well-known/openid-configuration";
+var entraV1Issuer = $"https://sts.windows.net/{serverTenantId}/";
+var accessTokenMetadataAddress = builder.Environment.IsDevelopment()
+    ? builder.Configuration["DevelopmentAuthentication:MetadataAddress"]
+        ?? entraV1MetadataAddress
+    : entraV1MetadataAddress;
+var accessTokenIssuer = builder.Environment.IsDevelopment()
+    ? builder.Configuration["DevelopmentAuthentication:ValidIssuer"]
+        ?? entraV1Issuer
+    : entraV1Issuer;
 var downstreamBaseUrl = RequiredConfiguration(
     builder.Configuration,
     "DownstreamOrdersApi:BaseUrl");
@@ -65,7 +77,7 @@ builder.Services
     })
     .AddJwtBearer(options =>
     {
-        options.Authority = authority;
+        options.MetadataAddress = accessTokenMetadataAddress;
         options.Audience = audience;
         options.RequireHttpsMetadata = requireHttpsMetadata;
         options.MapInboundClaims = false;
@@ -76,6 +88,7 @@ builder.Services
             ValidateIssuerSigningKey = true,
             ValidateLifetime = true,
             ValidAudience = audience,
+            ValidIssuer = accessTokenIssuer,
             RoleClaimType = "roles",
         };
     })
@@ -147,21 +160,35 @@ builder.Services.AddMcpServer()
 
 var app = builder.Build();
 
-app.UseForwardedHeaders();
 app.Use(async (context, next) =>
 {
+    var immediatePeerIpAddress = context.Connection.RemoteIpAddress?.ToString();
     await next(context);
 
+    var isProtectedResourceMetadataRequest = context.Request.Path
+        == "/.well-known/oauth-protected-resource/mcp";
     if (context.Request.Path.StartsWithSegments("/mcp")
-        || context.Request.Path.StartsWithSegments(
-            "/.well-known/oauth-protected-resource/mcp"))
+        || isProtectedResourceMetadataRequest)
     {
+        var requestVerificationId = context.Request.Headers[
+            "X-Private-Mcp-Verification"].ToString();
+        var verificationId = isProtectedResourceMetadataRequest
+            && requestVerificationId.Length == 32
+            && requestVerificationId.All(static character =>
+                character is >= '0' and <= '9' or >= 'a' and <= 'f')
+            ? requestVerificationId
+            : "none";
         app.Logger.LogInformation(
-            "Private MCP request context {Scheme} {RemoteIpAddress}",
+            "Private MCP request context {Route} {Scheme} {ImmediatePeerIpAddress} {VerificationId}",
+            isProtectedResourceMetadataRequest
+                ? "/.well-known/oauth-protected-resource/mcp"
+                : "/mcp",
             context.Request.Scheme,
-            context.Connection.RemoteIpAddress?.ToString());
+            immediatePeerIpAddress,
+            verificationId);
     }
 });
+app.UseForwardedHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapHealthChecks("/healthz");

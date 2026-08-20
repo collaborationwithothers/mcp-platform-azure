@@ -59,8 +59,10 @@ The private DNS record only selects the ingress address. The live verification a
    returns 401 with the exact advertised metadata URI.
 5. The VNet runner calls `/mcp` with a valid application token. The response
    records HTTPS as the application-visible scheme and a loopback proxy peer.
-6. The workflow inspects the MCP pod. The `istio-proxy` container and effective
-   `REDIRECT` rules must both be present.
+6. The workflow inspects the MCP pod for an active `istio-proxy` and configured
+   `REDIRECT` interception. Its final VNet PRM request carries a one-time
+   non-secret marker. A dependent Ubuntu job records that exact PRM path with
+   scheme `https` and a loopback proxy peer in the application log.
 7. A public runner checks DNS only. If public DNS returns an A or CNAME for the
    private hostname, Hari stops the run.
 8. Hari performs the delegated OBO call from a private-network client while the

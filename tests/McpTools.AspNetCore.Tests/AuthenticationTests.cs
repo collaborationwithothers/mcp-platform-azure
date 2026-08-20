@@ -4,7 +4,10 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -16,6 +19,23 @@ public sealed class AuthenticationTests
 {
     private static readonly Uri PrivateHost =
         new("https://mcp.internal.consultwithcloud.com");
+
+    [Fact]
+    public void JwtValidationUsesV1TenantMetadataAndIssuer()
+    {
+        using var factory = new TestMcpHostFactory();
+        var options = factory.Services
+            .GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+            .Get(JwtBearerDefaults.AuthenticationScheme);
+
+        Assert.Equal(
+            $"https://login.microsoftonline.com/{TestMcpHostFactory.TenantId}/"
+                + ".well-known/openid-configuration",
+            options.MetadataAddress);
+        Assert.Equal(
+            TestMcpHostFactory.Issuer,
+            options.TokenValidationParameters.ValidIssuer);
+    }
 
     [Fact]
     public async Task UnauthenticatedMcpRequestReturnsPrivateResourceChallenge()
@@ -152,7 +172,7 @@ public sealed class AuthenticationTests
                     ?? throw new InvalidOperationException("A scope value was null."))
                 .ToArray());
         Assert.Equal(
-            [TestMcpHostFactory.Issuer],
+            [TestMcpHostFactory.AuthorizationServer],
             document.RootElement.GetProperty("authorization_servers")
                 .EnumerateArray()
                 .Select(server => server.GetString()

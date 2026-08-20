@@ -96,6 +96,8 @@ docker run --detach \
   --env Authentication__Authority="$issuer" \
   --env Authentication__Audience="$audience" \
   --env Authentication__RequireHttpsMetadata=false \
+  --env DevelopmentAuthentication__MetadataAddress="${issuer}/.well-known/openid-configuration" \
+  --env DevelopmentAuthentication__ValidIssuer="$issuer" \
   --env ReverseProxy__TrustAnyForwarder=true \
   --env MicrosoftEntra__ServerAppClientId=mcp-server-app-id \
   --env MicrosoftEntra__TenantId=server-tenant-id \
