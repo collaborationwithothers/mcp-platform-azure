@@ -525,7 +525,9 @@ jobs:
       # Cloudflare because the cluster has no HTTP-01 ingress controller. The
       # issuers reuse one Cloudflare token secret but keep separate ACME account
       # keys. The token is created in cert-manager's namespace straight from the
-      # live-test secret and is never rendered into a committed file.
+      # live-test secret and is never rendered into a committed file. Public
+      # recursive resolvers keep the DNS-01 self-check on Cloudflare's public
+      # view instead of Azure Private DNS's split-horizon view of the MCP zone.
       - name: Install cert-manager (pinned chart) and ClusterIssuers
         shell: bash
         env:
@@ -539,6 +541,8 @@ jobs:
             --namespace cert-manager \
             --create-namespace \
             --set crds.enabled=true \
+            --set dns01RecursiveNameserversOnly=true \
+            --set-string 'dns01RecursiveNameservers=1.1.1.1:53\,8.8.8.8:53' \
             --wait --timeout 5m
           kubectl create secret generic cloudflare-api-token \
             --namespace cert-manager \
