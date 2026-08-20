@@ -15,7 +15,7 @@ downstream_base_url="https://orders.example.test"
 downstream_scope="api://orders-api/user_impersonation"
 downstream_application_scope="api://orders-api/.default"
 istio_revision="asm-1-29"
-deployment_issue="152"
+deployment_issue="154"
 tests_run=0
 
 build_payload() {
@@ -127,7 +127,7 @@ expect_rejected "malformed image" build_payload \
 expect_rejected "image and commit mismatch" build_payload \
   "IMAGE_REFERENCE=acrmcpplatform.azurecr.io/mcp-tools-aspnetcore:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 expect_rejected "malformed commit" build_payload "SOURCE_COMMIT=ABC123"
-expect_rejected "wrong deployment issue" build_payload "DEPLOYMENT_ISSUE=151"
+expect_rejected "wrong deployment issue" build_payload "DEPLOYMENT_ISSUE=152"
 expect_rejected "malformed workload client ID" build_payload \
   "WORKLOAD_IDENTITY_CLIENT_ID=not-a-uuid"
 expect_rejected "malformed server client ID" build_payload \
@@ -157,7 +157,7 @@ expect_rejected "unexpected dispatch field" validate_payload \
 expect_rejected "unexpected outer field" validate_payload \
   "$(printf '%s\n' "${expected}" | jq -c '.tenant_authority = "forbidden"')"
 expect_rejected "non-string dispatch value" validate_payload \
-  "$(printf '%s\n' "${expected}" | jq -c '.client_payload.deployment_issue = 152')"
+  "$(printf '%s\n' "${expected}" | jq -c '.client_payload.deployment_issue = 154')"
 expect_rejected "semantically invalid dispatch value" validate_payload \
   "$(printf '%s\n' "${expected}" | jq -c '.client_payload.source_commit = "wrong"')"
 

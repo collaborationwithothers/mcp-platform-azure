@@ -36,8 +36,8 @@ validate_values() {
   [[ "${DOWNSTREAM_SCOPE%/user_impersonation}" = \
     "${DOWNSTREAM_APPLICATION_SCOPE%/.default}" ]] || \
     reject "downstream scopes must name the same resource."
-  [[ "${DEPLOYMENT_ISSUE:-}" = 152 ]] || \
-    reject "deployment_issue must be 152."
+  [[ "${DEPLOYMENT_ISSUE:-}" = 154 ]] || \
+    reject "deployment_issue must be 154."
 }
 
 build_payload() {
