@@ -43,10 +43,11 @@ private gateway.
 
 The private DNS record only selects the ingress address. The live verification also proves the certificate, sidecar interception, protected-resource metadata, and authenticated MCP route. API Management remains on the Functions route.
 
-1. If the ephemeral stack is ready, the workflow creates or updates the
+1. If the platform bootstrap has completed, the workflow creates or updates the
    live-only `mcp-server-telemetry` Secret before Argo CD applies the MCP
-   Deployment. The Secret contains the Application Insights component resource
-   ID, not a connection string or credential.
+   Deployment. The deployment workflow reads the Application Insights
+   connection string and stores it only in that Secret. The MCP pod uses the
+   string to select ingestion and workload identity to authenticate ingestion.
 2. The VNet runner resolves `mcp.internal.consultwithcloud.com`. The workflow
    records the address and requires the pinned internal gateway address.
 3. The VNet runner validates the TLS certificate against exactly

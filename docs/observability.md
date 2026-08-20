@@ -18,11 +18,12 @@ audit logger uses its system-assigned managed identity. The target MCP pod uses 
 the Application Insights component.
 
 The target Azure Monitor OpenTelemetry distribution still needs the component connection string to select the ingestion endpoint. That string is not an
-ingestion credential when the distribution has an Entra credential. The target
-pod will read it at startup through ARM with its workload identity. A live-only
-Kubernetes Secret will supply only the component resource ID. Neither value is committed or dispatched to the GitOps repository. The workload identity will
-have component-scoped Reader for that ARM read and `Monitoring Metrics
-Publisher` for telemetry ingestion.
+ingestion credential when the distribution has an Entra credential. The
+deployment workflow reads the string from the component and creates a live-only
+Kubernetes Secret before Argo CD applies the MCP Deployment. The target pod
+does not call ARM. It reads the string from that Secret and uses workload
+identity with `Monitoring Metrics Publisher` for telemetry ingestion. The
+string is not committed, logged, or sent to the GitOps repository.
 
 Both resources allow public ingestion and query for the public-demo profile.
 Public network access does not allow anonymous ingestion. The issue #154 target
