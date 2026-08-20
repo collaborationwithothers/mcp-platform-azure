@@ -215,7 +215,7 @@ for required in \
   'prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"' \
   'kubectl logs "${pod}" -n mcp-platform -c mcp-server' \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https .* ${prm_verification_id}$' \
-  'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https (127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$' \
+  'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https ((::ffff:)?127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$' \
   '::error title=Private MCP forwarded PRM context missing::' \
   '::error title=Private MCP forwarded PRM peer is not loopback::The correlated PRM request recorded immediate peer ${observed_peer:-unparsed}.' \
   'Private MCP PRM request context observed: scheme=https; peer=loopback'; do
@@ -225,10 +225,10 @@ for required in \
   fi
 done
 
-loopback_pattern='Private MCP request context /\.well-known/oauth-protected-resource/mcp https (127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|::1) [0-9a-f]{32}$'
+loopback_pattern='Private MCP request context /\.well-known/oauth-protected-resource/mcp https ((::ffff:)?127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|::1) [0-9a-f]{32}$'
 if ! grep --extended-regexp --quiet "${loopback_pattern}" \
-  <<< 'Private MCP request context /.well-known/oauth-protected-resource/mcp https 127.0.0.6 e0320b12efbe54b4afbc673051c7cb0a'; then
-  echo "private request-context verifier must accept the IPv4 loopback range" >&2
+  <<< 'Private MCP request context /.well-known/oauth-protected-resource/mcp https ::ffff:127.0.0.6 e0320b12efbe54b4afbc673051c7cb0a'; then
+  echo "private request-context verifier must accept mapped IPv4 loopback" >&2
   exit 1
 fi
 if grep --extended-regexp --quiet "${loopback_pattern}" \

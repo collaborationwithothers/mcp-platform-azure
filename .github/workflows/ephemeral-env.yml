@@ -928,7 +928,7 @@ jobs:
             exit 1
           fi
           loopback_context="$(grep --extended-regexp \
-            "Private MCP request context /\\.well-known/oauth-protected-resource/mcp https (127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$" \
+            "Private MCP request context /\\.well-known/oauth-protected-resource/mcp https ((::ffff:)?127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$" \
             <<< "${request_context}" || true)"
           loopback_context_count="$(grep --count . <<< "${loopback_context}" || true)"
           if [ "${loopback_context_count}" != 1 ]; then
