@@ -61,9 +61,17 @@ name: Ephemeral live-test gate
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: "Apply and destroy the ephemeral stamp, or verify the private AKS path."
+        required: false
+        type: choice
+        default: apply-call-destroy
+        options:
+          - apply-call-destroy
+          - verify-private
       confirm_cost:
-        description: "Type \"apply\" to confirm you understand this deploys billable Azure resources (APIM Basic v2, Flex Consumption, API Center) and accept them being destroyed at the end of this run."
-        required: true
+        description: "For apply-call-destroy, type \"apply\" to confirm the billable deployment. verify-private is read-only."
+        required: false
         type: string
       skip_teardown:
         description: "TEMPORARY debugging aid (issue 9): skip teardown so the deployed stamp stays up for INTERACTIVE investigation - e.g. the portal test console request trace of the no-token WWW-Authenticate/PRM mechanism (which policy or runtime step sets the path-scoped resource_metadata). WARNING: Basic v2 bills continuously until you delete the resource group by hand; the run summary prints the exact command. Destroy it the SAME day. Leave false for normal runs."
@@ -97,13 +105,14 @@ jobs:
       - name: Require explicit cost confirmation
         shell: bash
         run: |
-          if [ "${{ inputs.confirm_cost }}" != "apply" ]; then
+          if [ "${{ inputs.action }}" = "apply-call-destroy" ] && [ "${{ inputs.confirm_cost }}" != "apply" ]; then
             echo "::error::confirm_cost must be the literal string 'apply'. This run deploys billable Azure resources; the input exists so nobody triggers it by accident."
             exit 1
           fi
 
   live-test:
     name: apply-call-destroy
+    if: inputs.action == 'apply-call-destroy'
     needs: guard
     runs-on: ubuntu-latest
     environment: live-test
@@ -661,3 +670,117 @@ jobs:
             echo "az group delete -n ${rg} --yes"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  verify-private-control-plane:
+    name: verify-private-control-plane
+    if: inputs.action == 'verify-private'
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      AKS_RESOURCE_GROUP: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
+      AKS_CLUSTER_NAME: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
+      SHARED_OBSERVABILITY_RESOURCE_GROUP: ${{ vars.SHARED_OBSERVABILITY_RESOURCE_GROUP }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check private MCP control-plane prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks get-credentials \
+            --resource-group "${AKS_RESOURCE_GROUP}" \
+            --name "${AKS_CLUSTER_NAME}" \
+            --overwrite-existing
+          az aks install-cli --only-show-errors || true
+          kubelogin convert-kubeconfig -l azurecli
+
+          for application in mcp-platform-mcp mcp-platform-placeholder; do
+            application_json="$(kubectl get application "${application}" -n argocd -o json)"
+            jq --exit-status \
+              '.status.sync.status == "Synced" and .status.health.status == "Healthy"' \
+              <<< "${application_json}" > /dev/null
+          done
+
+          kubectl rollout status deployment/mcp-server -n mcp-platform --timeout=120s
+          kubectl rollout status deployment/mcp-platform-placeholder \
+            -n mcp-platform-demo --timeout=120s
+          certificate_json="$(kubectl get certificate mcp-platform-mcp-tls \
+            -n aks-istio-ingress -o json)"
+          jq --exit-status \
+            'any(.status.conditions[]?; .type == "Ready" and .status == "True")' \
+            <<< "${certificate_json}" > /dev/null
+          pod_selector="$(kubectl get deployment mcp-server -n mcp-platform -o json \
+            | jq -er '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')"
+          pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
+            | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
+          pod_json="$(kubectl get pod "${pod}" -n mcp-platform -o json)"
+          jq --exit-status \
+            '[.spec.containers[].name] | index("istio-proxy") != null' \
+            <<< "${pod_json}" > /dev/null
+          jq --exit-status \
+            'any(.spec.initContainers[]?; .name == "istio-init" and ([.args[]?] | join(" ") | contains("REDIRECT")))' \
+            <<< "${pod_json}" > /dev/null
+          kubectl exec "${pod}" -n mcp-platform -c istio-proxy -- iptables -t nat -S \
+            | grep --fixed-strings --quiet REDIRECT
+
+          component_id="$(az resource list \
+            --resource-group "${SHARED_OBSERVABILITY_RESOURCE_GROUP}" \
+            --resource-type Microsoft.Insights/components \
+            --query '[0].id' \
+            --output tsv)"
+          if [ -z "${component_id}" ]; then
+            echo "::error::No Application Insights component was found in the shared observability resource group."
+            exit 1
+          fi
+          disable_local_auth="$(az resource show \
+            --ids "${component_id}" \
+            --api-version 2020-02-02 \
+            --query properties.DisableLocalAuth \
+            --output tsv)"
+          if [ "${disable_local_auth,,}" != true ]; then
+            echo "::error::Application Insights local authentication is not disabled."
+            exit 1
+          fi
+
+  # PRIVATE_MCP_VNET_RUNNER_GROUP and PRIVATE_MCP_VNET_RUNNER_LABEL must be
+  # repository or organization variables. They are intentionally not defined
+  # on the live-test Environment, even though this job reads its test secrets.
+  verify-private-data-plane:
+    name: verify-private-data-plane
+    if: inputs.action == 'verify-private'
+    needs: verify-private-control-plane
+    runs-on:
+      group: ${{ vars.PRIVATE_MCP_VNET_RUNNER_GROUP }}
+      labels: ${{ vars.PRIVATE_MCP_VNET_RUNNER_LABEL }}
+    environment: live-test
+    env:
+      MCP_PRIVATE_HOST: mcp.internal.consultwithcloud.com
+      MCP_PRIVATE_IP: ${{ vars.AKS_PLATFORM_INGRESS_PRIVATE_IP }}
+      S2_TFVARS_JSON: ${{ secrets.S2_TFVARS_JSON }}
+      TEST_CLIENT_SECRET: ${{ secrets.TEST_CLIENT_SECRET }}
+      TEST_CLIENT_WITHOUT_ROLE_ID: ${{ secrets.TEST_CLIENT_WITHOUT_ROLE_ID }}
+      TEST_CLIENT_WITHOUT_ROLE_SECRET: ${{ secrets.TEST_CLIENT_WITHOUT_ROLE_SECRET }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify private MCP data plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_client_id="$(jq -er '.entra_validation.allowed_client_application_ids[0]' <<< "${S2_TFVARS_JSON}")"
+          resource_audience="$(jq -er '.entra_validation.audience' <<< "${S2_TFVARS_JSON}")"
+          tenant_id="$(jq -er '.entra_validation.tenant_id' <<< "${S2_TFVARS_JSON}")"
+          MCP_RESOURCE_AUDIENCE="${resource_audience}" \
+          AZURE_TENANT_ID="${tenant_id}" \
+          TEST_CLIENT_ID="${test_client_id}" \
+          bash scripts/gate/verify-private-mcp.sh
