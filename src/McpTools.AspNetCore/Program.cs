@@ -152,14 +152,27 @@ app.Use(async (context, next) =>
 {
     await next(context);
 
+    var isProtectedResourceMetadataRequest = context.Request.Path
+        == "/.well-known/oauth-protected-resource/mcp";
     if (context.Request.Path.StartsWithSegments("/mcp")
-        || context.Request.Path.StartsWithSegments(
-            "/.well-known/oauth-protected-resource/mcp"))
+        || isProtectedResourceMetadataRequest)
     {
+        var requestVerificationId = context.Request.Headers[
+            "X-Private-Mcp-Verification"].ToString();
+        var verificationId = isProtectedResourceMetadataRequest
+            && requestVerificationId.Length == 32
+            && requestVerificationId.All(static character =>
+                character is >= '0' and <= '9' or >= 'a' and <= 'f')
+            ? requestVerificationId
+            : "none";
         app.Logger.LogInformation(
-            "Private MCP request context {Scheme} {RemoteIpAddress}",
+            "Private MCP request context {Route} {Scheme} {RemoteIpAddress} {VerificationId}",
+            isProtectedResourceMetadataRequest
+                ? "/.well-known/oauth-protected-resource/mcp"
+                : "/mcp",
             context.Request.Scheme,
-            context.Connection.RemoteIpAddress?.ToString());
+            context.Connection.RemoteIpAddress?.ToString(),
+            verificationId);
     }
 });
 app.UseAuthentication();

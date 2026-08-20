@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 script="${repo_root}/scripts/gate/verify-private-mcp.sh"
 workflow="${repo_root}/.github/workflows/ephemeral-env.yml"
+program="${repo_root}/src/McpTools.AspNetCore/Program.cs"
 
 bash -n "${script}"
 
@@ -25,6 +26,9 @@ for required in \
   'MCP_RESOURCE_AUDIENCE' \
   'dig @1.1.1.1 +short AAAA' \
   '-connect "${MCP_PRIVATE_IP}:443"' \
+  'openssl rand -hex 16' \
+  'prm_verification_id=%s' \
+  'X-Private-Mcp-Verification: ${prm_verification_id}' \
   'TEST_CLIENT_SECRET' \
   'TEST_CLIENT_WITHOUT_ROLE_SECRET' \
   'unset app_token roleless_token wrong_audience_token'; do
@@ -33,6 +37,29 @@ for required in \
     exit 1
   fi
 done
+
+for required in \
+  'X-Private-Mcp-Verification' \
+  'Private MCP request context {Route} {Scheme} {RemoteIpAddress} {VerificationId}' \
+  'isProtectedResourceMetadataRequest' \
+  'requestVerificationId.Length == 32' \
+  '"/.well-known/oauth-protected-resource/mcp"' \
+  '"/mcp"'; do
+  if ! grep --fixed-strings --quiet "${required}" "${program}"; then
+    echo "private verifier application correlation contract missing: ${required}" >&2
+    exit 1
+  fi
+done
+
+request_context_log="$(awk '
+  /app\.Logger\.LogInformation\(/ { capture = 1 }
+  capture { print }
+  capture && /^[[:space:]]*verificationId\);/ { exit }
+' "${program}")"
+if grep --fixed-strings --quiet 'context.Request.Path' <<< "${request_context_log}"; then
+  echo "private verifier must not log the raw request path" >&2
+  exit 1
+fi
 
 workflow_job() {
   local job_name="$1"
@@ -66,7 +93,6 @@ for required in \
   'Istio revision contract mcp-platform: installed=${installed_istio_revisions}; namespace=${mcp_namespace_revision}' \
   'restartPolicy == "Always"' \
   '.status.initContainerStatuses[]?' \
-  'iptables-save -t nat' \
   "Argo CD application \${application}: sync=\${sync_status}; health=\${health_status}; message=\${health_message}" \
   '::error title=Argo CD application not ready::' \
   "MCP deployment mcp-server: desired=\${desired_replicas}; updated=\${updated_replicas}; available=\${available_replicas}" \
@@ -75,11 +101,9 @@ for required in \
   '::error title=Private MCP certificate not ready::' \
   '::error title=Istio sidecar missing::' \
   '::error title=Istio REDIRECT init mode missing::' \
-  '::error title=Istio REDIRECT rule missing::' \
   "Private MCP certificate mcp-platform-mcp-tls: Ready=\${certificate_ready}" \
   "MCP pod \${pod}: istio-proxy present" \
-  "MCP pod \${pod}: Istio init interception=REDIRECT" \
-  "MCP pod \${pod}: NAT REDIRECT rule observed"; do
+  "MCP pod \${pod}: Istio init interception=REDIRECT configured"; do
   if ! grep --fixed-strings --quiet "${required}" <<< "${control_plane_job}"; then
     echo "private control-plane diagnostic missing: ${required}" >&2
     exit 1
@@ -96,5 +120,33 @@ if grep -E --quiet '(^|[[:space:];|&])(terraform|kubectl|az|dotnet|pwsh|apt|pip|
   echo "the VNet data-plane job contains a forbidden command" >&2
   exit 1
 fi
+for required in \
+  'outputs:' \
+  'prm_verification_id: ${{ steps.private_mcp_data_plane.outputs.prm_verification_id }}' \
+  'id: private_mcp_data_plane'; do
+  if ! grep --fixed-strings --quiet "${required}" <<< "${data_plane_job}"; then
+    echo "private VNet verifier PRM correlation contract missing: ${required}" >&2
+    exit 1
+  fi
+done
+
+request_context_job="$(workflow_job verify-private-request-context)"
+if [ -z "${request_context_job}" ]; then
+  echo "private request-context job is missing" >&2
+  exit 1
+fi
+for required in \
+  'needs: verify-private-data-plane' \
+  'runs-on: ubuntu-latest' \
+  'prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"' \
+  'kubectl logs "${pod}" -n mcp-platform -c mcp-server' \
+  'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https (127\\.0\\.0\\.1|::1) ${prm_verification_id}$' \
+  '::error title=Private MCP forwarded PRM context missing::' \
+  'Private MCP PRM request context observed: scheme=https; peer=loopback'; do
+  if ! grep --fixed-strings --quiet "${required}" <<< "${request_context_job}"; then
+    echo "private request-context verifier contract missing: ${required}" >&2
+    exit 1
+  fi
+done
 
 echo "private MCP verifier keeps the VNet runner data-plane-only"

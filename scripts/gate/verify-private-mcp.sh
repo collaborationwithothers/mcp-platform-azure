@@ -101,19 +101,6 @@ if [ "${challenge}" != "${expected_challenge}" ]; then
   fail "the unauthenticated MCP challenge did not advertise the exact PRM URI"
 fi
 
-prm="$(curl --fail --silent --show-error \
-  --resolve "${host}:443:${MCP_PRIVATE_IP}" \
-  "${prm_url}")"
-jq --exit-status \
-  --arg resource "${resource_url}" \
-  --arg authority "${authority}" \
-  --arg orders "${MCP_RESOURCE_AUDIENCE}/Orders.Invoke" \
-  --arg catalog "${MCP_RESOURCE_AUDIENCE}/Catalog.Invoke" \
-  '.resource == $resource
-   and .authorization_servers == [$authority]
-   and .scopes_supported == [$orders, $catalog]' <<< "${prm}" > /dev/null \
-  || fail "the private PRM did not match the resource, authority, and scope union"
-
 token() {
   local client_id="$1"
   local client_secret="$2"
@@ -225,5 +212,23 @@ fi
 if [ "$(mcp_status "${app_token}x" "${initialize}")" != "401" ]; then
   fail "a tampered token was not rejected with 401"
 fi
+
+prm_verification_id="$(openssl rand -hex 16)"
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  printf 'prm_verification_id=%s\n' "${prm_verification_id}" >> "${GITHUB_OUTPUT}"
+fi
+prm="$(curl --fail --silent --show-error \
+  --resolve "${host}:443:${MCP_PRIVATE_IP}" \
+  --header "X-Private-Mcp-Verification: ${prm_verification_id}" \
+  "${prm_url}")"
+jq --exit-status \
+  --arg resource "${resource_url}" \
+  --arg authority "${authority}" \
+  --arg orders "${MCP_RESOURCE_AUDIENCE}/Orders.Invoke" \
+  --arg catalog "${MCP_RESOURCE_AUDIENCE}/Catalog.Invoke" \
+  '.resource == $resource
+   and .authorization_servers == [$authority]
+   and .scopes_supported == [$orders, $catalog]' <<< "${prm}" > /dev/null \
+  || fail "the private PRM did not match the resource, authority, and scope union"
 
 echo "private MCP DNS, TLS, PRM, application access, and negative token checks passed"
