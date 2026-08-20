@@ -118,14 +118,31 @@ token() {
 mcp_body() {
   local bearer_token="$1"
   local body="$2"
-  curl --silent --show-error \
+  local response
+  local metadata
+  local response_body
+  local http_status
+  local content_type
+
+  response="$(curl --silent --show-error \
     --resolve "${host}:443:${MCP_PRIVATE_IP}" \
     --header "Authorization: Bearer ${bearer_token}" \
     --header 'Accept: application/json, text/event-stream' \
     --header 'Content-Type: application/json' \
     --header 'MCP-Protocol-Version: 2025-06-18' \
     --data "${body}" \
-    "${resource_url}"
+    --write-out $'\n__MCP_RESPONSE_META__%{http_code}\t%{content_type}' \
+    "${resource_url}")"
+
+  metadata="${response##*$'\n'__MCP_RESPONSE_META__}"
+  response_body="${response%$'\n'__MCP_RESPONSE_META__*}"
+  http_status="${metadata%%$'\t'*}"
+  content_type="${metadata#*$'\t'}"
+
+  printf '__MCP_RESPONSE_META__%s\t%s\n%s' \
+    "${http_status}" \
+    "${content_type}" \
+    "${response_body}"
 }
 
 mcp_status() {
@@ -145,8 +162,24 @@ mcp_status() {
 
 json_rpc() {
   local response="$1"
+  local metadata
+  local http_status
+  local content_type
   local line
   local event_json=""
+
+  metadata="${response%%$'\n'*}"
+  if [[ "${metadata}" != __MCP_RESPONSE_META__* ]]; then
+    fail "the MCP response did not contain HTTP metadata"
+  fi
+  response="${response#*$'\n'}"
+  metadata="${metadata#__MCP_RESPONSE_META__}"
+  http_status="${metadata%%$'\t'*}"
+  content_type="${metadata#*$'\t'}"
+
+  if [[ "${http_status}" != 2?? ]]; then
+    fail "the MCP JSON-RPC request returned HTTP ${http_status} with content type ${content_type:-none}"
+  fi
 
   if jq --exit-status . > /dev/null 2>&1 <<< "${response}"; then
     printf '%s' "${response}"
@@ -160,7 +193,7 @@ json_rpc() {
   done <<< "${response}"
 
   if ! jq --exit-status . > /dev/null 2>&1 <<< "${event_json}"; then
-    fail "the MCP response was neither JSON nor a JSON SSE event"
+    fail "the MCP response with content type ${content_type:-none} was neither JSON nor a JSON SSE event"
   fi
   printf '%s' "${event_json}"
 }

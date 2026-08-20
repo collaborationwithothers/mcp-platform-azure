@@ -20,6 +20,36 @@ if grep -E --quiet '(^|[[:space:];|&])(terraform|kubectl|az|dotnet|pwsh|apt|pip|
   exit 1
 fi
 
+response_functions="$(awk '
+  /^fail\(\)/ { capture = 1 }
+  /^mcp_body\(\)/ { capture = 1 }
+  /^json_rpc\(\)/ { capture = 1 }
+  capture { print }
+  capture && /^}/ { capture = 0 }
+' "${script}")"
+
+diagnostic="$(
+  export response_functions
+  bash <<'BASH' 2>&1 || true
+eval "${response_functions}"
+host="mcp.internal.example.test"
+MCP_PRIVATE_IP="10.0.0.4"
+resource_url="https://${host}/mcp"
+curl() {
+  printf 'private response body\n__MCP_RESPONSE_META__403\ttext/plain'
+}
+json_rpc "$(mcp_body 'private-token' '{}')" > /dev/null
+BASH
+)"
+if [ "${diagnostic}" != "private MCP verification failed: the MCP JSON-RPC request returned HTTP 403 with content type text/plain" ]; then
+  echo "private verifier did not produce the expected sanitized HTTP diagnostic" >&2
+  exit 1
+fi
+if [[ "${diagnostic}" == *'private response body'* || "${diagnostic}" == *'private-token'* ]]; then
+  echo "private verifier leaked a response body or bearer token in its diagnostic" >&2
+  exit 1
+fi
+
 for required in \
   'MCP_PRIVATE_HOST' \
   'MCP_PRIVATE_IP' \
@@ -29,6 +59,9 @@ for required in \
   'openssl rand -hex 16' \
   'prm_verification_id=%s' \
   'X-Private-Mcp-Verification: ${prm_verification_id}' \
+  '__MCP_RESPONSE_META__%{http_code}\t%{content_type}' \
+  'the MCP JSON-RPC request returned HTTP ${http_status} with content type ${content_type:-none}' \
+  'the MCP response with content type ${content_type:-none} was neither JSON nor a JSON SSE event' \
   'TEST_CLIENT_SECRET' \
   'TEST_CLIENT_WITHOUT_ROLE_SECRET' \
   'unset app_token roleless_token wrong_audience_token'; do
