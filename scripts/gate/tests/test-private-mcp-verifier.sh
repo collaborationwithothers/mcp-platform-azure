@@ -64,6 +64,7 @@ fi
 for required in \
   "Argo CD application \${application}: sync=\${sync_status}; health=\${health_status}" \
   '::error title=Argo CD application not ready::' \
+  "unhealthy resources: \${unhealthy_resources}" \
   '::error title=Private MCP certificate not ready::' \
   '::error title=Istio sidecar missing::' \
   '::error title=Istio REDIRECT init mode missing::' \

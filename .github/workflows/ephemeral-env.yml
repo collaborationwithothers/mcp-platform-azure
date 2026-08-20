@@ -709,7 +709,13 @@ jobs:
             health_status="$(jq -r '.status.health.status // "Unknown"' <<< "${application_json}")"
             echo "Argo CD application ${application}: sync=${sync_status}; health=${health_status}"
             if [ "${sync_status}" != "Synced" ] || [ "${health_status}" != "Healthy" ]; then
-              echo "::error title=Argo CD application not ready::${application}: sync=${sync_status}; health=${health_status}"
+              unhealthy_resources="$(jq -r '
+                [.status.resources[]?
+                 | select((.health.status // "Unknown") != "Healthy")
+                 | "\(.kind // "Unknown")/\(.namespace // "default")/\(.name // "Unknown"): sync=\(.status // "Unknown"); health=\(.health.status // "Unknown")"]
+                | if length == 0 then "none reported" else join(", ") end
+              ' <<< "${application_json}")"
+              echo "::error title=Argo CD application not ready::${application}: sync=${sync_status}; health=${health_status}; unhealthy resources: ${unhealthy_resources}"
               exit 1
             fi
           done
