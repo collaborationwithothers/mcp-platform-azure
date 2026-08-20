@@ -101,6 +101,9 @@ for required in \
   '::error title=Private MCP certificate not ready::' \
   '::error title=Istio sidecar missing::' \
   '::error title=Istio REDIRECT init mode missing::' \
+  'az rest' \
+  '--method get' \
+  'https://management.azure.com${component_id}?api-version=2020-02-02' \
   'upper: properties.DisableLocalAuth, lower: properties.disableLocalAuth' \
   'if .upper != null then if (.upper | type) == "boolean" then .upper else "invalid" end elif .lower != null then if (.lower | type) == "boolean" then .lower else "invalid" end else "missing" end' \
   'Application Insights DisableLocalAuth=true' \
@@ -110,7 +113,7 @@ for required in \
   "Private MCP certificate mcp-platform-mcp-tls: Ready=\${certificate_ready}" \
   "MCP pod \${pod}: istio-proxy present" \
   "MCP pod \${pod}: Istio init interception=REDIRECT configured"; do
-  if ! grep --fixed-strings --quiet "${required}" <<< "${control_plane_job}"; then
+  if ! grep --fixed-strings --quiet -- "${required}" <<< "${control_plane_job}"; then
     echo "private control-plane diagnostic missing: ${required}" >&2
     exit 1
   fi

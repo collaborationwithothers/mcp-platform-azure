@@ -804,9 +804,9 @@ jobs:
             echo "::error::No Application Insights component was found in the shared observability resource group."
             exit 1
           fi
-          disable_local_auth_json="$(az resource show \
-            --ids "${component_id}" \
-            --api-version 2020-02-02 \
+          disable_local_auth_json="$(az rest \
+            --method get \
+            --url "https://management.azure.com${component_id}?api-version=2020-02-02" \
             --query '{upper: properties.DisableLocalAuth, lower: properties.disableLocalAuth}' \
             --output json)"
           disable_local_auth="$(jq -r 'if .upper != null then if (.upper | type) == "boolean" then .upper else "invalid" end elif .lower != null then if (.lower | type) == "boolean" then .lower else "invalid" end else "missing" end' <<< "${disable_local_auth_json}")"
