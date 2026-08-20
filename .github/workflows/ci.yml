@@ -102,6 +102,10 @@ jobs:
         shell: bash
         run: bash scripts/gate/tests/test-managed-prometheus-detachment-scope.sh
 
+      - name: Private MCP verifier scope
+        shell: bash
+        run: bash scripts/gate/tests/test-private-mcp-verifier.sh
+
       - name: terraform init and validate
         shell: bash
         run: |
