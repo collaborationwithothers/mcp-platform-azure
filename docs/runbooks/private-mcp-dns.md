@@ -39,20 +39,32 @@ private gateway.
    compositions. Those resources live in different Terraform states and cannot
    appear in the S1 AKS plan.
 
-## Resolution checks after the deferred live apply
+## Issue #154 live verification
 
-Issue #149 does not run these checks. The later live-gate step must record the
-results from both linked networks.
+The private DNS record only selects the ingress address. The live verification also proves the certificate, sidecar interception, protected-resource metadata, and authenticated MCP route. API Management remains on the Functions route.
 
-1. From an AKS pod in the platform VNet, resolve
-   `mcp.internal.consultwithcloud.com` and record the returned address.
-2. From the VNet runner, resolve the same name and record the returned address.
-3. In both results, confirm the address equals the pinned internal gateway
-   address.
-4. From a public runner, confirm the hostname does not resolve to a public A or
-   CNAME record.
-5. Confirm the MCP TLS certificate is valid for the private hostname only after
-   the companion Certificate and Gateway exist.
+1. If the ephemeral stack is ready, the workflow creates or updates the
+   live-only `mcp-server-telemetry` Secret before Argo CD applies the MCP
+   Deployment. The Secret contains the Application Insights component resource
+   ID, not a connection string or credential.
+2. The VNet runner resolves `mcp.internal.consultwithcloud.com`. The workflow
+   records the address and requires the pinned internal gateway address.
+3. The VNet runner validates the TLS certificate against exactly
+   `mcp.internal.consultwithcloud.com`.
+4. The VNet runner calls the protected-resource metadata document and an
+   unauthenticated `/mcp` request. The metadata document returns 200 with
+   resource `https://mcp.internal.consultwithcloud.com/mcp` and the existing
+   `Orders.Invoke` and `Catalog.Invoke` delegated-scope union. The MCP request
+   returns 401 with the exact advertised metadata URI.
+5. The VNet runner calls `/mcp` with a valid application token. The response
+   records HTTPS as the application-visible scheme and a loopback proxy peer.
+6. The workflow inspects the MCP pod. The `istio-proxy` container and effective
+   `REDIRECT` rules must both be present.
+7. A public runner checks DNS only. If public DNS returns an A or CNAME for the
+   private hostname, Hari stops the run.
+8. Hari performs the delegated OBO call from a private-network client while the
+   ephemeral downstream is still running. The automated gate cannot mint a
+   delegated user token or a validly signed expired token.
 
-Static Terraform tests prove the record and link configuration. They cannot
-prove live DNS resolution, routing, or certificate issuance.
+Static Terraform tests prove the record and links. They do not prove live DNS
+resolution, routing, certificate issuance, sidecar interception, or OBO.

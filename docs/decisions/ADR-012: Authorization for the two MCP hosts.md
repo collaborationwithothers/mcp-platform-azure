@@ -1,7 +1,7 @@
 # ADR-012: Authorization for the two MCP hosts
 
-Status: Accepted (issue #147; the ASP.NET Core host is implemented but not yet
-deployed)
+Status: Accepted (issue #147; issue #154 targets the ASP.NET Core host on a
+private alongside route pending live evidence)
 Date: 2026-08-18
 Supersedes: ADR-006
 
@@ -25,11 +25,11 @@ authorization.
 ## Context
 
 Issue #146 added an authenticated ASP.NET Core tracer with one tool. Issue #147
-brings that host to parity with the still-deployed Functions host before a later
-issue changes deployment or gateway routing. Running two host implementations
-at once creates a drift risk: each host could interpret the same token
-differently, expose a different tool set, or acquire downstream tokens through a
-different security rule.
+brings that host to parity with the still-deployed Functions host. The issue
+#154 target deploys it through the private Istio route without changing API
+Management routing. Running two host implementations at once creates a drift risk: each
+host could interpret the same token differently, expose a different tool set,
+or acquire downstream tokens through a different security rule.
 
 The host boundary cannot be identical. Functions built-in auth validates the
 token and supplies `X-MS-CLIENT-PRINCIPAL`. ASP.NET Core JWT bearer middleware
@@ -134,8 +134,9 @@ audit correlation only.
 
 ## Consequences
 
-- The ASP.NET Core host now has the same three-tool surface and typed results as
-  Functions, but it is still not deployed by this issue.
+- The ASP.NET Core host has the same three-tool surface and typed results as
+  Functions. After issue #154 records live evidence, it runs only on the
+  private route. API Management stays on Functions until issue #117.
 - A framework claim-mapping change does not change authorization because the
   adapter accepts the raw and mapped aliases before normalization.
 - Per-tool denial remains fail-closed behind the unchanged server-entry union.
