@@ -73,8 +73,9 @@ done
 
 for required in \
   'X-Private-Mcp-Verification' \
-  'Private MCP request context {Route} {Scheme} {RemoteIpAddress} {VerificationId}' \
+  'Private MCP request context {Route} {Scheme} {ImmediatePeerIpAddress} {VerificationId}' \
   'isProtectedResourceMetadataRequest' \
+  'var immediatePeerIpAddress = context.Connection.RemoteIpAddress?.ToString();' \
   'requestVerificationId.Length == 32' \
   '"/.well-known/oauth-protected-resource/mcp"' \
   '"/mcp"'; do
@@ -83,6 +84,16 @@ for required in \
     exit 1
   fi
 done
+
+peer_capture_line="$(grep -n --fixed-strings \
+  'var immediatePeerIpAddress = context.Connection.RemoteIpAddress?.ToString();' \
+  "${program}" | cut -d: -f1)"
+forwarded_headers_line="$(grep -n --fixed-strings 'app.UseForwardedHeaders();' \
+  "${program}" | cut -d: -f1)"
+if [ "${peer_capture_line}" -ge "${forwarded_headers_line}" ]; then
+  echo "private request context must capture the immediate peer before forwarded headers" >&2
+  exit 1
+fi
 
 request_context_log="$(awk '
   /app\.Logger\.LogInformation\(/ { capture = 1 }

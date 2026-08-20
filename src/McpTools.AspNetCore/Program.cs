@@ -160,9 +160,9 @@ builder.Services.AddMcpServer()
 
 var app = builder.Build();
 
-app.UseForwardedHeaders();
 app.Use(async (context, next) =>
 {
+    var immediatePeerIpAddress = context.Connection.RemoteIpAddress?.ToString();
     await next(context);
 
     var isProtectedResourceMetadataRequest = context.Request.Path
@@ -179,15 +179,16 @@ app.Use(async (context, next) =>
             ? requestVerificationId
             : "none";
         app.Logger.LogInformation(
-            "Private MCP request context {Route} {Scheme} {RemoteIpAddress} {VerificationId}",
+            "Private MCP request context {Route} {Scheme} {ImmediatePeerIpAddress} {VerificationId}",
             isProtectedResourceMetadataRequest
                 ? "/.well-known/oauth-protected-resource/mcp"
                 : "/mcp",
             context.Request.Scheme,
-            context.Connection.RemoteIpAddress?.ToString(),
+            immediatePeerIpAddress,
             verificationId);
     }
 });
+app.UseForwardedHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapHealthChecks("/healthz");
