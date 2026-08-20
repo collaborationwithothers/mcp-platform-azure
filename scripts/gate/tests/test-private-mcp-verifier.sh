@@ -22,6 +22,7 @@ fi
 
 response_functions="$(awk '
   /^fail\(\)/ { capture = 1 }
+  /^validate_app_token_contract\(\)/ { capture = 1 }
   /^mcp_body\(\)/ { capture = 1 }
   /^json_rpc\(\)/ { capture = 1 }
   capture { print }
@@ -50,6 +51,25 @@ if [[ "${diagnostic}" == *'private response body'* || "${diagnostic}" == *'priva
   exit 1
 fi
 
+token_payload='{"aud":"api://other","tid":"tenant","iss":"https://login.microsoftonline.com/tenant/v2.0","ver":"2.0","roles":["Orders.Invoke.All"]}'
+token_payload="$(printf '%s' "${token_payload}" | openssl base64 -A)"
+token_payload="${token_payload//+/-}"
+token_payload="${token_payload//\//_}"
+token_payload="${token_payload//=}"
+token_diagnostic="$(
+  export response_functions token_payload
+  bash <<'BASH' 2>&1 || true
+eval "${response_functions}"
+MCP_RESOURCE_AUDIENCE="api://expected"
+AZURE_TENANT_ID="tenant"
+validate_app_token_contract "header.${token_payload}.signature"
+BASH
+)"
+if [ "${token_diagnostic}" != "private MCP verification failed: the application token audience did not match the private MCP audience" ]; then
+  echo "private verifier did not fail safely on an application token audience mismatch" >&2
+  exit 1
+fi
+
 for required in \
   'MCP_PRIVATE_HOST' \
   'MCP_PRIVATE_IP' \
@@ -59,6 +79,8 @@ for required in \
   'openssl rand -hex 16' \
   'prm_verification_id=%s' \
   'X-Private-Mcp-Verification: ${prm_verification_id}' \
+  'validate_app_token_contract "${app_token}"' \
+  'application token contract passed: version=${token_version}' \
   '__MCP_RESPONSE_META__%{http_code}\t%{content_type}' \
   'the MCP JSON-RPC request returned HTTP ${http_status} with content type ${content_type:-none}' \
   'the MCP response with content type ${content_type:-none} was neither JSON nor a JSON SSE event' \

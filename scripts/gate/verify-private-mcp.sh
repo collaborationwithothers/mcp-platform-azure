@@ -115,6 +115,52 @@ token() {
   jq --exit-status --raw-output '.access_token // empty' <<< "${response}"
 }
 
+validate_app_token_contract() {
+  local bearer_token="$1"
+  local header_segment
+  local payload_segment
+  local signature_segment
+  local token_payload
+  local token_version
+
+  IFS='.' read -r header_segment payload_segment signature_segment <<< "${bearer_token}"
+  if [ -z "${header_segment}" ] || [ -z "${payload_segment}" ] || [ -z "${signature_segment}" ]; then
+    fail "the application access token was not a three-segment JWT"
+  fi
+
+  payload_segment="${payload_segment//-/+}"
+  payload_segment="${payload_segment//_/\/}"
+  case $(( ${#payload_segment} % 4 )) in
+    0) ;;
+    2) payload_segment+="==" ;;
+    3) payload_segment+="=" ;;
+    *) fail "the application access token payload was not valid base64url" ;;
+  esac
+  token_payload="$(printf '%s' "${payload_segment}" \
+    | openssl base64 -d -A 2>/dev/null)" \
+    || fail "the application access token payload could not be decoded"
+  token_version="$(jq --raw-output '.ver // "missing"' <<< "${token_payload}")" \
+    || fail "the application access token payload was not JSON"
+
+  jq --exit-status --arg audience "${MCP_RESOURCE_AUDIENCE}" \
+    'if (.aud | type) == "array" then .aud | index($audience) != null else .aud == $audience end' \
+    <<< "${token_payload}" > /dev/null \
+    || fail "the application token audience did not match the private MCP audience"
+  jq --exit-status --arg tenant "${AZURE_TENANT_ID}" '.tid == $tenant' \
+    <<< "${token_payload}" > /dev/null \
+    || fail "the application token tenant did not match the private MCP tenant"
+  jq --exit-status \
+    --arg issuer "https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0" \
+    '.iss == $issuer' <<< "${token_payload}" > /dev/null \
+    || fail "the application token issuer was not the configured Entra v2 issuer; token version=${token_version}"
+  jq --exit-status \
+    'any(.roles[]?; . == "Orders.Invoke.All" or . == "Catalog.Invoke.All")' \
+    <<< "${token_payload}" > /dev/null \
+    || fail "the application token carried no private MCP server-entry role"
+
+  echo "application token contract passed: version=${token_version}"
+}
+
 mcp_body() {
   local bearer_token="$1"
   local body="$2"
@@ -210,6 +256,7 @@ wrong_audience_token="$(token \
 if [ -z "${app_token}" ] || [ -z "${roleless_token}" ] || [ -z "${wrong_audience_token}" ]; then
   fail "the token endpoint returned an empty access token"
 fi
+validate_app_token_contract "${app_token}"
 
 initialize='{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"private-verifier","version":"1.0"}}}'
 tools_list='{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}'
