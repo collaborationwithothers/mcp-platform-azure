@@ -720,7 +720,7 @@ jobs:
                 mcp_pod_states="$(kubectl get pods -n mcp-platform -l "${mcp_pod_selector}" -o json \
                   | jq -r '
                     [.items[]
-                     | "\(.metadata.name): owner=\([.metadata.ownerReferences[]?.name // empty] | join(",")); phase=\(.status.phase // "Unknown"); ready=\([.status.containerStatuses[]? | select(.ready)] | length)/\([.status.containerStatuses[]?] | length); waiting=\([.status.containerStatuses[]?.state.waiting.reason // empty] | join(",")); conditions=\([.status.conditions[]? | "\(.type)=\(.status):\(.reason // "")"] | join(","))"]
+                     | "\(.metadata.name): owner=\([.metadata.ownerReferences[]?.name // empty] | join(",")); phase=\(.status.phase // "Unknown"); ready=\([.status.containerStatuses[]? | select(.ready)] | length)/\([.status.containerStatuses[]?] | length); waiting=\([.status.containerStatuses[]?.state.waiting.reason // empty] | join(",")); conditions=\([.status.conditions[]? | "\(.type)=\(.status):\(.reason // ""): \(.message // "")"] | join(","))"]
                     | if length == 0 then "none reported" else join("; ") end
                   ')"
                 echo "MCP pod states: ${mcp_pod_states}"
