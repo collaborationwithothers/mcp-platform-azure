@@ -917,11 +917,19 @@ jobs:
             exit 1
           fi
           request_context="$(kubectl logs "${pod}" -n mcp-platform -c mcp-server \
-            | grep --extended-regexp "Private MCP request context /\\.well-known/oauth-protected-resource/mcp https (127\\.0\\.0\\.1|::1) ${prm_verification_id}$" \
+            | grep --extended-regexp "Private MCP request context /\\.well-known/oauth-protected-resource/mcp https .* ${prm_verification_id}$" \
             || true)"
           request_context_count="$(grep --count . <<< "${request_context}" || true)"
           if [ "${request_context_count}" != 1 ]; then
-            echo "::error title=Private MCP forwarded PRM context missing::The final VNet PRM request did not record exactly one matching scheme=https loopback proxy context."
+            echo "::error title=Private MCP forwarded PRM context missing::The final VNet PRM request did not record exactly one correlated scheme=https context."
+            exit 1
+          fi
+          loopback_context="$(grep --extended-regexp \
+            "Private MCP request context /\\.well-known/oauth-protected-resource/mcp https (127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$" \
+            <<< "${request_context}" || true)"
+          loopback_context_count="$(grep --count . <<< "${loopback_context}" || true)"
+          if [ "${loopback_context_count}" != 1 ]; then
+            echo "::error title=Private MCP forwarded PRM peer is not loopback::The correlated PRM request did not record an IPv4 or IPv6 loopback proxy peer."
             exit 1
           fi
           echo "Private MCP PRM request context observed: scheme=https; peer=loopback"
