@@ -101,6 +101,10 @@ for required in \
   '::error title=Private MCP certificate not ready::' \
   '::error title=Istio sidecar missing::' \
   '::error title=Istio REDIRECT init mode missing::' \
+  'Application Insights DisableLocalAuth=true' \
+  '::error title=Application Insights local authentication enabled::Application Insights DisableLocalAuth=false; expected true.' \
+  '::error title=Application Insights local authentication state missing::Application Insights DisableLocalAuth was not returned; expected true.' \
+  '::error title=Application Insights local authentication state invalid::Application Insights DisableLocalAuth was not a Boolean; expected true.' \
   "Private MCP certificate mcp-platform-mcp-tls: Ready=\${certificate_ready}" \
   "MCP pod \${pod}: istio-proxy present" \
   "MCP pod \${pod}: Istio init interception=REDIRECT configured"; do
