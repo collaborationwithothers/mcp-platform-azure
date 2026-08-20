@@ -136,9 +136,12 @@ The private MCP resource is fixed at
 `https://mcp.internal.consultwithcloud.com/mcp`. Its protected resource metadata
 is fixed at the RFC 9728 path-inserted URI, which places the `/mcp` resource path
 after the well-known metadata segment. `Authentication__Authority` supplies the
-Entra issuer. `Authentication__Audience` supplies the unchanged server App ID
-URI, which is Entra's identifier for the server resource, and the prefix for the
-two advertised delegated scopes.
+v2 authorization server advertised in that metadata. The server resource app
+currently issues v1 access tokens, so JWT validation reads the tenant-specific
+v1 OpenID metadata and exact v1 issuer derived from `MicrosoftEntra__TenantId`.
+`Authentication__Audience` supplies the unchanged server App ID URI, which is
+Entra's identifier for the server resource, and the prefix for the two advertised
+delegated scopes.
 
 The ASP.NET Core host requires these environment variables. This table records
 formats only; it contains no real tenant, application, or endpoint value. Issue
@@ -147,10 +150,10 @@ their environment-specific values before the pod starts.
 
 | Environment variable | Required format |
 | --- | --- |
-| `Authentication__Authority` | Absolute tenant-specific Entra authority URI, such as `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+| `Authentication__Authority` | Absolute tenant-specific Entra v2 authorization-server URI advertised by PRM, such as `https://login.microsoftonline.com/<tenant-id>/v2.0` |
 | `Authentication__Audience` | Exact MCP server App ID URI, such as `api://<server-app-client-id>` |
 | `MicrosoftEntra__ServerAppClientId` | MCP server application client ID as a UUID; this is an identifier, not a secret |
-| `MicrosoftEntra__TenantId` | MCP server home-tenant directory ID as a UUID; app-only token acquisition uses this tenant |
+| `MicrosoftEntra__TenantId` | MCP server home-tenant directory ID as a UUID; token validation derives the v1 metadata and issuer from it, and app-only token acquisition uses it |
 | `DownstreamOrdersApi__BaseUrl` | Absolute HTTPS origin for Orders, with no `/api/orders` path |
 | `DownstreamOrdersApi__Scope` | Exact delegated Orders scope, such as `api://<orders-app-client-id>/user_impersonation` |
 | `DownstreamOrdersApi__ApplicationScope` | Orders application scope in `api://<orders-app-client-id>/.default` form |

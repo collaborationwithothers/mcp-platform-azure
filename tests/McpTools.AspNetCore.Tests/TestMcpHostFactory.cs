@@ -18,7 +18,10 @@ namespace McpTools.AspNetCore.Tests;
 
 internal sealed class TestMcpHostFactory : WebApplicationFactory<Program>
 {
-    internal const string Issuer = "https://issuer.example.test";
+    internal const string TenantId = "server-tenant-id";
+    internal const string AuthorizationServer =
+        "https://login.microsoftonline.com/server-tenant-id/v2.0";
+    internal const string Issuer = "https://sts.windows.net/server-tenant-id/";
     internal const string Audience = "api://mcp-server-app-id";
 
     private readonly RSA _rsa = RSA.Create(2048);
@@ -55,11 +58,11 @@ internal sealed class TestMcpHostFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting(WebHostDefaults.EnvironmentKey, "Development");
-        builder.UseSetting("Authentication:Authority", Issuer);
+        builder.UseSetting("Authentication:Authority", AuthorizationServer);
         builder.UseSetting("Authentication:Audience", Audience);
         builder.UseSetting("ReverseProxy:TrustAnyForwarder", "true");
         builder.UseSetting("MicrosoftEntra:ServerAppClientId", "mcp-server-app-id");
-        builder.UseSetting("MicrosoftEntra:TenantId", "server-tenant-id");
+        builder.UseSetting("MicrosoftEntra:TenantId", TenantId);
         builder.UseSetting("DownstreamOrdersApi:BaseUrl", "https://orders.example.test");
         builder.UseSetting(
             "DownstreamOrdersApi:Scope",

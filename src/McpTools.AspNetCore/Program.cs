@@ -20,6 +20,10 @@ var serverAppClientId = RequiredConfiguration(
 var serverTenantId = RequiredConfiguration(
     builder.Configuration,
     "MicrosoftEntra:TenantId");
+var accessTokenMetadataAddress =
+    $"https://login.microsoftonline.com/{serverTenantId}/"
+    + ".well-known/openid-configuration";
+var accessTokenIssuer = $"https://sts.windows.net/{serverTenantId}/";
 var downstreamBaseUrl = RequiredConfiguration(
     builder.Configuration,
     "DownstreamOrdersApi:BaseUrl");
@@ -65,7 +69,7 @@ builder.Services
     })
     .AddJwtBearer(options =>
     {
-        options.Authority = authority;
+        options.MetadataAddress = accessTokenMetadataAddress;
         options.Audience = audience;
         options.RequireHttpsMetadata = requireHttpsMetadata;
         options.MapInboundClaims = false;
@@ -76,6 +80,7 @@ builder.Services
             ValidateIssuerSigningKey = true,
             ValidateLifetime = true,
             ValidAudience = audience,
+            ValidIssuer = accessTokenIssuer,
             RoleClaimType = "roles",
         };
     })
