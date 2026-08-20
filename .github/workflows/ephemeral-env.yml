@@ -707,15 +707,16 @@ jobs:
             application_json="$(kubectl get application "${application}" -n argocd -o json)"
             sync_status="$(jq -r '.status.sync.status // "Unknown"' <<< "${application_json}")"
             health_status="$(jq -r '.status.health.status // "Unknown"' <<< "${application_json}")"
-            echo "Argo CD application ${application}: sync=${sync_status}; health=${health_status}"
+            health_message="$(jq -r '.status.health.message // "none reported"' <<< "${application_json}")"
+            echo "Argo CD application ${application}: sync=${sync_status}; health=${health_status}; message=${health_message}"
             if [ "${sync_status}" != "Synced" ] || [ "${health_status}" != "Healthy" ]; then
               unhealthy_resources="$(jq -r '
                 [.status.resources[]?
-                 | select((.health.status // "Unknown") != "Healthy")
+                 | select(.health.status == "Degraded")
                  | "\(.kind // "Unknown")/\(.namespace // "default")/\(.name // "Unknown"): sync=\(.status // "Unknown"); health=\(.health.status // "Unknown")"]
                 | if length == 0 then "none reported" else join(", ") end
               ' <<< "${application_json}")"
-              echo "::error title=Argo CD application not ready::${application}: sync=${sync_status}; health=${health_status}; unhealthy resources: ${unhealthy_resources}"
+              echo "::error title=Argo CD application not ready::${application}: sync=${sync_status}; health=${health_status}; message=${health_message}; unhealthy resources: ${unhealthy_resources}"
               exit 1
             fi
           done

@@ -62,7 +62,7 @@ if [ -z "${control_plane_job}" ]; then
 fi
 
 for required in \
-  "Argo CD application \${application}: sync=\${sync_status}; health=\${health_status}" \
+  "Argo CD application \${application}: sync=\${sync_status}; health=\${health_status}; message=\${health_message}" \
   '::error title=Argo CD application not ready::' \
   "unhealthy resources: \${unhealthy_resources}" \
   '::error title=Private MCP certificate not ready::' \
