@@ -154,6 +154,18 @@ run "plans_private_mcp_runtime_foundation" {
 
   assert {
     condition = (
+      azurerm_role_assignment.mcp_application_insights_reader.scope
+      == data.terraform_remote_state.shared_observability_core.outputs.application_insights_id
+      && azurerm_role_assignment.mcp_application_insights_reader.principal_id
+      == azurerm_user_assigned_identity.mcp_workload.principal_id
+      && azurerm_role_assignment.mcp_application_insights_reader.role_definition_name
+      == "Reader"
+    )
+    error_message = "Reader must be scoped to shared Application Insights and granted to the MCP managed identity principal."
+  }
+
+  assert {
+    condition = (
       azurerm_private_dns_zone.mcp.name == "internal.consultwithcloud.com"
       && azurerm_private_dns_a_record.mcp.name == "mcp"
       && length(azurerm_private_dns_a_record.mcp.records) == 1

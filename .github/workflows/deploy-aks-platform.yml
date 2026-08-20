@@ -589,6 +589,25 @@ jobs:
             -f "${argocd_values}" \
             --wait --timeout 10m
 
+      # The resource ID selects the shared Application Insights component. The
+      # MCP pod reads the connection string through its workload identity, so
+      # no connection string is stored in GitHub or a committed manifest.
+      - name: Create live-only MCP telemetry resource selector
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/compositions/shared-observability-core init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_CORE_STATE_KEY}" > /dev/null
+          application_insights_component_resource_id="$(terraform -chdir=infra/compositions/shared-observability-core output -raw application_insights_id)"
+          echo "::add-mask::${application_insights_component_resource_id}"
+          kubectl create namespace mcp-platform --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic mcp-server-telemetry \
+            --namespace mcp-platform \
+            --from-literal=application-insights-component-resource-id="${application_insights_component_resource_id}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Apply the app-of-apps
         shell: bash
         run: kubectl apply -f infra/argocd/bootstrap-app-of-apps.yaml

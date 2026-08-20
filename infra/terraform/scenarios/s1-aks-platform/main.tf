@@ -169,12 +169,19 @@ resource "azuread_application_federated_identity_credential" "mcp_server" {
   subject        = local.mcp_workload_subject
 }
 
-# The MCP pod can publish custom metrics and availability telemetry only to the
-# shared Application Insights component. This grant does not disable local auth;
-# that enforcement remains deferred to the migration cutover.
+# The MCP pod reads its shared Application Insights component only to obtain the
+# ingestion endpoint. It publishes telemetry through Entra authentication.
 resource "azurerm_role_assignment" "mcp_monitoring_metrics_publisher" {
   scope                            = local.application_insights_id
   role_definition_name             = "Monitoring Metrics Publisher"
+  principal_id                     = azurerm_user_assigned_identity.mcp_workload.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
+resource "azurerm_role_assignment" "mcp_application_insights_reader" {
+  scope                            = local.application_insights_id
+  role_definition_name             = "Reader"
   principal_id                     = azurerm_user_assigned_identity.mcp_workload.principal_id
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true
