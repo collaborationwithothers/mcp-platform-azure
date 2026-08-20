@@ -1,3 +1,5 @@
+using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using McpTools.AspNetCore;
 using McpTools.Core;
 using McpTools.Downstream;
@@ -106,6 +108,19 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
 builder.Services.AddHealthChecks();
+if (!builder.Environment.IsDevelopment())
+{
+    var telemetryCredential = new DefaultAzureCredential();
+    var connectionString = RequiredConfiguration(
+        builder.Configuration,
+        "APPLICATIONINSIGHTS_CONNECTION_STRING");
+
+    builder.Services.AddOpenTelemetry().UseAzureMonitor(options =>
+    {
+        options.ConnectionString = connectionString;
+        options.Credential = telemetryCredential;
+    });
+}
 builder.Services.AddSingleton(
     new KubernetesTokenAcquirer(serverAppClientId, serverTenantId));
 builder.Services.AddSingleton<IOboTokenAcquirer>(services =>
@@ -133,6 +148,20 @@ builder.Services.AddMcpServer()
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+app.Use(async (context, next) =>
+{
+    await next(context);
+
+    if (context.Request.Path.StartsWithSegments("/mcp")
+        || context.Request.Path.StartsWithSegments(
+            "/.well-known/oauth-protected-resource/mcp"))
+    {
+        app.Logger.LogInformation(
+            "Private MCP request context {Scheme} {RemoteIpAddress}",
+            context.Request.Scheme,
+            context.Connection.RemoteIpAddress?.ToString());
+    }
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapHealthChecks("/healthz");

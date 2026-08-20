@@ -35,7 +35,7 @@ resource "azurerm_application_insights" "this" {
 
   daily_data_cap_in_gb                 = var.daily_ingestion_cap_gb
   daily_data_cap_notifications_enabled = false
-  local_authentication_enabled         = true
+  local_authentication_enabled         = false
   internet_ingestion_enabled           = true
   internet_query_enabled               = true
   tags                                 = local.tags

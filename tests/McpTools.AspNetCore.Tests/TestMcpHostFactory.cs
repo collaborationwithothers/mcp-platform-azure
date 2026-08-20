@@ -54,6 +54,7 @@ internal sealed class TestMcpHostFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseSetting(WebHostDefaults.EnvironmentKey, "Development");
         builder.UseSetting("Authentication:Authority", Issuer);
         builder.UseSetting("Authentication:Audience", Audience);
         builder.UseSetting("ReverseProxy:TrustAnyForwarder", "true");
