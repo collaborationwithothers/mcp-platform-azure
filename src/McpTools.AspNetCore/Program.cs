@@ -1,8 +1,5 @@
-using Azure.Core;
 using Azure.Identity;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
-using Azure.ResourceManager;
-using Azure.ResourceManager.ApplicationInsights;
 using McpTools.AspNetCore;
 using McpTools.Core;
 using McpTools.Downstream;
@@ -114,15 +111,9 @@ builder.Services.AddHealthChecks();
 if (!builder.Environment.IsDevelopment())
 {
     var telemetryCredential = new DefaultAzureCredential();
-    var componentResourceId = RequiredConfiguration(
+    var connectionString = RequiredConfiguration(
         builder.Configuration,
-        "AzureMonitor:ApplicationInsightsComponentResourceId");
-    var component = await new ArmClient(telemetryCredential)
-        .GetApplicationInsightsComponentResource(new ResourceIdentifier(componentResourceId))
-        .GetAsync();
-    var connectionString = component.Value.Data.ConnectionString
-        ?? throw new InvalidOperationException(
-            "Application Insights returned no connection string.");
+        "APPLICATIONINSIGHTS_CONNECTION_STRING");
 
     builder.Services.AddOpenTelemetry().UseAzureMonitor(options =>
     {

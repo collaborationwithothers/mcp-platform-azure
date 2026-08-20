@@ -169,19 +169,12 @@ resource "azuread_application_federated_identity_credential" "mcp_server" {
   subject        = local.mcp_workload_subject
 }
 
-# The MCP pod reads its shared Application Insights component only to obtain the
-# ingestion endpoint. It publishes telemetry through Entra authentication.
+# The MCP pod publishes telemetry through Entra authentication. The deployment
+# workflow supplies the Application Insights connection string as live-only
+# runtime configuration, so the pod has no management-plane read permission.
 resource "azurerm_role_assignment" "mcp_monitoring_metrics_publisher" {
   scope                            = local.application_insights_id
   role_definition_name             = "Monitoring Metrics Publisher"
-  principal_id                     = azurerm_user_assigned_identity.mcp_workload.principal_id
-  principal_type                   = "ServicePrincipal"
-  skip_service_principal_aad_check = true
-}
-
-resource "azurerm_role_assignment" "mcp_application_insights_reader" {
-  scope                            = local.application_insights_id
-  role_definition_name             = "Reader"
   principal_id                     = azurerm_user_assigned_identity.mcp_workload.principal_id
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true

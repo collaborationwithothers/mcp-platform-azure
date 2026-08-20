@@ -589,10 +589,10 @@ jobs:
             -f "${argocd_values}" \
             --wait --timeout 10m
 
-      # The resource ID selects the shared Application Insights component. The
-      # MCP pod reads the connection string through its workload identity, so
-      # no connection string is stored in GitHub or a committed manifest.
-      - name: Create live-only MCP telemetry resource selector
+      # The deployment identity reads the connection string from the shared
+      # Application Insights component. The MCP pod receives it only through
+      # this live-only Secret and uses workload identity for ingestion.
+      - name: Create live-only MCP telemetry configuration
         shell: bash
         run: |
           set -euo pipefail
@@ -602,10 +602,16 @@ jobs:
             -backend-config="key=${SHARED_OBSERVABILITY_CORE_STATE_KEY}" > /dev/null
           application_insights_component_resource_id="$(terraform -chdir=infra/compositions/shared-observability-core output -raw application_insights_id)"
           echo "::add-mask::${application_insights_component_resource_id}"
+          application_insights_connection_string="$(az rest --method get --url "https://management.azure.com${application_insights_component_resource_id}?api-version=2020-02-02" --query properties.ConnectionString --output tsv --only-show-errors)"
+          if [[ -z "${application_insights_connection_string}" ]]; then
+            echo "Application Insights returned no connection string." >&2
+            exit 1
+          fi
+          echo "::add-mask::${application_insights_connection_string}"
           kubectl create namespace mcp-platform --dry-run=client -o yaml | kubectl apply -f -
           kubectl create secret generic mcp-server-telemetry \
             --namespace mcp-platform \
-            --from-literal=application-insights-component-resource-id="${application_insights_component_resource_id}" \
+            --from-literal=application-insights-connection-string="${application_insights_connection_string}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Apply the app-of-apps
