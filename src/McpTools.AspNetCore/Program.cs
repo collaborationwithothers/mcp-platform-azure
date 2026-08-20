@@ -20,10 +20,18 @@ var serverAppClientId = RequiredConfiguration(
 var serverTenantId = RequiredConfiguration(
     builder.Configuration,
     "MicrosoftEntra:TenantId");
-var accessTokenMetadataAddress =
+var entraV1MetadataAddress =
     $"https://login.microsoftonline.com/{serverTenantId}/"
     + ".well-known/openid-configuration";
-var accessTokenIssuer = $"https://sts.windows.net/{serverTenantId}/";
+var entraV1Issuer = $"https://sts.windows.net/{serverTenantId}/";
+var accessTokenMetadataAddress = builder.Environment.IsDevelopment()
+    ? builder.Configuration["DevelopmentAuthentication:MetadataAddress"]
+        ?? entraV1MetadataAddress
+    : entraV1MetadataAddress;
+var accessTokenIssuer = builder.Environment.IsDevelopment()
+    ? builder.Configuration["DevelopmentAuthentication:ValidIssuer"]
+        ?? entraV1Issuer
+    : entraV1Issuer;
 var downstreamBaseUrl = RequiredConfiguration(
     builder.Configuration,
     "DownstreamOrdersApi:BaseUrl");
