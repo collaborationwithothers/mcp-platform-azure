@@ -101,6 +101,8 @@ for required in \
   '::error title=Private MCP certificate not ready::' \
   '::error title=Istio sidecar missing::' \
   '::error title=Istio REDIRECT init mode missing::' \
+  'upper: properties.DisableLocalAuth, lower: properties.disableLocalAuth' \
+  'if .upper != null then if (.upper | type) == "boolean" then .upper else "invalid" end elif .lower != null then if (.lower | type) == "boolean" then .lower else "invalid" end else "missing" end' \
   'Application Insights DisableLocalAuth=true' \
   '::error title=Application Insights local authentication enabled::Application Insights DisableLocalAuth=false; expected true.' \
   '::error title=Application Insights local authentication state missing::Application Insights DisableLocalAuth was not returned; expected true.' \
@@ -113,6 +115,16 @@ for required in \
     exit 1
   fi
 done
+
+if [ "$(jq -nr '({upper: false, lower: null} | if .upper != null then if (.upper | type) == "boolean" then .upper else "invalid" end elif .lower != null then if (.lower | type) == "boolean" then .lower else "invalid" end else "missing" end)')" != "false" ]; then
+  echo "private verifier must preserve DisableLocalAuth=false" >&2
+  exit 1
+fi
+
+if [ "$(jq -nr '({upper: "true", lower: null} | if .upper != null then if (.upper | type) == "boolean" then .upper else "invalid" end elif .lower != null then if (.lower | type) == "boolean" then .lower else "invalid" end else "missing" end)')" != "invalid" ]; then
+  echo "private verifier must reject a non-Boolean DisableLocalAuth value" >&2
+  exit 1
+fi
 
 if grep --fixed-strings --quiet 'jq --exit-status' <<< "${control_plane_job}"; then
   echo "private control-plane checks must report failed prerequisites" >&2

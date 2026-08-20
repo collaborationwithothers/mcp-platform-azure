@@ -804,11 +804,12 @@ jobs:
             echo "::error::No Application Insights component was found in the shared observability resource group."
             exit 1
           fi
-          disable_local_auth="$(az resource show \
+          disable_local_auth_json="$(az resource show \
             --ids "${component_id}" \
             --api-version 2020-02-02 \
-            --query properties.DisableLocalAuth \
-            --output tsv)"
+            --query '{upper: properties.DisableLocalAuth, lower: properties.disableLocalAuth}' \
+            --output json)"
+          disable_local_auth="$(jq -r 'if .upper != null then if (.upper | type) == "boolean" then .upper else "invalid" end elif .lower != null then if (.lower | type) == "boolean" then .lower else "invalid" end else "missing" end' <<< "${disable_local_auth_json}")"
           case "${disable_local_auth,,}" in
             true)
               echo "Application Insights DisableLocalAuth=true"
@@ -817,11 +818,11 @@ jobs:
               echo "::error title=Application Insights local authentication enabled::Application Insights DisableLocalAuth=false; expected true."
               exit 1
               ;;
-            "")
+            missing)
               echo "::error title=Application Insights local authentication state missing::Application Insights DisableLocalAuth was not returned; expected true."
               exit 1
               ;;
-            *)
+            invalid)
               echo "::error title=Application Insights local authentication state invalid::Application Insights DisableLocalAuth was not a Boolean; expected true."
               exit 1
               ;;
