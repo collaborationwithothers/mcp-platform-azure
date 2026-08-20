@@ -678,9 +678,16 @@ jobs:
     runs-on: ubuntu-latest
     environment: live-test
     env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
       AKS_RESOURCE_GROUP: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
       AKS_CLUSTER_NAME: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
-      SHARED_OBSERVABILITY_RESOURCE_GROUP: ${{ vars.SHARED_OBSERVABILITY_RESOURCE_GROUP }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -691,6 +698,12 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
 
       - name: Check private MCP control-plane prerequisites
         shell: bash
@@ -795,15 +808,16 @@ jobs:
           fi
           echo "MCP pod ${pod}: Istio init interception=REDIRECT configured"
 
-          component_id="$(az resource list \
-            --resource-group "${SHARED_OBSERVABILITY_RESOURCE_GROUP}" \
-            --resource-type Microsoft.Insights/components \
-            --query '[0].id' \
-            --output tsv)"
+          terraform -chdir=infra/compositions/shared-observability-core init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_CORE_STATE_KEY}" > /dev/null
+          component_id="$(terraform -chdir=infra/compositions/shared-observability-core output -raw application_insights_id)"
           if [ -z "${component_id}" ]; then
-            echo "::error::No Application Insights component was found in the shared observability resource group."
+            echo "::error::Shared observability state returned no Application Insights component ID."
             exit 1
           fi
+          echo "::add-mask::${component_id}"
           disable_local_auth_json="$(az rest \
             --method get \
             --url "https://management.azure.com${component_id}?api-version=2020-02-02-preview" \

@@ -101,6 +101,11 @@ for required in \
   '::error title=Private MCP certificate not ready::' \
   '::error title=Istio sidecar missing::' \
   '::error title=Istio REDIRECT init mode missing::' \
+  'hashicorp/setup-terraform@v4' \
+  'terraform_version: 1.15.8' \
+  'terraform -chdir=infra/compositions/shared-observability-core init -input=false' \
+  'terraform -chdir=infra/compositions/shared-observability-core output -raw application_insights_id' \
+  '::add-mask::${component_id}' \
   'az rest' \
   '--method get' \
   'https://management.azure.com${component_id}?api-version=2020-02-02-preview' \
@@ -118,6 +123,11 @@ for required in \
     exit 1
   fi
 done
+
+if grep --fixed-strings --quiet 'az resource list' <<< "${control_plane_job}"; then
+  echo "private control-plane verifier must target the shared-observability state output" >&2
+  exit 1
+fi
 
 if [ "$(jq -nr '({upper: false, lower: null} | if .upper != null then if (.upper | type) == "boolean" then .upper else "invalid" end elif .lower != null then if (.lower | type) == "boolean" then .lower else "invalid" end else "missing" end)')" != "false" ]; then
   echo "private verifier must preserve DisableLocalAuth=false" >&2
