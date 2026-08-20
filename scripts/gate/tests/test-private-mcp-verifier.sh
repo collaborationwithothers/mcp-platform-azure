@@ -103,7 +103,7 @@ for required in \
   '::error title=Istio REDIRECT init mode missing::' \
   'az rest' \
   '--method get' \
-  'https://management.azure.com${component_id}?api-version=2020-02-02' \
+  'https://management.azure.com${component_id}?api-version=2020-02-02-preview' \
   'upper: properties.DisableLocalAuth, lower: properties.disableLocalAuth' \
   'if .upper != null then if (.upper | type) == "boolean" then .upper else "invalid" end elif .lower != null then if (.lower | type) == "boolean" then .lower else "invalid" end else "missing" end' \
   'Application Insights DisableLocalAuth=true' \
