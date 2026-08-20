@@ -524,10 +524,11 @@ Location: `docs/diagrams/`. Two files per diagram:
 
 Agents generate and update the `.drawio` source using the drawio MCP
 server. After checking the source layout, agents export and update the
-`.drawio.svg` asset using Draw.io through browser control when needed. Agents
-validate SVG XML, the embedded Draw.io copy, embedded images, and native SVG
-labels before committing. Human review of the rendered public diagram remains
-welcome but is not a delivery prerequisite.
+`.drawio.svg` asset using Draw.io through browser control or Computer Use.
+For a local source file, agents use Computer Use when browser control cannot
+open the file. Agents validate SVG XML, the embedded Draw.io copy, embedded
+images, and native SVG labels before committing. Human review of the rendered
+public diagram remains welcome but is not a delivery prerequisite.
 
 Honesty rule extends to diagrams. A diagram is a public claim on the same
 footing as a benchmark number. Depict only what the tagged release
