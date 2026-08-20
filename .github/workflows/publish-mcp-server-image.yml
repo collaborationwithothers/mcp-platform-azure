@@ -1,4 +1,4 @@
-# Manual image publication for issue 151. The selected workflow_dispatch ref
+# Manual image publication for issue 154. The selected workflow_dispatch ref
 # supplies both the workflow and the source code. This job validates the full
 # promotion contract before it pushes the commit-tagged image.
 name: Publish MCP server image
@@ -67,7 +67,7 @@ jobs:
           DOWNSTREAM_SCOPE: ${{ fromJSON(secrets.S1_TFVARS_JSON).downstream_app.api_scope }}
           DOWNSTREAM_APPLICATION_SCOPE: ${{ fromJSON(secrets.S1_TFVARS_JSON).downstream_app.application_scope }}
           SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
-          DEPLOYMENT_ISSUE: "152"
+          DEPLOYMENT_ISSUE: "154"
         run: |
           set -euo pipefail
           terraform -chdir=infra/terraform/scenarios/s1-aks-platform init -input=false \
@@ -160,5 +160,5 @@ jobs:
           {
             echo "## MCP deployment promotion requested"
             echo "Image reference: \`${IMAGE_REFERENCE}\`"
-            echo "The companion repository will open issue #152's draft deployment PR."
+            echo "The companion repository will open issue #154's draft deployment PR."
           } >> "$GITHUB_STEP_SUMMARY"
