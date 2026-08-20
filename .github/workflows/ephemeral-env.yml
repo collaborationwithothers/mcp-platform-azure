@@ -705,9 +705,36 @@ jobs:
 
           for application in mcp-platform-mcp mcp-platform-placeholder; do
             application_json="$(kubectl get application "${application}" -n argocd -o json)"
-            jq --exit-status \
-              '.status.sync.status == "Synced" and .status.health.status == "Healthy"' \
-              <<< "${application_json}" > /dev/null
+            sync_status="$(jq -r '.status.sync.status // "Unknown"' <<< "${application_json}")"
+            health_status="$(jq -r '.status.health.status // "Unknown"' <<< "${application_json}")"
+            health_message="$(jq -r '.status.health.message // "none reported"' <<< "${application_json}")"
+            echo "Argo CD application ${application}: sync=${sync_status}; health=${health_status}; message=${health_message}"
+            if [ "${sync_status}" != "Synced" ] || [ "${health_status}" != "Healthy" ]; then
+              if [ "${application}" = "mcp-platform-mcp" ]; then
+                mcp_deployment_json="$(kubectl get deployment mcp-server -n mcp-platform -o json)"
+                desired_replicas="$(jq -r '.spec.replicas // 0' <<< "${mcp_deployment_json}")"
+                updated_replicas="$(jq -r '.status.updatedReplicas // 0' <<< "${mcp_deployment_json}")"
+                available_replicas="$(jq -r '.status.availableReplicas // 0' <<< "${mcp_deployment_json}")"
+                echo "MCP deployment mcp-server: desired=${desired_replicas}; updated=${updated_replicas}; available=${available_replicas}"
+                mcp_pod_selector="$(jq -er '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")' <<< "${mcp_deployment_json}")"
+                mcp_pod_states="$(kubectl get pods -n mcp-platform -l "${mcp_pod_selector}" -o json \
+                  | jq -r '
+                    [.items[]
+                     | "\(.metadata.name): owner=\([.metadata.ownerReferences[]?.name // empty] | join(",")); phase=\(.status.phase // "Unknown"); ready=\([.status.containerStatuses[]? | select(.ready)] | length)/\([.status.containerStatuses[]?] | length); waiting=\([.status.containerStatuses[]?.state.waiting.reason // empty] | join(",")); conditions=\([.status.conditions[]? | "\(.type)=\(.status):\(.reason // ""): \(.message // "")"] | join(","))"]
+                    | if length == 0 then "none reported" else join("; ") end
+                  ')"
+                mcp_replica_set_states="$(kubectl get replicasets -n mcp-platform -l "${mcp_pod_selector}" -o json \
+                  | jq -r '
+                    [.items[]
+                     | "\(.metadata.name): revision=\(.metadata.annotations["deployment.kubernetes.io/revision"] // "Unknown"); desired=\(.spec.replicas // 0); ready=\(.status.readyReplicas // 0); available=\(.status.availableReplicas // 0)"]
+                    | if length == 0 then "none reported" else join("; ") end
+                  ')"
+                echo "MCP pod states: ${mcp_pod_states}"
+                echo "MCP ReplicaSet states: ${mcp_replica_set_states}"
+              fi
+              echo "::error title=Argo CD application not ready::${application}: sync=${sync_status}; health=${health_status}; message=${health_message}"
+              exit 1
+            fi
           done
 
           kubectl rollout status deployment/mcp-server -n mcp-platform --timeout=120s
@@ -715,22 +742,41 @@ jobs:
             -n mcp-platform-demo --timeout=120s
           certificate_json="$(kubectl get certificate mcp-platform-mcp-tls \
             -n aks-istio-ingress -o json)"
-          jq --exit-status \
+          certificate_ready="$(jq -r \
             'any(.status.conditions[]?; .type == "Ready" and .status == "True")' \
-            <<< "${certificate_json}" > /dev/null
+            <<< "${certificate_json}")"
+          if [ "${certificate_ready}" != "true" ]; then
+            echo "::error title=Private MCP certificate not ready::mcp-platform-mcp-tls is not Ready."
+            exit 1
+          fi
+          echo "Private MCP certificate mcp-platform-mcp-tls: Ready=${certificate_ready}"
           pod_selector="$(kubectl get deployment mcp-server -n mcp-platform -o json \
             | jq -er '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')"
           pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
           pod_json="$(kubectl get pod "${pod}" -n mcp-platform -o json)"
-          jq --exit-status \
+          sidecar_present="$(jq -r \
             '[.spec.containers[].name] | index("istio-proxy") != null' \
-            <<< "${pod_json}" > /dev/null
-          jq --exit-status \
+            <<< "${pod_json}")"
+          if [ "${sidecar_present}" != "true" ]; then
+            echo "::error title=Istio sidecar missing::MCP pod ${pod} has no istio-proxy container."
+            exit 1
+          fi
+          echo "MCP pod ${pod}: istio-proxy present"
+          redirect_init_present="$(jq -r \
             'any(.spec.initContainers[]?; .name == "istio-init" and ([.args[]?] | join(" ") | contains("REDIRECT")))' \
-            <<< "${pod_json}" > /dev/null
-          kubectl exec "${pod}" -n mcp-platform -c istio-proxy -- iptables -t nat -S \
-            | grep --fixed-strings --quiet REDIRECT
+            <<< "${pod_json}")"
+          if [ "${redirect_init_present}" != "true" ]; then
+            echo "::error title=Istio REDIRECT init mode missing::MCP pod ${pod} is not configured for REDIRECT interception."
+            exit 1
+          fi
+          echo "MCP pod ${pod}: Istio init interception=REDIRECT"
+          iptables_rules="$(kubectl exec "${pod}" -n mcp-platform -c istio-proxy -- iptables -t nat -S)"
+          if ! grep --fixed-strings --quiet REDIRECT <<< "${iptables_rules}"; then
+            echo "::error title=Istio REDIRECT rule missing::MCP pod ${pod} has no REDIRECT rule in the NAT table."
+            exit 1
+          fi
+          echo "MCP pod ${pod}: NAT REDIRECT rule observed"
 
           component_id="$(az resource list \
             --resource-group "${SHARED_OBSERVABILITY_RESOURCE_GROUP}" \
