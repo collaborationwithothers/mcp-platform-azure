@@ -21,7 +21,7 @@ public sealed class AuthenticationTests
         new("https://mcp.internal.consultwithcloud.com");
 
     [Fact]
-    public void JwtValidationUsesV1TenantMetadataAndIssuer()
+    public void JwtValidationUsesV1TenantMetadataIssuerAndZeroClockSkew()
     {
         using var factory = new TestMcpHostFactory();
         var options = factory.Services
@@ -35,6 +35,7 @@ public sealed class AuthenticationTests
         Assert.Equal(
             TestMcpHostFactory.Issuer,
             options.TokenValidationParameters.ValidIssuer);
+        Assert.Equal(TimeSpan.Zero, options.TokenValidationParameters.ClockSkew);
     }
 
     [Fact]
@@ -204,8 +205,8 @@ public sealed class AuthenticationTests
                 audience: "api://wrong-audience"),
             InvalidTokenKind.Expired => factory.CreateToken(
                 ServerEntitlementClaims(),
-                notBefore: now.AddMinutes(-20),
-                expires: now.AddMinutes(-10)),
+                notBefore: now.AddMinutes(-10),
+                expires: now.AddMinutes(-1)),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         client.DefaultRequestHeaders.Authorization =

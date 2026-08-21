@@ -111,7 +111,9 @@ the run succeeds, Hari records the OBO evidence on PR #157. That evidence proves
 that built-in auth supplies a usable tenant claim.
 
 The adapter validates the signature, issuer, audience, and lifetime of each
-JSON Web Token (JWT) before MCP dispatch. Entry requires either existing
+JSON Web Token (JWT) before MCP dispatch. It sets the validation clock skew to
+zero, so an expired token receives HTTP 401 instead of the token library's
+default five-minute grace period. Entry requires either existing
 delegated server scope
 (`Orders.Invoke` or `Catalog.Invoke`) or existing application server role
 (`Orders.Invoke.All` or `Catalog.Invoke.All`). It maps raw and framework-mapped

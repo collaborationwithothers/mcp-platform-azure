@@ -100,9 +100,11 @@ The host adapters establish the caller in different ways:
 - Azure Functions built-in auth validates before the trigger runs. The adapter
   parses the trusted `X-MS-CLIENT-PRINCIPAL` header.
 - ASP.NET Core JWT bearer middleware validates signature, issuer, audience, and
-  lifetime before MCP dispatch. The adapter reads the validated
-  `ClaimsPrincipal` and accepts raw and framework-mapped aliases for scope,
-  role, application id, object id, and tenant id.
+  lifetime before MCP dispatch. Its zero clock skew rejects a token after its
+  `exp` time instead of inheriting the token library's five-minute grace period.
+  This requires the AKS node clock to remain synchronized. The adapter reads
+  the validated `ClaimsPrincipal` and accepts raw and framework-mapped aliases
+  for scope, role, application id, object id, and tenant id.
 
 ASP.NET Core never reads `X-MS-CLIENT-PRINCIPAL`. The two adapters normalize
 their host-specific claims into the same caller identity before the core makes a

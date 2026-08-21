@@ -87,6 +87,7 @@ builder.Services
             ValidateIssuer = true,
             ValidateIssuerSigningKey = true,
             ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero,
             ValidAudience = audience,
             ValidIssuer = accessTokenIssuer,
             RoleClaimType = "roles",
