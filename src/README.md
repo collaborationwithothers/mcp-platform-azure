@@ -1,12 +1,11 @@
 # src: the S1 MCP server and its test client
 
 This directory holds the .NET side of the v1 tracer bullet (scenario S1): the
-host-neutral MCP application core, its currently deployed Azure Functions
-adapter, the alongside ASP.NET Core adapter, the hand-written MCP test client,
-and the in-process tests. Both adapters expose the same three core-backed tools.
-Issue #148 builds and tests the ASP.NET Core adapter as a container image, a
-read-only package that holds the application and its runtime. It does not push
-or deploy that image. Spec:
+host-neutral MCP application core, its Azure Functions and ASP.NET Core host
+adapters, the hand-written MCP test client, and the in-process tests. Both
+adapters are deployed and expose the same three core-backed tools. The Functions
+adapter remains the API Management backend. The ASP.NET Core adapter runs on the
+private Istio route until issue #117 cuts the gateway over. Spec:
 `docs/specs/v1-tracer-bullet.md` (sections "Compute and the tool (S1)" and
 "Testing Decisions"). Glossary: `src/CONTEXT.md`.
 
@@ -100,15 +99,13 @@ The ASP.NET Core adapter is the new host introduced by issue #146. It serves
 `get_order_status`, `get_service_info`, and `get_access_guidance` at `/mcp` in
 stateless mode. Each POST is independent, and the host registers no MCP GET or
 DELETE session route. The adapter calls the same `McpToolApplication` as the
-Functions adapter. The deployment topology and live workflow stay unchanged
-until the later gateway-cutover issue. Issue #147 does change the deployed
-Functions code path: delegated OBO now requires the validated `tid` claim and
-uses that tenant for the authority instead of the configured server tenant.
-The automated gate cannot mint a delegated user token. Before PR #157 merges,
-Hari must run the manual delegated happy path in
-`docs/runbooks/obo-app-registrations.md` against the deployed Functions host. If
-the run succeeds, Hari records the OBO evidence on PR #157. That evidence proves
-that built-in auth supplies a usable tenant claim.
+Functions adapter. It is deployed on the private Istio route beside Functions.
+API Management remains routed to Functions until issue #117. The
+[issue #154 closeout](https://github.com/collaborationwithothers/mcp-platform-azure/issues/154#issuecomment-5368837859)
+records delegated and app-only calls through the private host. Issue #147 also
+changed the deployed Functions code path: delegated OBO requires the validated
+`tid` claim and uses that tenant for the authority instead of the configured
+server tenant.
 
 The adapter validates the signature, issuer, audience, and lifetime of each
 JSON Web Token (JWT) before MCP dispatch. It sets the validation clock skew to
@@ -146,9 +143,9 @@ Entra's identifier for the server resource, and the prefix for the two advertise
 delegated scopes.
 
 The ASP.NET Core host requires these environment variables. This table records
-formats only; it contains no real tenant, application, or endpoint value. Issue
-#150 must carry the keys into the GitOps workload, and issue #152 must supply
-their environment-specific values before the pod starts.
+formats only; it contains no real tenant, application, or endpoint value. The
+GitOps workload carries the keys, and the deployment workflow supplies their
+environment-specific values before the pod starts.
 
 | Environment variable | Required format |
 | --- | --- |
@@ -160,8 +157,9 @@ their environment-specific values before the pod starts.
 | `DownstreamOrdersApi__Scope` | Exact delegated Orders scope, such as `api://<orders-app-client-id>/user_impersonation` |
 | `DownstreamOrdersApi__ApplicationScope` | Orders application scope in `api://<orders-app-client-id>/.default` form |
 
-The container listens for HTTP on port 8080 because Istio terminates TLS in the
-later deployment. The runtime selects the built-in non-root `app` user. Its
+The container listens for HTTP on port 8080 because Istio terminates TLS before
+the request reaches the deployed pod. The runtime selects the built-in non-root
+`app` user. Its
 `/healthz` endpoint is anonymous so Kubernetes can probe it, but the response is
 only the plain health status. The `/mcp` endpoint keeps its existing token and
 entitlement checks.
@@ -179,11 +177,12 @@ REDIRECT is Istio's interception mode that rewrites the inbound connection
 address and loses the original source network address. This design relies on
 Envoy opening the app-facing connection from a loopback address, which ASP.NET
 Core trusts by default. The production contract therefore requires an AKS Istio
-sidecar using REDIRECT. Issue #150 must label the MCP namespace with the active
-managed Istio revision. Issue #152 must prove the running pod contains
-`istio-proxy` and prove its effective interception mode is REDIRECT. Issue #154
-must prove the real private ingress leaves the app seeing a loopback peer and
-the HTTPS scheme. The current proxy trust does not support a sidecarless path.
+sidecar using REDIRECT. The MCP namespace carries the active managed Istio
+revision. The deployed pod contains `istio-proxy`, and its interception mode is
+REDIRECT. The issue #154 live record observed that private ingress leaves the
+app seeing a loopback peer and the HTTPS scheme. See the
+[issue #154 closeout](https://github.com/collaborationwithothers/mcp-platform-azure/issues/154#issuecomment-5368837859).
+The current proxy trust does not support a sidecarless path.
 It also does not support TPROXY interception, which preserves the original
 source address. See
 [AKS sidecar injection](https://learn.microsoft.com/azure/aks/istio-deploy-addon#enable-sidecar-injection)

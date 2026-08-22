@@ -44,9 +44,9 @@ _Avoid_: application core, business logic
 **MCP server**:
 The deployed service formed by a host adapter and the MCP application core. It
 exposes tools over streamable HTTP. The current v1 deployment uses the Azure
-Functions adapter behind the gateway. The ASP.NET Core project is not deployed
-by issue #146. A later issue deploys it beside the Functions server before the
-gateway cuts over.
+Functions adapter behind the gateway. The ASP.NET Core adapter is deployed
+alongside it on the private Istio route. Issue #117 owns the later gateway
+cutover.
 _Avoid_: tool server, backend service
 
 **Synthetic data**:

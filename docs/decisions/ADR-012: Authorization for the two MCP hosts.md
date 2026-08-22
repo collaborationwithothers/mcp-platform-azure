@@ -1,7 +1,7 @@
 # ADR-012: Authorization for the two MCP hosts
 
-Status: Accepted (issue #147; issue #154 targets the ASP.NET Core host on a
-private alongside route pending live evidence)
+Status: Accepted (issue #147; issue #154 deployed and verified the ASP.NET Core
+host on a private alongside route)
 Date: 2026-08-18
 Supersedes: ADR-006
 
@@ -26,10 +26,11 @@ authorization.
 
 Issue #146 added an authenticated ASP.NET Core tracer with one tool. Issue #147
 brings that host to parity with the still-deployed Functions host. The issue
-#154 target deploys it through the private Istio route without changing API
-Management routing. Running two host implementations at once creates a drift risk: each
-host could interpret the same token differently, expose a different tool set,
-or acquire downstream tokens through a different security rule.
+#154 implementation deploys it through the private Istio route without changing
+API Management routing. Running two host implementations at once creates a
+drift risk: each host could interpret the same token differently, expose a
+different tool set, or acquire downstream tokens through a different security
+rule.
 
 The host boundary cannot be identical. Functions built-in auth validates the
 token and supplies `X-MS-CLIENT-PRINCIPAL`. ASP.NET Core JWT bearer middleware
@@ -93,13 +94,13 @@ The core applies that same check before any downstream call from either host.
 The OBO exchange uses token A as its user assertion and asks Entra for an
 Orders-audience token, token B. Only token B reaches the Orders API.
 
-![Target delegated OBO path: a VNet client reaches the MCP server through the
+![Deployed delegated OBO path: a VNet client reaches the MCP server through the
 private Istio gateway. The server exchanges the delegated MCP token for an
 Orders-audience token before calling the Orders Function.](../diagrams/identity-obo-aks.drawio.svg)
 
-*Issue #154 target topology. The private route and delegated call remain
-pending live evidence. API Management stays on the Functions route until issue
-#117.*
+*Issue #154 deployed and verified the private route and delegated call. API
+Management stays on the Functions route until issue #117. See the
+[issue #154 closeout](https://github.com/collaborationwithothers/mcp-platform-azure/issues/154#issuecomment-5368837859).*
 
 The OBO authority uses the `tid` tenant id from the validated caller. It does
 not use `/common`. This preserves the caller's tenant for guest and home-tenant
@@ -121,13 +122,12 @@ Application callers do not use OBO. The server acquires an Orders-audience
 application token for its own identity. The original caller identifiers remain
 audit correlation only.
 
-![Target app-only path: a VNet client reaches the MCP server through the
+![Deployed app-only path: a VNet client reaches the MCP server through the
 private Istio gateway. The server acquires its own Orders-audience token before
 calling the Orders Function.](../diagrams/identity-app-only-aks.drawio.svg)
 
-*Issue #154 target topology. The private route and app-only downstream call
-remain pending live evidence. API Management stays on the Functions route until
-issue #117.*
+*Issue #154 deployed and verified the private route and app-only downstream
+call. API Management stays on the Functions route until issue #117.*
 
 ## Alternatives considered
 
@@ -151,8 +151,8 @@ issue #117.*
 ## Consequences
 
 - The ASP.NET Core host has the same three-tool surface and typed results as
-  Functions. After issue #154 records live evidence, it runs only on the
-  private route. API Management stays on Functions until issue #117.
+  Functions. It runs only on the private route. API Management stays on
+  Functions until issue #117.
 - A framework claim-mapping change does not change authorization because the
   adapter accepts the raw and mapped aliases before normalization.
 - Per-tool denial remains fail-closed behind the unchanged server-entry union.
