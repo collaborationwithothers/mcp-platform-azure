@@ -1,51 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="drawio-mcp" modified="2026-08-20T04:32:31.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+<mxfile host="drawio-mcp" modified="2026-08-22T03:08:16.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
   <diagram name="issue154-identity-app-only-aks" id="98289a4746ec">
     <mxGraphModel dx="1354" dy="981" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" background="#ffffff" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
         <mxCell id="runner" value="VNet runner&#10;private-route proof" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="50" y="150" width="150" height="95" />
+          <mxGeometry as="geometry" x="50.0" y="150.0" width="150.0" height="95.0" />
         </mxCell>
         <mxCell id="app" value="Entra app registration&#10;app-only bearer token" style="image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;fontSize=11;fontColor=#000000;image=img/lib/azure2/identity/App_Registrations.svg;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="60" y="320" width="145" height="90" />
+          <mxGeometry as="geometry" x="60.0" y="320.0" width="145.0" height="90.0" />
         </mxCell>
         <mxCell id="ingress" value="Istio internal ingress&#10;mcp.internal.consultwithcloud.com" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="300" y="140" width="190" height="95" />
+          <mxGeometry as="geometry" x="300.0" y="140.0" width="190.0" height="95.0" />
         </mxCell>
         <mxCell id="pod" value="MCP server pod&#10;ASP.NET Core /mcp&#10;workload identity" style="image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;fontSize=11;fontColor=#000000;image=img/lib/azure2/containers/Kubernetes_Services.svg;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="590" y="140" width="170" height="95" />
+          <mxGeometry as="geometry" x="590.0" y="140.0" width="170.0" height="95.0" />
         </mxCell>
         <mxCell id="identity" value="User-assigned managed identity&#10;federated workload credential" style="image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;fontSize=11;fontColor=#000000;image=img/lib/azure2/identity/Managed_Identities.svg;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="580" y="320" width="180" height="90" />
+          <mxGeometry as="geometry" x="580.0" y="320.0" width="180.0" height="90.0" />
         </mxCell>
         <mxCell id="appi" value="Application Insights&#10;Entra-authenticated ingestion" style="image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;fontSize=11;fontColor=#000000;image=img/lib/azure2/devops/Application_Insights.svg;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="900" y="350" width="180" height="90" />
+          <mxGeometry as="geometry" x="900.0" y="350.0" width="180.0" height="90.0" />
         </mxCell>
-        <mxCell id="2" value="HTTPS /mcp" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="runner" target="ingress">
+        <mxCell id="2" value="HTTPS /mcp" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="runner" target="ingress">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
-        <mxCell id="3" value="Bearer app token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="app" target="ingress">
+        <mxCell id="3" value="Bearer app token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="app" target="ingress">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
-        <mxCell id="4" value="private TLS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="ingress" target="pod">
+        <mxCell id="4" value="private TLS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="ingress" target="pod">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
-        <mxCell id="5" value="federated access token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=0.5;exitY=0.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="identity" target="pod">
+        <mxCell id="5" value="federated access token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=0.5;exitY=0.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;entryPerimeter=0;exitX=0.5;exitY=0.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="identity" target="pod">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
-        <mxCell id="6" value="traces, logs, requests" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="pod" target="appi">
+        <mxCell id="6" value="traces, logs, requests" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="pod" target="appi">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
         <mxCell id="7" value="AKS MCP app-only identity path" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=20;fontStyle=1;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="50" y="10" width="400" height="30" />
+          <mxGeometry as="geometry" x="50.0" y="10.0" width="400.0" height="30.0" />
         </mxCell>
-        <mxCell id="8" value="Issue #154 target topology. APIM remains on the Functions path until issue #117." style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=14;fontColor=#666666;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="50" y="60" width="400" height="20" />
+        <mxCell id="8" value="Deployed and verified by issue #154. APIM remains on the Functions path until issue #117." style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=14;fontColor=#666666;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50.0" y="60.0" width="400.0" height="20.0" />
         </mxCell>
         <mxCell id="orders" value="Orders Function&#10;app-only Orders token B" style="image;aspect=fixed;html=1;points=[];align=center;verticalLabelPosition=bottom;verticalAlign=top;labelPosition=center;fontSize=11;fontColor=#000000;image=img/lib/azure2/compute/Function_Apps.svg;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="900" y="130" width="170" height="95" />
+          <mxGeometry as="geometry" x="900.0" y="130.0" width="170.0" height="95.0" />
         </mxCell>
         <mxCell id="9" value="app-only token B" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;" parent="1" edge="1" source="pod" target="orders">
           <mxGeometry as="geometry" relative="1" />
