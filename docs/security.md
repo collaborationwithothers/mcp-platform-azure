@@ -69,7 +69,7 @@ that backend directly, bypassing the gateway and its governance controls. The
 Functions built-in auth check is real and independent, but authentication is
 not the same guarantee as gateway enforcement.
 
-Issue #154 adds a separate private AKS MCP host. A VNet runner reaches it only
+Issue #154 deployed a separate private AKS MCP host. A VNet runner reaches it only
 through the internal Istio gateway. This alongside route does not close the
 Functions endpoint and does not change API Management routing. Issue #117 owns
 that cutover. The private host validates the bearer in application code and
@@ -84,8 +84,8 @@ this against both the gateway and the backend host directly
 ## Two backend authorization paths (issue 147)
 
 The repository now has two host adapters for one MCP application core. The
-Functions adapter remains the API Management backend. The issue #154 target
-deploys the ASP.NET Core adapter beside it on the private Istio route. Both expose exactly
+Functions adapter remains the API Management backend. Issue #154 deployed the
+ASP.NET Core adapter beside it on the private Istio route. Both expose exactly
 `get_order_status`, `get_service_info`, and
 `get_access_guidance`, with the same typed results and core authorization rules.
 

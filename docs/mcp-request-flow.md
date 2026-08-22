@@ -11,9 +11,9 @@ gap, not filled by inference. The session-state maintenance mechanism for
 Streamable HTTP is one such gap (see below).
 
 The public request path and the diagram below still use the Functions host. The
-issue #154 target adds a separate private ASP.NET Core route through the
+issue #154 implementation adds a separate private ASP.NET Core route through the
 internal Istio gateway. API Management does not route to that host until issue
-#117. The private route needs VNet-runner evidence and does not change the
+#117. The private route was verified from a VNet runner and does not change the
 public session lifecycle described on this page.
 
 ## Session lifecycle
@@ -75,7 +75,7 @@ spec behaviour the platform does not itself document.
 | Header | Hop / direction | Set by | Read / validated by | Status |
 | --- | --- | --- | --- | --- |
 | `Authorization: Bearer <token>` | client -> APIM -> Function | MCP client (server-audience token) | APIM `validate-azure-ad-token`, then built-in auth on the Function; forwarded to the backend by the APIM policy; the delegated order tool reads it via `HttpTransport.Headers` for OBO only after authorization | VERIFIED for the deployed path (repo policy + source; prior documentation-verification passes) |
-| `Authorization: Bearer <token>` | VNet client -> Istio -> ASP.NET Core host | MCP client (server-audience token) | JWT bearer middleware validates it before MCP dispatch; delegated `get_order_status` reads the validated request bearer as the OBO assertion | VERIFIED from source and tests for JWT handling. PENDING LIVE EVIDENCE for the VNet-to-Istio route and forwarded-request observations. APIM does not use this route. |
+| `Authorization: Bearer <token>` | VNet client -> Istio -> ASP.NET Core host | MCP client (server-audience token) | JWT bearer middleware validates it before MCP dispatch; delegated `get_order_status` reads the validated request bearer as the OBO assertion | OBSERVED in the [issue #154 closeout](https://github.com/collaborationwithothers/mcp-platform-azure/issues/154#issuecomment-5368837859) for the VNet-to-Istio route, delegated call, and forwarded-request properties. APIM does not use this route. |
 | `WWW-Authenticate: Bearer resource_metadata="..."` | Function/APIM -> client (on 401) | APIM MCP-server policy (no-token) and `on-error` (invalid token) | MCP client, to discover the PRM document (RFC 9728) | VERIFIED (`infra/terraform/modules/apim-mcp-server/policies/mcp-server.xml`; historical discovery evidence in ADR-006) |
 | `X-MS-CLIENT-PRINCIPAL` | injected at the Function | Built-in auth V2 (strips any client-supplied copy, injects its own base64-encoded claims JSON) | the Functions adapter decodes and normalizes it; the ASP.NET Core adapter never reads it | VERIFIED (ADR-006 historical Functions trust chain; docs/security.md; `src/McpTools/Identity/ClientPrincipal.cs`) |
 | `X-MS-TOKEN-AAD-ACCESS-TOKEN` | injected at the Function only when the token store is enabled | Easy Auth token store | the tool, as the preferred inbound-token source; falls back to `Authorization` | ABSENT in this deployment (token store not enabled; validation-only provider). The tool uses the `Authorization` fallback. See the note below. |

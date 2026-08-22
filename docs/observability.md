@@ -13,22 +13,26 @@ workspace and a workspace-based Application Insights resource. Both have a
 not a cost estimate. Reaching it stops collection and leaves an unrecoverable
 gap until the next day.
 
-The core Log Analytics workspace disables local authentication. The issue #154 target disables Application Insights local authentication. The existing APIM
-audit logger uses its system-assigned managed identity. The target MCP pod uses its workload identity. Both need the `Monitoring Metrics Publisher` role on
-the Application Insights component.
+The core Log Analytics workspace and Application Insights component disable
+local authentication. The existing APIM audit logger uses its system-assigned
+managed identity. The MCP pod uses its workload identity. Both have the
+`Monitoring Metrics Publisher` role on the Application Insights component.
 
-The target Azure Monitor OpenTelemetry distribution still needs the component connection string to select the ingestion endpoint. That string is not an
+The Azure Monitor OpenTelemetry distribution still needs the component
+connection string to select the ingestion endpoint. That string is not an
 ingestion credential when the distribution has an Entra credential. The
 deployment workflow reads the string from the component and creates a live-only
-Kubernetes Secret before Argo CD applies the MCP Deployment. The target pod
+Kubernetes Secret before Argo CD applies the MCP Deployment. The pod
 does not call ARM. It reads the string from that Secret and uses workload
 identity with `Monitoring Metrics Publisher` for telemetry ingestion. The
 string is not committed, logged, or sent to the GitOps repository.
 
 Both resources allow public ingestion and query for the public-demo profile.
-Public network access does not allow anonymous ingestion. The issue #154 target
-requires both writers to authenticate through Entra. Live evidence remains
-pending until the recorded run.
+Public network access does not allow anonymous ingestion. Both writers
+authenticate through Entra. The
+[issue #154 closeout](https://github.com/collaborationwithothers/mcp-platform-azure/issues/154#issuecomment-5368837859)
+records successful APIM and MCP pod trace queries after local authentication
+was disabled.
 
 S1 and S2 read the core state through OIDC-authenticated Terraform remote
 state. S1 uses the Log Analytics workspace ID for Function-host diagnostic

@@ -189,19 +189,20 @@ claim an Entra-only ingestion posture.
 
 ### Amendment: issue #154
 
-The issue #154 target changes the Application Insights posture. Terraform will
-disable local authentication after the APIM audit logger and the MCP pod both
-use Entra identities. The APIM logger will keep its system-assigned identity.
-The MCP pod will use its workload identity with component-scoped `Monitoring
+Issue #154 changed the Application Insights posture. Terraform disables local
+authentication after the APIM audit logger and the MCP pod both use Entra
+identities. The APIM logger keeps its system-assigned identity. The MCP pod
+uses its workload identity with component-scoped `Monitoring
 Metrics Publisher` for ingestion.
 
 Azure Monitor OpenTelemetry needs the component connection string to select the
 ingestion endpoint even when the workload identity authenticates ingestion. The
-deployment workflow will read the string and create a live-only Kubernetes
-Secret before Argo CD applies the MCP Deployment. The pod will read the string
-from that Secret and will not call ARM or receive Reader. The string will never
-be committed, logged, or sent in a promotion payload. Live evidence remains
-pending until the recorded run.
+deployment workflow reads the string and creates a live-only Kubernetes Secret
+before Argo CD applies the MCP Deployment. The pod reads the string from that
+Secret and does not call ARM or receive Reader. The string is not committed,
+logged, or sent in a promotion payload. The issue #154 closeout records
+[successful APIM and MCP pod trace queries](https://github.com/collaborationwithothers/mcp-platform-azure/issues/154#issuecomment-5368837859)
+after local authentication was disabled.
 
 Shared observability has its own `workflow_dispatch` workflow. It reuses the
 existing `live-test` GitHub Environment, OIDC identity, and `ubuntu-latest`

@@ -20,7 +20,8 @@ _Avoid_: scenario composition, stack, environment
 **Deployment profile**:
 A named variant selected by a variable that composes the same modules differently,
 for example public-demo (Basic v2, public endpoints) versus private (Standard v2,
-isolated). v1 builds public-demo only.
+isolated). The tagged v1.0.0 release builds public-demo only. Epic #108 also
+deploys a scoped private AKS route alongside that profile for the S1 migration.
 _Avoid_: environment, tier, flavour
 
 **Thick interface**:
