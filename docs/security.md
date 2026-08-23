@@ -127,6 +127,26 @@ signed assertion. Reusing the provider preserves that cache. No client secret is
 stored for either path. ADR-012 records the decision and the rejected
 alternatives.
 
+## Orders API application audience boundary (issue #181)
+
+Runtime PR #186 moves the synthetic Orders API from an Azure Functions HTTP
+trigger to an ASP.NET Core web API. When #186 merges, the application validates
+the bearer token before the Orders handler runs. A bearer token is the
+credential a caller sends to an API in its `Authorization` header.
+
+The web host requires the exact Orders App ID URI as its audience. It validates
+the token signature, issuer, audience, and lifetime through ASP.NET Core JWT
+bearer middleware. A JWT is the signed token format used by this path. A missing
+token or a token minted for the MCP server audience receives HTTP 401 before the
+handler reads an order or logs correlation headers. This is the intended
+application boundary described by [Microsoft's JWT bearer guidance](https://learn.microsoft.com/aspnet/core/security/authentication/configure-jwt-bearer-authentication?view=aspnetcore-10.0).
+
+This is a source-level change only. Issue #183 owns the container promotion and
+GitOps deployment. Issue #184 owns live proof from the private network. Until
+those issues merge, the historical Functions evidence below remains the deployed
+path. The new container does not use Functions Easy Auth or
+`allowed_audiences` for the Orders API audience check.
+
 ## Functions-host OBO and downstream evidence (issue 10)
 
 The synthetic downstream Orders API (`src/DownstreamOrdersApi`) is a second
