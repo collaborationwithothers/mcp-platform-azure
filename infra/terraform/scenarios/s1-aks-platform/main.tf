@@ -27,10 +27,11 @@ locals {
   application_insights_id    = data.terraform_remote_state.shared_observability_core.outputs.application_insights_id
   azure_monitor_workspace_id = data.terraform_remote_state.shared_observability_metrics.outputs.azure_monitor_workspace_id
 
-  mcp_workload_subject  = "system:serviceaccount:${var.mcp_namespace}:${var.mcp_service_account_name}"
-  mcp_private_dns_zone  = "internal.consultwithcloud.com"
-  mcp_private_hostname  = "mcp.${local.mcp_private_dns_zone}"
-  mcp_resource_audience = one(data.azuread_application.mcp_server.identifier_uris)
+  mcp_workload_subject    = "system:serviceaccount:${var.mcp_namespace}:${var.mcp_service_account_name}"
+  orders_workload_subject = "system:serviceaccount:${var.orders_namespace}:${var.orders_service_account_name}"
+  mcp_private_dns_zone    = "internal.consultwithcloud.com"
+  mcp_private_hostname    = "mcp.${local.mcp_private_dns_zone}"
+  mcp_resource_audience   = one(data.azuread_application.mcp_server.identifier_uris)
 }
 
 module "network" {
@@ -176,6 +177,36 @@ resource "azurerm_role_assignment" "mcp_monitoring_metrics_publisher" {
   scope                            = local.application_insights_id
   role_definition_name             = "Monitoring Metrics Publisher"
   principal_id                     = azurerm_user_assigned_identity.mcp_workload.principal_id
+  principal_type                   = "ServicePrincipal"
+  skip_service_principal_aad_check = true
+}
+
+# The Orders API must not share the MCP workload identity. The Kubernetes
+# ServiceAccount annotation and pod label are introduced by the later GitOps
+# child, so this composition exports the exact non-secret values it must use.
+resource "azurerm_user_assigned_identity" "orders_workload" {
+  name                = "${var.name_prefix}-orders-workload-id"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  tags                = var.tags
+}
+
+resource "azurerm_federated_identity_credential" "orders_workload" {
+  name                      = "${var.name_prefix}-orders-workload-fic"
+  user_assigned_identity_id = azurerm_user_assigned_identity.orders_workload.id
+  issuer                    = module.aks.oidc_issuer_url
+  subject                   = local.orders_workload_subject
+  audience                  = ["api://AzureADTokenExchange"]
+}
+
+# Application Insights has local authentication disabled. The Orders pod uses
+# this role with its workload identity to publish telemetry. It has no Azure
+# control-plane read permission because the deployment workflow provides the
+# connection string through a live-only Kubernetes Secret.
+resource "azurerm_role_assignment" "orders_monitoring_metrics_publisher" {
+  scope                            = local.application_insights_id
+  role_definition_name             = "Monitoring Metrics Publisher"
+  principal_id                     = azurerm_user_assigned_identity.orders_workload.principal_id
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true
 }

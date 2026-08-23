@@ -83,6 +83,16 @@ override_resource {
   }
 }
 
+override_resource {
+  target          = azurerm_user_assigned_identity.orders_workload
+  override_during = plan
+  values = {
+    id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test/providers/Microsoft.ManagedIdentity/userAssignedIdentities/orders-workload"
+    client_id    = "77777777-7777-7777-7777-777777777777"
+    principal_id = "88888888-8888-8888-8888-888888888888"
+  }
+}
+
 run "plans_private_mcp_runtime_foundation" {
   command = plan
 
@@ -154,6 +164,29 @@ run "plans_private_mcp_runtime_foundation" {
 
   assert {
     condition = (
+      azurerm_user_assigned_identity.orders_workload.name
+      != azurerm_user_assigned_identity.mcp_workload.name
+      && azurerm_user_assigned_identity.orders_workload.name
+      != azurerm_user_assigned_identity.placeholder_workload.name
+      && azurerm_federated_identity_credential.orders_workload.user_assigned_identity_id
+      == azurerm_user_assigned_identity.orders_workload.id
+      && azurerm_federated_identity_credential.orders_workload.subject
+      == "system:serviceaccount:mcp-platform:orders-api"
+      && length(azurerm_federated_identity_credential.orders_workload.audience) == 1
+      && tolist(azurerm_federated_identity_credential.orders_workload.audience)[0]
+      == "api://AzureADTokenExchange"
+      && azurerm_role_assignment.orders_monitoring_metrics_publisher.scope
+      == data.terraform_remote_state.shared_observability_core.outputs.application_insights_id
+      && azurerm_role_assignment.orders_monitoring_metrics_publisher.principal_id
+      == azurerm_user_assigned_identity.orders_workload.principal_id
+      && azurerm_role_assignment.orders_monitoring_metrics_publisher.role_definition_name
+      == "Monitoring Metrics Publisher"
+    )
+    error_message = "The Orders identity must trust only its exact ServiceAccount subject and publish telemetry only to shared Application Insights."
+  }
+
+  assert {
+    condition = (
       azurerm_private_dns_zone.mcp.name == "internal.consultwithcloud.com"
       && azurerm_private_dns_a_record.mcp.name == "mcp"
       && length(azurerm_private_dns_a_record.mcp.records) == 1
@@ -180,10 +213,15 @@ run "plans_private_mcp_runtime_foundation" {
       && output.mcp_server_application_client_id == "88888888-8888-8888-8888-888888888888"
       && output.mcp_namespace == "mcp-platform"
       && output.mcp_service_account_name == "mcp-server"
+      && output.orders_workload_client_id == "77777777-7777-7777-7777-777777777777"
+      && output.orders_namespace == "mcp-platform"
+      && output.orders_service_account_name == "orders-api"
+      && output.orders_telemetry_resource_id
+      == data.terraform_remote_state.shared_observability_core.outputs.application_insights_id
       && output.mcp_private_hostname == "mcp.internal.consultwithcloud.com"
       && output.mcp_resource_audience == "api://mcp-server"
       && output.istio_revision == "asm-1-29"
     )
-    error_message = "Promotion outputs must expose the non-secret identity, resource, hostname, and configured Istio revision inputs."
+    error_message = "Promotion outputs must expose the non-secret MCP and Orders identity, telemetry, resource, hostname, and configured Istio revision inputs."
   }
 }
