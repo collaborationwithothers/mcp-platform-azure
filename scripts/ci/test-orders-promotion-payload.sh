@@ -5,6 +5,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 builder="${repo_root}/scripts/prepare-orders-promotion-payload.sh"
 workflow="${repo_root}/.github/workflows/publish-mcp-server-image.yml"
+deploy_workflow="${repo_root}/.github/workflows/deploy-aks-platform.yml"
 
 source_commit="0123456789abcdef0123456789abcdef01234567"
 image_reference="acrmcpplatform.azurecr.io/downstream-orders-api:${source_commit}"
@@ -105,6 +106,12 @@ for required in "${workflow_contract[@]}"; do
     exit 1
   }
 done
+
+tests_run=$((tests_run + 1))
+grep -Fq -- 'secret generic orders-api-telemetry' "${deploy_workflow}" || {
+  echo "FAIL: gated bootstrap does not create Orders telemetry configuration." >&2
+  exit 1
+}
 
 expect_rejected "malformed image" build_payload \
   "IMAGE_REFERENCE=acrmcpplatform.azurecr.io/other:${source_commit}"
