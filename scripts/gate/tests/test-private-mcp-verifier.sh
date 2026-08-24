@@ -336,7 +336,10 @@ for required in \
   'data_plane_result="${{ needs.verify-private-data-plane.result }}"' \
   "kubectl logs \"\${pod}\" -n mcp-platform -c mcp-server --since=10m" \
   "'AADSTS[0-9]+'" \
-  'Raw pod logs were not emitted.' \
+  'scope contract matches=${scope_contract_matches}' \
+  'audience contract matches=${audience_contract_matches}' \
+  'requested access token version=${requested_token_version:-default}' \
+  'Raw pod logs and identifiers were not emitted.' \
   'kubectl logs "${pod}" -n mcp-platform -c mcp-server' \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https .* ${prm_verification_id}$' \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https ((::ffff:)?127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$' \

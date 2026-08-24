@@ -977,6 +977,7 @@ jobs:
       SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
       AKS_RESOURCE_GROUP: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
       AKS_CLUSTER_NAME: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
+      S1_TFVARS_JSON: ${{ secrets.S1_TFVARS_JSON }}
     steps:
       - name: Azure login (OIDC)
         uses: azure/login@v3
@@ -1006,9 +1007,21 @@ jobs:
             | jq -er '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')"
           pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
+          pod_json="$(kubectl get pod "${pod}" -n mcp-platform -o json)"
           data_plane_result="${{ needs.verify-private-data-plane.result }}"
           if [ "${data_plane_result}" != "success" ]; then
             mcp_logs="$(kubectl logs "${pod}" -n mcp-platform -c mcp-server --since=10m)"
+            expected_orders_audience="$(jq -er '.downstream_entra_auth.allowed_audiences[0]' <<< "${S1_TFVARS_JSON}")"
+            expected_application_scope="$(jq -er '.downstream_app.application_scope' <<< "${S1_TFVARS_JSON}")"
+            expected_orders_client_id="$(jq -er '.downstream_app.client_id' <<< "${S1_TFVARS_JSON}")"
+            deployed_application_scope="$(jq -r '.spec.containers[] | select(.name == "mcp-server") | .env[]? | select(.name == "DownstreamOrdersApi__ApplicationScope") | .value // empty' <<< "${pod_json}")"
+            orders_deployment_json="$(kubectl get deployment orders-api -n mcp-platform -o json)"
+            deployed_orders_audience="$(jq -r '.spec.template.spec.containers[] | select(.name == "orders-api") | .env[]? | select(.name == "Authentication__Audience") | .value // empty' <<< "${orders_deployment_json}")"
+            requested_token_version="$(az ad app show --id "${expected_orders_client_id}" --query api.requestedAccessTokenVersion --output tsv 2>/dev/null || true)"
+            scope_contract_matches=false
+            audience_contract_matches=false
+            [ "${expected_application_scope}" = "${expected_orders_audience}/.default" ] && [ "${deployed_application_scope}" = "${expected_application_scope}" ] && scope_contract_matches=true
+            [ "${deployed_orders_audience}" = "${expected_orders_audience}" ] && audience_contract_matches=true
             exception_types="$(grep --extended-regexp --only-matching \
               '[A-Za-z][A-Za-z0-9.]*Exception' <<< "${mcp_logs}" \
               | sort --unique | paste --serial --delimiters=, - || true)"
@@ -1019,7 +1032,7 @@ jobs:
               'Response status code does not indicate success: (400|401|403|404|500)' \
               <<< "${mcp_logs}" | grep --extended-regexp --only-matching '[0-9]{3}' \
               | sort --unique | paste --serial --delimiters=, - || true)"
-            echo "::error title=Private Orders call failed::MCP exception types=${exception_types:-none}; Entra error codes=${entra_error_codes:-none}; HTTP failure codes=${http_failure_codes:-none}. Raw pod logs were not emitted."
+            echo "::error title=Private Orders call failed::MCP exception types=${exception_types:-none}; Entra error codes=${entra_error_codes:-none}; HTTP failure codes=${http_failure_codes:-none}; scope contract matches=${scope_contract_matches}; audience contract matches=${audience_contract_matches}; requested access token version=${requested_token_version:-default}. Raw pod logs and identifiers were not emitted."
             exit 1
           fi
           prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"
