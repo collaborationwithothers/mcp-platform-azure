@@ -98,6 +98,20 @@ variable "mcp_service_account_name" {
   default     = "mcp-server"
 }
 
+# The Orders API shares the platform namespace but has a separate ServiceAccount
+# and identity. The values form the GitOps handoff contract for issue 183.
+variable "orders_namespace" {
+  type        = string
+  description = "Kubernetes namespace for the Orders API workload identity subject."
+  default     = "mcp-platform"
+}
+
+variable "orders_service_account_name" {
+  type        = string
+  description = "Kubernetes ServiceAccount name for the Orders API workload identity subject."
+  default     = "orders-api"
+}
+
 variable "mcp_server_application_client_id" {
   type        = string
   description = "Application (client) id of the existing MCP server Entra application. Terraform reads the app to attach the AKS ServiceAccount federation used for OBO; the account-specific identifier is supplied out of band."

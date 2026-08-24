@@ -48,6 +48,26 @@ output "mcp_service_account_name" {
   description = "Kubernetes ServiceAccount name that must be used by the migrated MCP server manifests."
 }
 
+output "orders_workload_client_id" {
+  value       = azurerm_user_assigned_identity.orders_workload.client_id
+  description = "Client id for the Orders API ServiceAccount azure.workload.identity/client-id annotation."
+}
+
+output "orders_namespace" {
+  value       = var.orders_namespace
+  description = "Kubernetes namespace that the Orders API manifests must use."
+}
+
+output "orders_service_account_name" {
+  value       = var.orders_service_account_name
+  description = "Kubernetes ServiceAccount name that the Orders API manifests must use."
+}
+
+output "orders_telemetry_resource_id" {
+  value       = local.application_insights_id
+  description = "Application Insights resource ID the deployment workflow uses to retrieve the live-only Orders telemetry connection string."
+}
+
 output "mcp_private_hostname" {
   value       = local.mcp_private_hostname
   description = "Private MCP hostname resolved only from the platform and runner VNets."

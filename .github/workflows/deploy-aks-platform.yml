@@ -341,6 +341,27 @@ jobs:
             echo "The configured Istio revision still needs a live installed-revision check before promotion."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Report Orders runtime foundation inputs
+        working-directory: infra/terraform/scenarios/s1-aks-platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          workload_identity_client_id="$(terraform output -raw orders_workload_client_id)"
+          namespace="$(terraform output -raw orders_namespace)"
+          service_account="$(terraform output -raw orders_service_account_name)"
+          telemetry_resource_id="$(terraform output -raw orders_telemetry_resource_id)"
+          {
+            echo "## Orders runtime foundation inputs"
+            echo ""
+            echo "Workload identity client ID: \`${workload_identity_client_id}\`"
+            echo "Namespace: \`${namespace}\`"
+            echo "ServiceAccount: \`${service_account}\`"
+            echo "Application Insights resource ID: \`${telemetry_resource_id}\`"
+            echo ""
+            echo "These are non-secret inputs for the Orders deployment contract."
+            echo "The later Orders deployment workflow must read the connection string only in live-test and create its Kubernetes Secret without committing it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: kubelogin and az aks get-credentials
         working-directory: infra/terraform/scenarios/s1-aks-platform
         shell: bash
