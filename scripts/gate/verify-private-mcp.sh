@@ -291,6 +291,16 @@ if ! jq --exit-status '
       "structured fixture mismatch"
     end
   ' <<< "${orders}")"
+  orders_failure_text="$(jq --raw-output \
+    '[.result.content[]? | select(.type == "text") | .text] | join(" ")' \
+    <<< "${orders}" \
+    | sed -E \
+      -e 's/[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/<REDACTED-ID>/g' \
+      -e 's#api://[^[:space:]]+#api://<REDACTED>#g' \
+      -e 's#Bearer[[:space:]]+[A-Za-z0-9._-]+#Bearer <REDACTED>#g' \
+      | cut -c 1-500)"
+  printf '[DEBUG-184-orders] redacted tool error: %s\n' \
+    "${orders_failure_text:-<no text content>}" >&2
   fail "the sanctioned MCP-to-Orders call did not return the expected synthetic fixture (${orders_failure_kind})"
 fi
 
