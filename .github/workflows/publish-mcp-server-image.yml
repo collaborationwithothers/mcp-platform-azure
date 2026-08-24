@@ -1,9 +1,18 @@
-# Manual image publication for issue 154. The selected workflow_dispatch ref
-# supplies both the workflow and the source code. This job validates the full
-# promotion contract before it pushes the commit-tagged image.
-name: Publish MCP server image
+# Manual image publication for the AKS MCP and Orders workloads. The selected
+# workflow_dispatch ref supplies both the workflow and source code. Each job
+# validates its complete promotion contract before pushing an image.
+name: Publish platform workload image
 on:
   workflow_dispatch:
+    inputs:
+      workload:
+        description: Workload image to publish and request through GitOps
+        required: true
+        default: mcp-server
+        type: choice
+        options:
+          - mcp-server
+          - orders-api
 permissions:
   contents: read
   id-token: write
@@ -11,6 +20,7 @@ permissions:
 jobs:
   publish-mcp-server-image:
     name: publish-mcp-server-image
+    if: inputs.workload == 'mcp-server'
     runs-on: ubuntu-latest
     environment: live-test
     env:
@@ -161,4 +171,153 @@ jobs:
             echo "## MCP deployment promotion requested"
             echo "Image reference: \`${IMAGE_REFERENCE}\`"
             echo "The companion repository will open issue #154's draft deployment PR."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-orders-api-image:
+    name: publish-orders-api-image
+    if: inputs.workload == 'orders-api'
+    runs-on: ubuntu-latest
+    environment: live-test
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      AKS_PLATFORM_STATE_KEY: s1-aks-platform.tfstate
+    steps:
+      - name: Require authorized actor
+        shell: bash
+        run: |
+          if [ "${{ github.actor }}" != "haripraghash" ] && [ "${{ github.actor }}" != "haripraghash-bot" ]; then
+            echo "::error::This workflow may only be triggered by haripraghash or haripraghash-bot. Triggering actor was '${{ github.actor }}'."
+            exit 1
+          fi
+
+      - name: Checkout the selected ref
+        uses: actions/checkout@v7
+
+      - name: Verify the checked-out commit
+        id: orders-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_commit="$(git rev-parse HEAD)"
+          if [ "${source_commit}" != "${GITHUB_SHA}" ]; then
+            echo "::error::The checked-out commit does not match the selected workflow_dispatch ref."
+            exit 1
+          fi
+          echo "commit=${source_commit}" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Build and validate the Orders promotion payload
+        id: orders-promotion
+        shell: bash
+        env:
+          ORDERS_AUDIENCE: ${{ fromJSON(secrets.S1_TFVARS_JSON).downstream_entra_auth.allowed_audiences[0] }}
+          DOWNSTREAM_SCOPE: ${{ fromJSON(secrets.S1_TFVARS_JSON).downstream_app.api_scope }}
+          DOWNSTREAM_APPLICATION_SCOPE: ${{ fromJSON(secrets.S1_TFVARS_JSON).downstream_app.application_scope }}
+          SOURCE_COMMIT: ${{ steps.orders-source.outputs.commit }}
+          DEPLOYMENT_ISSUE: "183"
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/terraform/scenarios/s1-aks-platform init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${AKS_PLATFORM_STATE_KEY}"
+          registry_login_server="$(terraform -chdir=infra/terraform/scenarios/s1-aks-platform output -raw registry_login_server)"
+          WORKLOAD_IDENTITY_CLIENT_ID="$(terraform -chdir=infra/terraform/scenarios/s1-aks-platform output -raw orders_workload_client_id)"
+          MANAGED_ISTIO_REVISION="$(terraform -chdir=infra/terraform/scenarios/s1-aks-platform output -raw istio_revision)"
+          private_hostname="$(terraform -chdir=infra/terraform/scenarios/s1-aks-platform output -raw mcp_private_hostname)"
+          DOWNSTREAM_BASE_URL="https://${private_hostname}"
+          IMAGE_REFERENCE="${registry_login_server}/downstream-orders-api:${SOURCE_COMMIT}"
+          export IMAGE_REFERENCE WORKLOAD_IDENTITY_CLIENT_ID MANAGED_ISTIO_REVISION
+          export ORDERS_AUDIENCE DOWNSTREAM_BASE_URL DOWNSTREAM_SCOPE
+          export DOWNSTREAM_APPLICATION_SCOPE SOURCE_COMMIT DEPLOYMENT_ISSUE
+          ./scripts/prepare-orders-promotion-payload.sh build \
+            > "${RUNNER_TEMP}/orders-promotion-payload.json"
+          echo "image=${IMAGE_REFERENCE}" >> "$GITHUB_OUTPUT"
+          echo "registry_name=${registry_login_server%%.*}" >> "$GITHUB_OUTPUT"
+
+      - name: Require GitHub App promotion credentials
+        shell: bash
+        env:
+          GITOPS_PROMOTION_APP_CLIENT_ID: ${{ vars.GITOPS_PROMOTION_APP_CLIENT_ID }}
+          GITOPS_PROMOTION_APP_PRIVATE_KEY: ${{ secrets.GITOPS_PROMOTION_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          for required in GITOPS_PROMOTION_APP_CLIENT_ID GITOPS_PROMOTION_APP_PRIVATE_KEY; do
+            if [ -z "${!required}" ]; then
+              echo "::error::${required} is required on the live-test Environment."
+              exit 1
+            fi
+          done
+
+      - name: Build the commit-tagged Orders image
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.orders-promotion.outputs.image }}
+        run: docker build --file src/DownstreamOrdersApi/Dockerfile --tag "${IMAGE_REFERENCE}" .
+
+      - name: Log in to ACR
+        shell: bash
+        run: az acr login --name "${{ steps.orders-promotion.outputs.registry_name }}"
+
+      - name: Push the commit-tagged Orders image
+        id: orders-push
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.orders-promotion.outputs.image }}
+        run: docker push "${IMAGE_REFERENCE}"
+
+      - name: Create companion promotion token
+        id: orders-promotion-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.GITOPS_PROMOTION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GITOPS_PROMOTION_APP_PRIVATE_KEY }}
+          owner: collaborationwithothers
+          repositories: mcp-platform-kubernetes-manifests
+          permission-contents: write
+
+      - name: Request the Orders deployment PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.orders-promotion-token.outputs.token }}
+        run: |
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY_OWNER}/mcp-platform-kubernetes-manifests/dispatches" \
+            --input "${RUNNER_TEMP}/orders-promotion-payload.json"
+
+      - name: Report an image pushed without a deployment request
+        if: failure() && steps.orders-push.outcome == 'success'
+        shell: bash
+        run: |
+          echo "## Orders image pushed, deployment request failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "No deployment PR exists for this workflow run." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report the promotion request
+        if: success()
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.orders-promotion.outputs.image }}
+        run: |
+          {
+            echo "## Orders deployment promotion requested"
+            echo "Image reference: \`${IMAGE_REFERENCE}\`"
+            echo "The companion repository will open issue #183's draft deployment PR."
           } >> "$GITHUB_STEP_SUMMARY"

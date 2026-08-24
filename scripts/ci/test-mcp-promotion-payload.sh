@@ -114,7 +114,8 @@ for required in "${workflow_contract[@]}"; do
 done
 
 payload_line="$(grep -n -F -- 'prepare-mcp-promotion-payload.sh build' "${workflow}" | cut -d: -f1)"
-push_line="$(grep -n -F -- 'docker push' "${workflow}" | cut -d: -f1)"
+orders_job_line="$(grep -n -F -- 'publish-orders-api-image:' "${workflow}" | cut -d: -f1)"
+push_line="$(grep -n -F -- 'docker push' "${workflow}" | awk -F: -v limit="${orders_job_line}" '$1 < limit { print $1 }')"
 dispatch_line="$(grep -n -F -- "--input \"\${RUNNER_TEMP}/mcp-promotion-payload.json\"" "${workflow}" | cut -d: -f1)"
 tests_run=$((tests_run + 1))
 ((payload_line < push_line && push_line < dispatch_line)) || {
