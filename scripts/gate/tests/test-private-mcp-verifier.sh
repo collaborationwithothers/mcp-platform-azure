@@ -326,12 +326,17 @@ if [ -z "${observability_job}" ]; then
   exit 1
 fi
 for required in \
+  "if: always() && inputs.action == 'verify-private'" \
   'needs: verify-private-data-plane' \
   'runs-on: ubuntu-latest' \
   'hashicorp/setup-terraform@v4' \
   'terraform_version: 1.15.8' \
   'prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"' \
   'orders_trace_id="${{ needs.verify-private-data-plane.outputs.orders_trace_id }}"' \
+  'data_plane_result="${{ needs.verify-private-data-plane.result }}"' \
+  "kubectl logs \"\${pod}\" -n mcp-platform -c mcp-server --since=10m" \
+  "'AADSTS[0-9]+'" \
+  'Raw pod logs were not emitted.' \
   'kubectl logs "${pod}" -n mcp-platform -c mcp-server' \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https .* ${prm_verification_id}$' \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https ((::ffff:)?127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$' \

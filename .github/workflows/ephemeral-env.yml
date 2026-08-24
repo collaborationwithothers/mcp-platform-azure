@@ -962,7 +962,7 @@ jobs:
 
   verify-private-observability:
     name: verify-private-observability
-    if: inputs.action == 'verify-private'
+    if: always() && inputs.action == 'verify-private'
     needs: verify-private-data-plane
     runs-on: ubuntu-latest
     environment: live-test
@@ -1006,6 +1006,22 @@ jobs:
             | jq -er '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')"
           pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
+          data_plane_result="${{ needs.verify-private-data-plane.result }}"
+          if [ "${data_plane_result}" != "success" ]; then
+            mcp_logs="$(kubectl logs "${pod}" -n mcp-platform -c mcp-server --since=10m)"
+            exception_types="$(grep --extended-regexp --only-matching \
+              '[A-Za-z][A-Za-z0-9.]*Exception' <<< "${mcp_logs}" \
+              | sort --unique | paste --serial --delimiters=, - || true)"
+            entra_error_codes="$(grep --extended-regexp --only-matching \
+              'AADSTS[0-9]+' <<< "${mcp_logs}" \
+              | sort --unique | paste --serial --delimiters=, - || true)"
+            http_failure_codes="$(grep --extended-regexp --only-matching \
+              'Response status code does not indicate success: (400|401|403|404|500)' \
+              <<< "${mcp_logs}" | grep --extended-regexp --only-matching '[0-9]{3}' \
+              | sort --unique | paste --serial --delimiters=, - || true)"
+            echo "::error title=Private Orders call failed::MCP exception types=${exception_types:-none}; Entra error codes=${entra_error_codes:-none}; HTTP failure codes=${http_failure_codes:-none}. Raw pod logs were not emitted."
+            exit 1
+          fi
           prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"
           orders_trace_id="${{ needs.verify-private-data-plane.outputs.orders_trace_id }}"
           if [[ ! "${prm_verification_id}" =~ ^[0-9a-f]{32}$ ]]; then
