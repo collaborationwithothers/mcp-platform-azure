@@ -10,7 +10,7 @@ deploy_workflow="${repo_root}/.github/workflows/deploy-aks-platform.yml"
 source_commit="0123456789abcdef0123456789abcdef01234567"
 image_reference="acrmcpplatform.azurecr.io/downstream-orders-api:${source_commit}"
 workload_client_id="11111111-1111-4111-8111-111111111111"
-orders_audience="api://orders-api"
+orders_audience="api://22222222-2222-4222-8222-222222222222"
 downstream_scope="${orders_audience}/user_impersonation"
 downstream_application_scope="${orders_audience}/.default"
 downstream_base_url="https://mcp.internal.consultwithcloud.com"
@@ -18,8 +18,9 @@ istio_revision="asm-1-29"
 deployment_issue="183"
 tests_run=0
 
+# shellcheck disable=SC2120 # expect_rejected invokes this function indirectly.
 build_payload() {
-  local override="${1:-}"
+  local -a overrides=("$@")
   local -a command=(env \
     IMAGE_REFERENCE="${image_reference}" \
     WORKLOAD_IDENTITY_CLIENT_ID="${workload_client_id}" \
@@ -30,9 +31,7 @@ build_payload() {
     DOWNSTREAM_APPLICATION_SCOPE="${downstream_application_scope}" \
     SOURCE_COMMIT="${source_commit}" \
     DEPLOYMENT_ISSUE="${deployment_issue}")
-  if [ -n "${override}" ]; then
-    command+=("${override}")
-  fi
+  command+=("${overrides[@]}")
   command+=("${builder}" build)
   "${command[@]}"
 }
@@ -123,6 +122,10 @@ expect_rejected "malformed workload client ID" build_payload \
   "WORKLOAD_IDENTITY_CLIENT_ID=not-a-uuid"
 expect_rejected "malformed audience" build_payload \
   "ORDERS_AUDIENCE=https://orders.example.test"
+expect_rejected "audience without an application client ID" build_payload \
+  "ORDERS_AUDIENCE=api://orders-api" \
+  "DOWNSTREAM_SCOPE=api://orders-api/user_impersonation" \
+  "DOWNSTREAM_APPLICATION_SCOPE=api://orders-api/.default"
 expect_rejected "malformed private base URL" build_payload \
   "DOWNSTREAM_BASE_URL=http://mcp.internal.consultwithcloud.com"
 expect_rejected "base URL with a path" build_payload \

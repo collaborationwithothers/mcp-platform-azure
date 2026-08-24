@@ -710,9 +710,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          orders_resource_app="$(jq -er '.downstream_app.client_id' <<< "${S1_TFVARS_JSON}")"
+          orders_resource_client_id="$(jq -er '.downstream_app.client_id' <<< "${S1_TFVARS_JSON}")"
           requested_token_version="$(az ad app show \
-            --id "${orders_resource_app}" \
+            --id "${orders_resource_client_id}" \
             --query api.requestedAccessTokenVersion \
             --output tsv)"
           # A null/default requestedAccessTokenVersion emits v1 access tokens.
@@ -1026,15 +1026,16 @@ jobs:
           data_plane_result="${{ needs.verify-private-data-plane.result }}"
           if [ "${data_plane_result}" != "success" ]; then
             mcp_logs="$(kubectl logs "${pod}" -n mcp-platform -c mcp-server --since=10m)"
-            expected_orders_audience="$(jq -er '.downstream_entra_auth.allowed_audiences[0]' <<< "${S1_TFVARS_JSON}")"
+            expected_orders_resource_audience="$(jq -er '.downstream_entra_auth.allowed_audiences[0]' <<< "${S1_TFVARS_JSON}")"
+            expected_orders_token_audience="$(jq -er '.downstream_app.client_id' <<< "${S1_TFVARS_JSON}")"
             expected_application_scope="$(jq -er '.downstream_app.application_scope' <<< "${S1_TFVARS_JSON}")"
             deployed_application_scope="$(jq -r '.spec.containers[] | select(.name == "mcp-server") | .env[]? | select(.name == "DownstreamOrdersApi__ApplicationScope") | .value // empty' <<< "${pod_json}")"
             orders_deployment_json="$(kubectl get deployment orders-api -n mcp-platform -o json)"
             deployed_orders_audience="$(jq -r '.spec.template.spec.containers[] | select(.name == "orders-api") | .env[]? | select(.name == "Authentication__Audience") | .value // empty' <<< "${orders_deployment_json}")"
             scope_contract_matches=false
             audience_contract_matches=false
-            [ "${expected_application_scope}" = "${expected_orders_audience}/.default" ] && [ "${deployed_application_scope}" = "${expected_application_scope}" ] && scope_contract_matches=true
-            [ "${deployed_orders_audience}" = "${expected_orders_audience}" ] && audience_contract_matches=true
+            [ "${expected_application_scope}" = "${expected_orders_resource_audience}/.default" ] && [ "${deployed_application_scope}" = "${expected_application_scope}" ] && scope_contract_matches=true
+            [ "${deployed_orders_audience}" = "${expected_orders_token_audience}" ] && audience_contract_matches=true
             exception_types="$(grep --extended-regexp --only-matching \
               '[A-Za-z][A-Za-z0-9.]*Exception' <<< "${mcp_logs}" \
               | sort --unique | paste --serial --delimiters=, - || true)"

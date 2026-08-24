@@ -21,8 +21,8 @@ validate_values() {
     reject "workload_identity_client_id must be a UUID."
   [[ "${MANAGED_ISTIO_REVISION:-}" =~ ^asm-[0-9]+-[0-9]+$ ]] || \
     reject "managed_istio_revision must match asm-X-Y."
-  [[ "${ORDERS_AUDIENCE:-}" =~ ^api://[A-Za-z0-9._~:/-]+$ ]] || \
-    reject "orders_audience must be an api URI."
+  [[ "${ORDERS_AUDIENCE:-}" =~ ^api://[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]] || \
+    reject "orders_audience must be api:// followed by an application client ID UUID."
   [[ "${DOWNSTREAM_BASE_URL:-}" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?/?$ ]] || \
     reject "downstream_base_url must be an HTTPS origin."
   [[ "${DOWNSTREAM_SCOPE:-}" =~ ^api://[A-Za-z0-9._~:/-]+/user_impersonation$ ]] || \
