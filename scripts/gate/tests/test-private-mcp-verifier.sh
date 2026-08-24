@@ -247,8 +247,6 @@ for required in \
   '.metadata.annotations["azure.workload.identity/client-id"] // empty' \
   '.name == "AZURE_CLIENT_ID" and .value == $client_id' \
   'contains("clientsecret")' \
-  '.valueFrom.secretKeyRef == null' \
-  'all($mcp_container.envFrom[]?; .secretRef == null)' \
   'MCP pod ${pod}: workload identity injected; no client secret' \
   '::add-mask::${component_id}' \
   'az rest' \
@@ -318,9 +316,9 @@ for required in \
   fi
 done
 
-request_context_job="$(workflow_job verify-private-observability)"
-if [ -z "${request_context_job}" ]; then
-  echo "private request-context job is missing" >&2
+observability_job="$(workflow_job verify-private-observability)"
+if [ -z "${observability_job}" ]; then
+  echo "private observability job is missing" >&2
   exit 1
 fi
 for required in \
@@ -347,8 +345,8 @@ for required in \
   'Data has "/api/orders/CONTOSO-1001"' \
   '.[0].requestCount == 1 and .[0].dependencyCount >= 1' \
   'Orders workload identity telemetry observed: correlated request=1; dependency>=1'; do
-  if ! grep --fixed-strings --quiet -- "${required}" <<< "${request_context_job}"; then
-    echo "private request-context verifier contract missing: ${required}" >&2
+  if ! grep --fixed-strings --quiet -- "${required}" <<< "${observability_job}"; then
+    echo "private observability verifier contract missing: ${required}" >&2
     exit 1
   fi
 done

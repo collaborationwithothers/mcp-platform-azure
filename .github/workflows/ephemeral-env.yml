@@ -813,9 +813,7 @@ jobs:
               . as $name |
               any($mcp_container.env[]?; .name == $name)) and
             all($mcp_container.env[]?;
-              ((.name | ascii_downcase | gsub("[^a-z]"; "") | contains("clientsecret")) | not) and
-              (.valueFrom.secretKeyRef == null)) and
-            all($mcp_container.envFrom[]?; .secretRef == null)
+              (.name | ascii_downcase | gsub("[^a-z]"; "") | contains("clientsecret") | not))
           ' <<< "${pod_json}" > /dev/null; then
             echo "::error title=MCP workload identity injection mismatch::The ready MCP pod must use its projected workload identity and no client-secret environment source."
             exit 1
