@@ -116,6 +116,19 @@ token() {
   jq --exit-status --raw-output '.access_token // empty' <<< "${response}"
 }
 
+jwt_payload() {
+  local bearer_token="$1"
+  local payload="${bearer_token#*.}"
+  payload="${payload%%.*}"
+  case $((${#payload} % 4)) in
+    2) payload="${payload}==" ;;
+    3) payload="${payload}=" ;;
+    0) ;;
+    *) return 1 ;;
+  esac
+  printf '%s' "${payload}" | tr '_-' '/+' | openssl base64 -d -A
+}
+
 mcp_body() {
   local bearer_token="$1"
   local body="$2"
@@ -218,6 +231,13 @@ wrong_audience_token="$(token \
 if [ -z "${app_token}" ] || [ -z "${roleless_token}" ] || [ -z "${wrong_audience_token}" ]; then
   fail "the token endpoint returned an empty access token"
 fi
+app_token_payload="$(jwt_payload "${app_token}")" \
+  || fail "the application access token payload could not be decoded"
+if ! jq --exit-status '(.roles // []) | index("Orders.Read") != null' \
+  <<< "${app_token_payload}" > /dev/null; then
+  fail "the application access token does not carry the Orders.Read role"
+fi
+unset app_token_payload
 
 initialize='{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"private-verifier","version":"1.0"}}}'
 tools_list='{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}'
@@ -248,14 +268,31 @@ orders_trace_id="$(openssl rand -hex 16)"
 orders_parent_span_id="$(openssl rand -hex 8)"
 orders_traceparent="00-${orders_trace_id}-${orders_parent_span_id}-01"
 orders="$(json_rpc "$(mcp_body "${app_token}" "${orders_call}" "${orders_traceparent}")")"
-jq --exit-status '
+if ! jq --exit-status '
   .result.isError != true
   and .error == null
   and .result.structuredContent.orderId == "CONTOSO-1001"
   and .result.structuredContent.status == "Delivered"
   and .result.structuredContent.updatedUtc == "2026-06-01T14:05:00Z"
-' <<< "${orders}" > /dev/null \
-  || fail "the sanctioned MCP-to-Orders call did not return the expected synthetic fixture"
+' <<< "${orders}" > /dev/null; then
+  orders_failure_kind="$(jq --raw-output '
+    if .error != null then
+      "JSON-RPC error code " + ((.error.code // "unknown") | tostring)
+    elif .result.isError == true then
+      ([.result.content[]? | select(.type == "text") | .text] | join(" ")) as $text |
+      if ($text | contains("requires the application role")) then
+        "application role rejection"
+      else
+        "tool error without an application-role marker"
+      end
+    elif .result.structuredContent == null then
+      "successful result without structuredContent"
+    else
+      "structured fixture mismatch"
+    end
+  ' <<< "${orders}")"
+  fail "the sanctioned MCP-to-Orders call did not return the expected synthetic fixture (${orders_failure_kind})"
+fi
 
 denied="$(json_rpc "$(mcp_body "${roleless_token}" "${denied_call}")")"
 jq --exit-status '

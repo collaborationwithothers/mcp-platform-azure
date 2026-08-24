@@ -147,6 +147,7 @@ for required in \
   'TEST_CLIENT_SECRET' \
   'TEST_CLIENT_WITHOUT_ROLE_SECRET' \
   'ORDERS_RESOURCE_AUDIENCE' \
+  '(.roles // []) | index("Orders.Read") != null' \
   'MCP_SERVER_AUDIENCE_TOKEN="${app_token}"' \
   'bash scripts/gate/verify-private-orders.sh' \
   'orders_trace_id="$(openssl rand -hex 16)"' \
@@ -155,6 +156,9 @@ for required in \
   '.result.structuredContent.orderId == "CONTOSO-1001"' \
   '.result.structuredContent.status == "Delivered"' \
   '.result.structuredContent.updatedUtc == "2026-06-01T14:05:00Z"' \
+  'tool error without an application-role marker' \
+  'successful result without structuredContent' \
+  'structured fixture mismatch' \
   'unset app_token roleless_token wrong_audience_token'; do
   if ! grep --fixed-strings --quiet -- "${required}" "${script}"; then
     echo "private verifier lost required secret handling: ${required}" >&2
