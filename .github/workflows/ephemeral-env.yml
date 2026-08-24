@@ -766,9 +766,26 @@ jobs:
           done
 
           kubectl rollout status deployment/mcp-server -n mcp-platform --timeout=120s
-          deployed_image="$(kubectl get deployment mcp-server -n mcp-platform -o json \
-            | jq -er '.spec.template.spec.containers[] | select(.name == "mcp-server") | .image')"
+          mcp_deployment_json="$(kubectl get deployment mcp-server \
+            -n mcp-platform -o json)"
+          deployed_image="$(jq -er \
+            '.spec.template.spec.containers[] | select(.name == "mcp-server") | .image' \
+            <<< "${mcp_deployment_json}")"
           echo "Private MCP deployment image reference: ${deployed_image}"
+          if ! jq -e '
+            .spec.template.spec.serviceAccountName == "mcp-server" and
+            .spec.template.metadata.labels["azure.workload.identity/use"] == "true"
+          ' <<< "${mcp_deployment_json}" > /dev/null; then
+            echo "::error title=MCP workload contract mismatch::The MCP Deployment must use its opted-in ServiceAccount."
+            exit 1
+          fi
+          mcp_client_id="$(kubectl get serviceaccount mcp-server \
+            -n mcp-platform -o json \
+            | jq -er '.metadata.annotations["azure.workload.identity/client-id"] // empty')"
+          if [[ ! "${mcp_client_id}" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+            echo "::error title=MCP workload identity missing::The MCP ServiceAccount has no client ID annotation."
+            exit 1
+          fi
           kubectl rollout status deployment/mcp-platform-placeholder \
             -n mcp-platform-demo --timeout=120s
           certificate_json="$(kubectl get certificate mcp-platform-mcp-tls \
@@ -786,6 +803,24 @@ jobs:
           pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
           pod_json="$(kubectl get pod "${pod}" -n mcp-platform -o json)"
+          if ! jq -e --arg client_id "${mcp_client_id}" '
+            . as $mcp_pod |
+            ([.spec.containers[]? | select(.name == "mcp-server")][0]) as $mcp_container |
+            .spec.serviceAccountName == "mcp-server" and
+            any($mcp_container.env[]?;
+              .name == "AZURE_CLIENT_ID" and .value == $client_id) and
+            all(("AZURE_TENANT_ID", "AZURE_FEDERATED_TOKEN_FILE", "AZURE_AUTHORITY_HOST");
+              . as $name |
+              any($mcp_container.env[]?; .name == $name)) and
+            all($mcp_container.env[]?;
+              ((.name | ascii_downcase | gsub("[^a-z]"; "") | contains("clientsecret")) | not) and
+              (.valueFrom.secretKeyRef == null)) and
+            all($mcp_container.envFrom[]?; .secretRef == null)
+          ' <<< "${pod_json}" > /dev/null; then
+            echo "::error title=MCP workload identity injection mismatch::The ready MCP pod must use its projected workload identity and no client-secret environment source."
+            exit 1
+          fi
+          echo "MCP pod ${pod}: workload identity injected; no client secret"
           sidecar_present="$(jq -r \
             '(
               ([.spec.containers[]?.name] | index("istio-proxy") != null)
@@ -927,8 +962,8 @@ jobs:
           TEST_CLIENT_ID="${test_client_id}" \
           bash scripts/gate/verify-private-mcp.sh
 
-  verify-private-request-context:
-    name: verify-private-request-context
+  verify-private-observability:
+    name: verify-private-observability
     if: inputs.action == 'verify-private'
     needs: verify-private-data-plane
     runs-on: ubuntu-latest
@@ -958,7 +993,7 @@ jobs:
           terraform_version: 1.15.8
           terraform_wrapper: false
 
-      - name: Record private MCP forwarded request context
+      - name: Verify private MCP context and Orders telemetry
         shell: bash
         run: |
           set -euo pipefail

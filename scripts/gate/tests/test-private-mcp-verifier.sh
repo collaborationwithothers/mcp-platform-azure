@@ -241,6 +241,15 @@ for required in \
   'terraform -chdir=infra/compositions/shared-observability-core init -input=false' \
   'terraform -chdir=infra/compositions/shared-observability-core output -raw application_insights_id' \
   'Private MCP deployment image reference: ${deployed_image}' \
+  '.spec.template.spec.serviceAccountName == "mcp-server"' \
+  '.spec.template.metadata.labels["azure.workload.identity/use"] == "true"' \
+  'kubectl get serviceaccount mcp-server' \
+  '.metadata.annotations["azure.workload.identity/client-id"] // empty' \
+  '.name == "AZURE_CLIENT_ID" and .value == $client_id' \
+  'contains("clientsecret")' \
+  '.valueFrom.secretKeyRef == null' \
+  'all($mcp_container.envFrom[]?; .secretRef == null)' \
+  'MCP pod ${pod}: workload identity injected; no client secret' \
   '::add-mask::${component_id}' \
   'az rest' \
   '--method get' \
@@ -309,7 +318,7 @@ for required in \
   fi
 done
 
-request_context_job="$(workflow_job verify-private-request-context)"
+request_context_job="$(workflow_job verify-private-observability)"
 if [ -z "${request_context_job}" ]; then
   echo "private request-context job is missing" >&2
   exit 1
