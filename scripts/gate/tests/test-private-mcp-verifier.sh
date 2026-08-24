@@ -332,6 +332,7 @@ for required in \
   "if: always() && inputs.action == 'verify-private'" \
   'needs: verify-private-data-plane' \
   'runs-on: ubuntu-latest' \
+  'actions/checkout@v7' \
   'hashicorp/setup-terraform@v4' \
   'terraform_version: 1.15.8' \
   'prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"' \

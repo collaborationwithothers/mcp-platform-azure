@@ -994,6 +994,9 @@ jobs:
       AKS_CLUSTER_NAME: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
       S1_TFVARS_JSON: ${{ secrets.S1_TFVARS_JSON }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Azure login (OIDC)
         uses: azure/login@v3
         with:
