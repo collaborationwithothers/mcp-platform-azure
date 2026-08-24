@@ -133,7 +133,7 @@ if [ -z "${control_plane_job}" ]; then
 fi
 
 for required in \
-  'for application in mcp-platform-mcp mcp-platform-demo; do' \
+  'for application in mcp-platform-mcp mcp-platform-orders mcp-platform-demo; do' \
   'Istio revision contract mcp-platform: installed=${installed_istio_revisions}; namespace=${mcp_namespace_revision}' \
   'restartPolicy == "Always"' \
   '.status.initContainerStatuses[]?' \
@@ -162,7 +162,17 @@ for required in \
   '::error title=Application Insights local authentication state invalid::Application Insights DisableLocalAuth was not a Boolean; expected true.' \
   "Private MCP certificate mcp-platform-mcp-tls: Ready=\${certificate_ready}" \
   "MCP pod \${pod}: istio-proxy present" \
-  "MCP pod \${pod}: Istio init interception=REDIRECT configured"; do
+  "MCP pod \${pod}: Istio init interception=REDIRECT configured" \
+  'kubectl rollout status deployment/orders-api -n mcp-platform --timeout=120s' \
+  '.spec.template.spec.serviceAccountName == "orders-api"' \
+  '.spec.template.metadata.labels["azure.workload.identity/use"] == "true"' \
+  '(.spec.template.spec.imagePullSecrets // []) | length == 0' \
+  '.metadata.annotations["azure.workload.identity/client-id"] // empty' \
+  '.name == "AZURE_CLIENT_ID" and .value == $client_id' \
+  '"AZURE_TENANT_ID"' \
+  '"AZURE_FEDERATED_TOKEN_FILE"' \
+  '"AZURE_AUTHORITY_HOST"' \
+  'workload identity injected; Ready=true; no image pull secret'; do
   if ! grep --fixed-strings --quiet -- "${required}" <<< "${control_plane_job}"; then
     echo "private control-plane diagnostic missing: ${required}" >&2
     exit 1
