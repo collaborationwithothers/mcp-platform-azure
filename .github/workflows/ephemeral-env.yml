@@ -1137,7 +1137,8 @@ jobs:
             fi
           done
           if [ "${telemetry_observed}" != "true" ]; then
-            echo "::error title=Private Orders telemetry missing::Application Insights did not return one correlated Orders request and its successful MCP dependency within the bounded observation window."
+            telemetry_counts="$(jq -r '"request=\(.[0].requestCount // 0); dependency=\(.[0].dependencyCount // 0)"' <<< "${telemetry_result}")"
+            echo "::error title=Private Orders telemetry missing::Application Insights did not return one correlated Orders request and its successful MCP dependency within the bounded observation window; observed ${telemetry_counts}."
             exit 1
           fi
           echo "Orders workload identity telemetry observed: correlated request=1; dependency>=1"
