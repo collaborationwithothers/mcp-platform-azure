@@ -1,6 +1,8 @@
 # Manual image publication for the AKS MCP and Orders workloads. The selected
 # workflow_dispatch ref supplies both the workflow and source code. Each job
 # validates its complete promotion contract before pushing an image.
+# The MCP-specific filename remains stable because existing dispatch callers
+# and runbook links use this default-branch workflow path.
 name: Publish platform workload image
 on:
   workflow_dispatch:
