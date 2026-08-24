@@ -1,3 +1,5 @@
+using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using DownstreamOrdersApi;
 using DownstreamOrdersApi.Endpoints;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -42,6 +44,20 @@ builder.Services
         };
     });
 builder.Services.AddAuthorization();
+
+if (!builder.Environment.IsDevelopment())
+{
+    var telemetryCredential = new DefaultAzureCredential();
+    var connectionString = RequiredConfiguration(
+        builder.Configuration,
+        "APPLICATIONINSIGHTS_CONNECTION_STRING");
+
+    builder.Services.AddOpenTelemetry().UseAzureMonitor(options =>
+    {
+        options.ConnectionString = connectionString;
+        options.Credential = telemetryCredential;
+    });
+}
 
 var app = builder.Build();
 
