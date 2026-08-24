@@ -895,6 +895,7 @@ jobs:
     needs: verify-private-control-plane
     outputs:
       prm_verification_id: ${{ steps.private_mcp_data_plane.outputs.prm_verification_id }}
+      orders_trace_id: ${{ steps.private_mcp_data_plane.outputs.orders_trace_id }}
     runs-on:
       group: ${{ vars.PRIVATE_MCP_VNET_RUNNER_GROUP }}
       labels: ${{ vars.PRIVATE_MCP_VNET_RUNNER_LABEL }}
@@ -902,6 +903,7 @@ jobs:
     env:
       MCP_PRIVATE_HOST: mcp.internal.consultwithcloud.com
       MCP_PRIVATE_IP: ${{ vars.AKS_PLATFORM_INGRESS_PRIVATE_IP }}
+      S1_TFVARS_JSON: ${{ secrets.S1_TFVARS_JSON }}
       S2_TFVARS_JSON: ${{ secrets.S2_TFVARS_JSON }}
       TEST_CLIENT_SECRET: ${{ secrets.TEST_CLIENT_SECRET }}
       TEST_CLIENT_WITHOUT_ROLE_ID: ${{ secrets.TEST_CLIENT_WITHOUT_ROLE_ID }}
@@ -917,8 +919,10 @@ jobs:
           set -euo pipefail
           test_client_id="$(jq -er '.entra_validation.allowed_client_application_ids[0]' <<< "${S2_TFVARS_JSON}")"
           resource_audience="$(jq -er '.entra_validation.audience' <<< "${S2_TFVARS_JSON}")"
+          orders_resource_audience="$(jq -er '.downstream_entra_auth.allowed_audiences[0]' <<< "${S1_TFVARS_JSON}")"
           tenant_id="$(jq -er '.entra_validation.tenant_id' <<< "${S2_TFVARS_JSON}")"
           MCP_RESOURCE_AUDIENCE="${resource_audience}" \
+          ORDERS_RESOURCE_AUDIENCE="${orders_resource_audience}" \
           AZURE_TENANT_ID="${tenant_id}" \
           TEST_CLIENT_ID="${test_client_id}" \
           bash scripts/gate/verify-private-mcp.sh
@@ -930,6 +934,14 @@ jobs:
     runs-on: ubuntu-latest
     environment: live-test
     env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
       AKS_RESOURCE_GROUP: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
       AKS_CLUSTER_NAME: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
     steps:
@@ -939,6 +951,12 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
 
       - name: Record private MCP forwarded request context
         shell: bash
@@ -956,6 +974,7 @@ jobs:
           pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
           prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"
+          orders_trace_id="${{ needs.verify-private-data-plane.outputs.orders_trace_id }}"
           if [[ ! "${prm_verification_id}" =~ ^[0-9a-f]{32}$ ]]; then
             echo "::error title=Private MCP PRM correlation missing::The VNet verifier did not record the final PRM request identifier."
             exit 1
@@ -980,3 +999,66 @@ jobs:
             exit 1
           fi
           echo "Private MCP PRM request context observed: scheme=https; peer=loopback"
+
+          if [[ ! "${orders_trace_id}" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error title=Private Orders trace correlation missing::The VNet verifier did not record the sanctioned Orders trace identifier."
+            exit 1
+          fi
+
+          terraform -chdir=infra/compositions/shared-observability-core init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_CORE_STATE_KEY}" > /dev/null
+          workspace_resource_id="$(terraform -chdir=infra/compositions/shared-observability-core output -raw log_analytics_workspace_id)"
+          echo "::add-mask::${workspace_resource_id}"
+          workspace_customer_id="$(az monitor log-analytics workspace show \
+            --ids "${workspace_resource_id}" \
+            --query customerId \
+            --output tsv)"
+          echo "::add-mask::${workspace_customer_id}"
+
+          # UseAzureMonitor includes ASP.NET Core request and HttpClient
+          # dependency instrumentation. Workspace-based Application Insights
+          # stores those records in AppRequests and AppDependencies:
+          # https://learn.microsoft.com/azure/azure-monitor/app/opentelemetry-collect-detect
+          # https://learn.microsoft.com/azure/azure-monitor/reference/tables/apprequests
+          # https://learn.microsoft.com/azure/azure-monitor/reference/tables/appdependencies
+          telemetry_query="$(cat <<KQL
+          let trace_id = "${orders_trace_id}";
+          let requestCount = toscalar(
+            AppRequests
+            | where OperationId == trace_id
+            | where Url endswith "/api/orders/CONTOSO-1001"
+            | where ResultCode == "200" and Success == true
+            | count);
+          let dependencyCount = toscalar(
+            AppDependencies
+            | where OperationId == trace_id
+            | where Data has "/api/orders/CONTOSO-1001"
+            | where ResultCode == "200" and Success == true
+            | count);
+          print requestCount=requestCount, dependencyCount=dependencyCount
+          KQL
+          )"
+          telemetry_observed=false
+          for attempt in $(seq 1 20); do
+            telemetry_result="$(az monitor log-analytics query \
+              --workspace "${workspace_customer_id}" \
+              --analytics-query "${telemetry_query}" \
+              --timespan PT30M \
+              --output json)"
+            if jq -e \
+              'length == 1 and .[0].requestCount == 1 and .[0].dependencyCount >= 1' \
+              <<< "${telemetry_result}" > /dev/null; then
+              telemetry_observed=true
+              break
+            fi
+            if [ "${attempt}" -lt 20 ]; then
+              sleep 15
+            fi
+          done
+          if [ "${telemetry_observed}" != "true" ]; then
+            echo "::error title=Private Orders telemetry missing::Application Insights did not return one correlated Orders request and its successful MCP dependency within the bounded observation window."
+            exit 1
+          fi
+          echo "Orders workload identity telemetry observed: correlated request=1; dependency>=1"

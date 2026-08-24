@@ -20,6 +20,7 @@ require \
   MCP_PRIVATE_HOST \
   MCP_PRIVATE_IP \
   MCP_RESOURCE_AUDIENCE \
+  ORDERS_RESOURCE_AUDIENCE \
   AZURE_TENANT_ID \
   TEST_CLIENT_ID \
   TEST_CLIENT_SECRET \
@@ -118,11 +119,17 @@ token() {
 mcp_body() {
   local bearer_token="$1"
   local body="$2"
+  local traceparent="${3:-}"
+  local trace_header=()
   local response
   local metadata
   local response_body
   local http_status
   local content_type
+
+  if [ -n "${traceparent}" ]; then
+    trace_header=(--header "traceparent: ${traceparent}")
+  fi
 
   response="$(curl --silent --show-error \
     --resolve "${host}:443:${MCP_PRIVATE_IP}" \
@@ -130,6 +137,7 @@ mcp_body() {
     --header 'Accept: application/json, text/event-stream' \
     --header 'Content-Type: application/json' \
     --header 'MCP-Protocol-Version: 2025-06-18' \
+    "${trace_header[@]}" \
     --data "${body}" \
     --write-out $'\n__MCP_RESPONSE_META__%{http_code}\t%{content_type}' \
     "${resource_url}")"
@@ -215,6 +223,12 @@ initialize='{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVer
 tools_list='{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}'
 allowed_call='{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_access_guidance","arguments":{}}}'
 denied_call='{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_order_status","arguments":{"orderId":"CONTOSO-1001"}}}'
+orders_call='{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"get_order_status","arguments":{"orderId":"CONTOSO-1001"}}}'
+
+MCP_SERVER_AUDIENCE_TOKEN="${app_token}" \
+ORDERS_PRIVATE_HOST="${host}" \
+ORDERS_PRIVATE_IP="${MCP_PRIVATE_IP}" \
+bash scripts/gate/verify-private-orders.sh
 
 initialized="$(json_rpc "$(mcp_body "${app_token}" "${initialize}")")"
 jq --exit-status '.result != null and .error == null' <<< "${initialized}" > /dev/null \
@@ -229,6 +243,19 @@ allowed="$(json_rpc "$(mcp_body "${app_token}" "${allowed_call}")")"
 jq --exit-status '.result != null and .result.isError != true and .error == null' \
   <<< "${allowed}" > /dev/null \
   || fail "an application caller could not call the unrestricted private tool"
+
+orders_trace_id="$(openssl rand -hex 16)"
+orders_parent_span_id="$(openssl rand -hex 8)"
+orders_traceparent="00-${orders_trace_id}-${orders_parent_span_id}-01"
+orders="$(json_rpc "$(mcp_body "${app_token}" "${orders_call}" "${orders_traceparent}")")"
+jq --exit-status '
+  .result.isError != true
+  and .error == null
+  and .result.structuredContent.orderId == "CONTOSO-1001"
+  and .result.structuredContent.status == "Delivered"
+  and .result.structuredContent.updatedUtc == "2026-06-01T14:05:00Z"
+' <<< "${orders}" > /dev/null \
+  || fail "the sanctioned MCP-to-Orders call did not return the expected synthetic fixture"
 
 denied="$(json_rpc "$(mcp_body "${roleless_token}" "${denied_call}")")"
 jq --exit-status '
@@ -249,6 +276,7 @@ fi
 prm_verification_id="$(openssl rand -hex 16)"
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   printf 'prm_verification_id=%s\n' "${prm_verification_id}" >> "${GITHUB_OUTPUT}"
+  printf 'orders_trace_id=%s\n' "${orders_trace_id}" >> "${GITHUB_OUTPUT}"
 fi
 prm="$(curl --fail --silent --show-error \
   --resolve "${host}:443:${MCP_PRIVATE_IP}" \
