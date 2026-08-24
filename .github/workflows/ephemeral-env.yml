@@ -731,7 +731,7 @@ jobs:
           fi
           echo "Istio revision contract mcp-platform: installed=${installed_istio_revisions}; namespace=${mcp_namespace_revision}"
 
-          for application in mcp-platform-mcp mcp-platform-demo; do
+          for application in mcp-platform-mcp mcp-platform-orders mcp-platform-demo; do
             application_json="$(kubectl get application "${application}" -n argocd -o json)"
             sync_status="$(jq -r '.status.sync.status // "Unknown"' <<< "${application_json}")"
             health_status="$(jq -r '.status.health.status // "Unknown"' <<< "${application_json}")"
@@ -810,6 +810,47 @@ jobs:
             exit 1
           fi
           echo "MCP pod ${pod}: Istio init interception=REDIRECT configured"
+
+          kubectl rollout status deployment/orders-api -n mcp-platform --timeout=120s
+          orders_deployment_json="$(kubectl get deployment orders-api \
+            -n mcp-platform -o json)"
+          if ! jq -e '
+            .spec.template.spec.serviceAccountName == "orders-api" and
+            .spec.template.metadata.labels["azure.workload.identity/use"] == "true" and
+            ((.spec.template.spec.imagePullSecrets // []) | length == 0)
+          ' <<< "${orders_deployment_json}" > /dev/null; then
+            echo "::error title=Orders workload contract mismatch::The Orders Deployment must use its opted-in ServiceAccount without an image pull secret."
+            exit 1
+          fi
+          orders_client_id="$(kubectl get serviceaccount orders-api \
+            -n mcp-platform -o json \
+            | jq -er '.metadata.annotations["azure.workload.identity/client-id"] // empty')"
+          if [[ ! "${orders_client_id}" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+            echo "::error title=Orders workload identity missing::The Orders ServiceAccount has no client ID annotation."
+            exit 1
+          fi
+          orders_pod_selector="$(jq -er \
+            '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")' \
+            <<< "${orders_deployment_json}")"
+          orders_pod="$(kubectl get pods -n mcp-platform \
+            -l "${orders_pod_selector}" -o json \
+            | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
+          orders_pod_json="$(kubectl get pod "${orders_pod}" \
+            -n mcp-platform -o json)"
+          if ! jq -e --arg client_id "${orders_client_id}" '
+            . as $orders_pod |
+            .spec.serviceAccountName == "orders-api" and
+            any(.spec.containers[]? | select(.name == "orders-api") | .env[]?;
+              .name == "AZURE_CLIENT_ID" and .value == $client_id) and
+            all(("AZURE_TENANT_ID", "AZURE_FEDERATED_TOKEN_FILE", "AZURE_AUTHORITY_HOST");
+              . as $name |
+              any($orders_pod.spec.containers[]? | select(.name == "orders-api") | .env[]?;
+                .name == $name))
+          ' <<< "${orders_pod_json}" > /dev/null; then
+            echo "::error title=Orders workload identity injection missing::The ready Orders pod lacks its projected workload identity environment."
+            exit 1
+          fi
+          echo "Orders pod ${orders_pod}: workload identity injected; Ready=true; no image pull secret"
 
           terraform -chdir=infra/compositions/shared-observability-core init -input=false \
             -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
