@@ -1113,7 +1113,7 @@ jobs:
           let dependencyCount = toscalar(
             AppDependencies
             | where OperationId == trace_id
-            | where Data has "/api/orders/CONTOSO-1001"
+            | where Data contains_cs "/api/orders/CONTOSO-1001"
             | where ResultCode == "200" and Success == true
             | count);
           print requestCount=requestCount, dependencyCount=dependencyCount
@@ -1137,8 +1137,7 @@ jobs:
             fi
           done
           if [ "${telemetry_observed}" != "true" ]; then
-            telemetry_counts="$(jq -r '"request=\(.[0].requestCount // 0); dependency=\(.[0].dependencyCount // 0)"' <<< "${telemetry_result}")"
-            echo "::error title=Private Orders telemetry missing::Application Insights did not return one correlated Orders request and its successful MCP dependency within the bounded observation window; observed ${telemetry_counts}."
+            echo "::error title=Private Orders telemetry missing::Application Insights did not return one correlated Orders request and its successful MCP dependency within the bounded observation window."
             exit 1
           fi
           echo "Orders workload identity telemetry observed: correlated request=1; dependency>=1"

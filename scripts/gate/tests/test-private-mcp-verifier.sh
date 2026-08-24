@@ -357,9 +357,8 @@ for required in \
   'AppDependencies' \
   'OperationId == trace_id' \
   'Url endswith "/api/orders/CONTOSO-1001"' \
-  'Data has "/api/orders/CONTOSO-1001"' \
+  'Data contains_cs "/api/orders/CONTOSO-1001"' \
   '.[0].requestCount == 1 and .[0].dependencyCount >= 1' \
-  'observed ${telemetry_counts}.' \
   'Orders workload identity telemetry observed: correlated request=1; dependency>=1'; do
   if ! grep --fixed-strings --quiet -- "${required}" <<< "${observability_job}"; then
     echo "private observability verifier contract missing: ${required}" >&2
