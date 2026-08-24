@@ -245,6 +245,9 @@ for required in \
   'terraform -chdir=infra/compositions/shared-observability-core init -input=false' \
   'terraform -chdir=infra/compositions/shared-observability-core output -raw application_insights_id' \
   'Private MCP deployment image reference: ${deployed_image}' \
+  '--query api.requestedAccessTokenVersion' \
+  'Orders access token version mismatch' \
+  'Orders resource app: requestedAccessTokenVersion=2' \
   '.spec.template.spec.serviceAccountName == "mcp-server"' \
   '.spec.template.metadata.labels["azure.workload.identity/use"] == "true"' \
   'kubectl get serviceaccount mcp-server' \
@@ -338,7 +341,6 @@ for required in \
   "'AADSTS[0-9]+'" \
   'scope contract matches=${scope_contract_matches}' \
   'audience contract matches=${audience_contract_matches}' \
-  'requested access token version=${requested_token_version:-default}' \
   'Raw pod logs and identifiers were not emitted.' \
   'kubectl logs "${pod}" -n mcp-platform -c mcp-server' \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https .* ${prm_verification_id}$' \
