@@ -148,6 +148,18 @@ public sealed class OrderStatusEndpointTests : IClassFixture<TestOrdersApiFactor
             TestOrdersApiFactory.OrdersAudience);
     }
 
+    [Fact]
+    public void ProductionHost_WithoutLiveTelemetryConnectionString_FailsFast()
+    {
+        using var productionFactory = _factory.WithWebHostBuilder(builder =>
+            builder.UseSetting(WebHostDefaults.EnvironmentKey, "Production"));
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => productionFactory.CreateClient());
+
+        Assert.Contains("APPLICATIONINSIGHTS_CONNECTION_STRING", exception.Message);
+    }
+
     private async Task<HttpResponseMessage> GetOrderAsync(string orderId, string token)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/orders/{orderId}");
