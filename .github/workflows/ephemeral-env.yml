@@ -1127,7 +1127,7 @@ jobs:
               --timespan PT30M \
               --output json)"
             if jq -e \
-              'length == 1 and .[0].requestCount == 1 and .[0].dependencyCount >= 1' \
+              'length == 1 and (.[0].requestCount | tonumber) == 1 and (.[0].dependencyCount | tonumber) >= 1' \
               <<< "${telemetry_result}" > /dev/null; then
               telemetry_observed=true
               break

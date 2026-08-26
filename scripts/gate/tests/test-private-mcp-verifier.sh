@@ -358,13 +358,18 @@ for required in \
   'OperationId == trace_id' \
   'Url endswith "/api/orders/CONTOSO-1001"' \
   'Data contains_cs "/api/orders/CONTOSO-1001"' \
-  '.[0].requestCount == 1 and .[0].dependencyCount >= 1' \
+  '(.[0].requestCount | tonumber) == 1 and (.[0].dependencyCount | tonumber) >= 1' \
   'Orders workload identity telemetry observed: correlated request=1; dependency>=1'; do
   if ! grep --fixed-strings --quiet -- "${required}" <<< "${observability_job}"; then
     echo "private observability verifier contract missing: ${required}" >&2
     exit 1
   fi
 done
+
+if ! jq -e 'length == 1 and (.[0].requestCount | tonumber) == 1 and (.[0].dependencyCount | tonumber) >= 1' <<< '[{"requestCount":"1","dependencyCount":"1"}]' >/dev/null; then
+  echo "private observability verifier must accept string-encoded Kusto counts" >&2
+  exit 1
+fi
 
 loopback_pattern='Private MCP request context /\.well-known/oauth-protected-resource/mcp https ((::ffff:)?127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|::1) [0-9a-f]{32}$'
 if ! grep --extended-regexp --quiet "${loopback_pattern}" \
