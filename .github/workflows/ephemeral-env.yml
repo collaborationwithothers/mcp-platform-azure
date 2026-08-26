@@ -688,6 +688,7 @@ jobs:
       SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
       AKS_RESOURCE_GROUP: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
       AKS_CLUSTER_NAME: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
+      S1_TFVARS_JSON: ${{ secrets.S1_TFVARS_JSON }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -709,6 +710,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          orders_resource_client_id="$(jq -er '.downstream_app.client_id' <<< "${S1_TFVARS_JSON}")"
+          requested_token_version="$(az ad app show \
+            --id "${orders_resource_client_id}" \
+            --query api.requestedAccessTokenVersion \
+            --output tsv)"
+          # A null/default requestedAccessTokenVersion emits v1 access tokens.
+          # The Orders API validates the v2 issuer, so the resource app must
+          # request v2 tokens:
+          # https://learn.microsoft.com/entra/identity-platform/access-tokens#token-formats
+          if [ "${requested_token_version}" != "2" ]; then
+            echo "::error title=Orders access token version mismatch::The Orders resource app must set requestedAccessTokenVersion=2; observed ${requested_token_version:-default}."
+            exit 1
+          fi
+          echo "Orders resource app: requestedAccessTokenVersion=2"
           az aks get-credentials \
             --resource-group "${AKS_RESOURCE_GROUP}" \
             --name "${AKS_CLUSTER_NAME}" \
@@ -766,9 +781,26 @@ jobs:
           done
 
           kubectl rollout status deployment/mcp-server -n mcp-platform --timeout=120s
-          deployed_image="$(kubectl get deployment mcp-server -n mcp-platform -o json \
-            | jq -er '.spec.template.spec.containers[] | select(.name == "mcp-server") | .image')"
+          mcp_deployment_json="$(kubectl get deployment mcp-server \
+            -n mcp-platform -o json)"
+          deployed_image="$(jq -er \
+            '.spec.template.spec.containers[] | select(.name == "mcp-server") | .image' \
+            <<< "${mcp_deployment_json}")"
           echo "Private MCP deployment image reference: ${deployed_image}"
+          if ! jq -e '
+            .spec.template.spec.serviceAccountName == "mcp-server" and
+            .spec.template.metadata.labels["azure.workload.identity/use"] == "true"
+          ' <<< "${mcp_deployment_json}" > /dev/null; then
+            echo "::error title=MCP workload contract mismatch::The MCP Deployment must use its opted-in ServiceAccount."
+            exit 1
+          fi
+          mcp_client_id="$(kubectl get serviceaccount mcp-server \
+            -n mcp-platform -o json \
+            | jq -er '.metadata.annotations["azure.workload.identity/client-id"] // empty')"
+          if [[ ! "${mcp_client_id}" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+            echo "::error title=MCP workload identity missing::The MCP ServiceAccount has no client ID annotation."
+            exit 1
+          fi
           kubectl rollout status deployment/mcp-platform-placeholder \
             -n mcp-platform-demo --timeout=120s
           certificate_json="$(kubectl get certificate mcp-platform-mcp-tls \
@@ -786,6 +818,22 @@ jobs:
           pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
           pod_json="$(kubectl get pod "${pod}" -n mcp-platform -o json)"
+          if ! jq -e --arg client_id "${mcp_client_id}" '
+            . as $mcp_pod |
+            ([.spec.containers[]? | select(.name == "mcp-server")][0]) as $mcp_container |
+            .spec.serviceAccountName == "mcp-server" and
+            any($mcp_container.env[]?;
+              .name == "AZURE_CLIENT_ID" and .value == $client_id) and
+            all(("AZURE_TENANT_ID", "AZURE_FEDERATED_TOKEN_FILE", "AZURE_AUTHORITY_HOST");
+              . as $name |
+              any($mcp_container.env[]?; .name == $name)) and
+            all($mcp_container.env[]?;
+              (.name | ascii_downcase | gsub("[^a-z]"; "") | contains("clientsecret") | not))
+          ' <<< "${pod_json}" > /dev/null; then
+            echo "::error title=MCP workload identity injection mismatch::The ready MCP pod must use its projected workload identity and no client-secret environment source."
+            exit 1
+          fi
+          echo "MCP pod ${pod}: workload identity injected; no client secret"
           sidecar_present="$(jq -r \
             '(
               ([.spec.containers[]?.name] | index("istio-proxy") != null)
@@ -895,6 +943,7 @@ jobs:
     needs: verify-private-control-plane
     outputs:
       prm_verification_id: ${{ steps.private_mcp_data_plane.outputs.prm_verification_id }}
+      orders_trace_id: ${{ steps.private_mcp_data_plane.outputs.orders_trace_id }}
     runs-on:
       group: ${{ vars.PRIVATE_MCP_VNET_RUNNER_GROUP }}
       labels: ${{ vars.PRIVATE_MCP_VNET_RUNNER_LABEL }}
@@ -902,6 +951,7 @@ jobs:
     env:
       MCP_PRIVATE_HOST: mcp.internal.consultwithcloud.com
       MCP_PRIVATE_IP: ${{ vars.AKS_PLATFORM_INGRESS_PRIVATE_IP }}
+      S1_TFVARS_JSON: ${{ secrets.S1_TFVARS_JSON }}
       S2_TFVARS_JSON: ${{ secrets.S2_TFVARS_JSON }}
       TEST_CLIENT_SECRET: ${{ secrets.TEST_CLIENT_SECRET }}
       TEST_CLIENT_WITHOUT_ROLE_ID: ${{ secrets.TEST_CLIENT_WITHOUT_ROLE_ID }}
@@ -917,22 +967,36 @@ jobs:
           set -euo pipefail
           test_client_id="$(jq -er '.entra_validation.allowed_client_application_ids[0]' <<< "${S2_TFVARS_JSON}")"
           resource_audience="$(jq -er '.entra_validation.audience' <<< "${S2_TFVARS_JSON}")"
+          orders_resource_audience="$(jq -er '.downstream_entra_auth.allowed_audiences[0]' <<< "${S1_TFVARS_JSON}")"
           tenant_id="$(jq -er '.entra_validation.tenant_id' <<< "${S2_TFVARS_JSON}")"
           MCP_RESOURCE_AUDIENCE="${resource_audience}" \
+          ORDERS_RESOURCE_AUDIENCE="${orders_resource_audience}" \
           AZURE_TENANT_ID="${tenant_id}" \
           TEST_CLIENT_ID="${test_client_id}" \
           bash scripts/gate/verify-private-mcp.sh
 
-  verify-private-request-context:
-    name: verify-private-request-context
-    if: inputs.action == 'verify-private'
+  verify-private-observability:
+    name: verify-private-observability
+    if: always() && inputs.action == 'verify-private'
     needs: verify-private-data-plane
     runs-on: ubuntu-latest
     environment: live-test
     env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+      SHARED_OBSERVABILITY_CORE_STATE_KEY: shared-observability-core.tfstate
       AKS_RESOURCE_GROUP: ${{ vars.AKS_PLATFORM_RESOURCE_GROUP }}
       AKS_CLUSTER_NAME: ${{ vars.AKS_PLATFORM_CLUSTER_NAME }}
+      S1_TFVARS_JSON: ${{ secrets.S1_TFVARS_JSON }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Azure login (OIDC)
         uses: azure/login@v3
         with:
@@ -940,7 +1004,13 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Record private MCP forwarded request context
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Verify private MCP context and Orders telemetry
         shell: bash
         run: |
           set -euo pipefail
@@ -955,7 +1025,35 @@ jobs:
             | jq -er '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')"
           pod="$(kubectl get pods -n mcp-platform -l "${pod_selector}" -o json \
             | jq -er '[.items[] | select(.status.phase == "Running") | select(all(.status.containerStatuses[]?; .ready))][0].metadata.name')"
+          pod_json="$(kubectl get pod "${pod}" -n mcp-platform -o json)"
+          data_plane_result="${{ needs.verify-private-data-plane.result }}"
+          if [ "${data_plane_result}" != "success" ]; then
+            mcp_logs="$(kubectl logs "${pod}" -n mcp-platform -c mcp-server --since=10m)"
+            expected_orders_resource_audience="$(jq -er '.downstream_entra_auth.allowed_audiences[0]' <<< "${S1_TFVARS_JSON}")"
+            expected_orders_token_audience="$(jq -er '.downstream_app.client_id' <<< "${S1_TFVARS_JSON}")"
+            expected_application_scope="$(jq -er '.downstream_app.application_scope' <<< "${S1_TFVARS_JSON}")"
+            deployed_application_scope="$(jq -r '.spec.containers[] | select(.name == "mcp-server") | .env[]? | select(.name == "DownstreamOrdersApi__ApplicationScope") | .value // empty' <<< "${pod_json}")"
+            orders_deployment_json="$(kubectl get deployment orders-api -n mcp-platform -o json)"
+            deployed_orders_audience="$(jq -r '.spec.template.spec.containers[] | select(.name == "orders-api") | .env[]? | select(.name == "Authentication__Audience") | .value // empty' <<< "${orders_deployment_json}")"
+            scope_contract_matches=false
+            audience_contract_matches=false
+            [ "${expected_application_scope}" = "${expected_orders_resource_audience}/.default" ] && [ "${deployed_application_scope}" = "${expected_application_scope}" ] && scope_contract_matches=true
+            [ "${deployed_orders_audience}" = "${expected_orders_token_audience}" ] && audience_contract_matches=true
+            exception_types="$(grep --extended-regexp --only-matching \
+              '[A-Za-z][A-Za-z0-9.]*Exception' <<< "${mcp_logs}" \
+              | sort --unique | paste --serial --delimiters=, - || true)"
+            entra_error_codes="$(grep --extended-regexp --only-matching \
+              'AADSTS[0-9]+' <<< "${mcp_logs}" \
+              | sort --unique | paste --serial --delimiters=, - || true)"
+            http_failure_codes="$(grep --extended-regexp --only-matching \
+              'Response status code does not indicate success: (400|401|403|404|500)' \
+              <<< "${mcp_logs}" | grep --extended-regexp --only-matching '[0-9]{3}' \
+              | sort --unique | paste --serial --delimiters=, - || true)"
+            echo "::error title=Private Orders call failed::MCP exception types=${exception_types:-none}; Entra error codes=${entra_error_codes:-none}; HTTP failure codes=${http_failure_codes:-none}; scope contract matches=${scope_contract_matches}; audience contract matches=${audience_contract_matches}. Raw pod logs and identifiers were not emitted."
+            exit 1
+          fi
           prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"
+          orders_trace_id="${{ needs.verify-private-data-plane.outputs.orders_trace_id }}"
           if [[ ! "${prm_verification_id}" =~ ^[0-9a-f]{32}$ ]]; then
             echo "::error title=Private MCP PRM correlation missing::The VNet verifier did not record the final PRM request identifier."
             exit 1
@@ -980,3 +1078,66 @@ jobs:
             exit 1
           fi
           echo "Private MCP PRM request context observed: scheme=https; peer=loopback"
+
+          if [[ ! "${orders_trace_id}" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error title=Private Orders trace correlation missing::The VNet verifier did not record the sanctioned Orders trace identifier."
+            exit 1
+          fi
+
+          terraform -chdir=infra/compositions/shared-observability-core init -input=false \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TF_STATE_CONTAINER}" \
+            -backend-config="key=${SHARED_OBSERVABILITY_CORE_STATE_KEY}" > /dev/null
+          workspace_resource_id="$(terraform -chdir=infra/compositions/shared-observability-core output -raw log_analytics_workspace_id)"
+          echo "::add-mask::${workspace_resource_id}"
+          workspace_customer_id="$(az monitor log-analytics workspace show \
+            --ids "${workspace_resource_id}" \
+            --query customerId \
+            --output tsv)"
+          echo "::add-mask::${workspace_customer_id}"
+
+          # UseAzureMonitor includes ASP.NET Core request and HttpClient
+          # dependency instrumentation. Workspace-based Application Insights
+          # stores those records in AppRequests and AppDependencies:
+          # https://learn.microsoft.com/azure/azure-monitor/app/opentelemetry-collect-detect
+          # https://learn.microsoft.com/azure/azure-monitor/reference/tables/apprequests
+          # https://learn.microsoft.com/azure/azure-monitor/reference/tables/appdependencies
+          telemetry_query="$(cat <<KQL
+          let trace_id = "${orders_trace_id}";
+          let requestCount = toscalar(
+            AppRequests
+            | where OperationId == trace_id
+            | where Url endswith "/api/orders/CONTOSO-1001"
+            | where ResultCode == "200" and Success == true
+            | count);
+          let dependencyCount = toscalar(
+            AppDependencies
+            | where OperationId == trace_id
+            | where Data contains_cs "/api/orders/CONTOSO-1001"
+            | where ResultCode == "200" and Success == true
+            | count);
+          print requestCount=requestCount, dependencyCount=dependencyCount
+          KQL
+          )"
+          telemetry_observed=false
+          for attempt in $(seq 1 20); do
+            telemetry_result="$(az monitor log-analytics query \
+              --workspace "${workspace_customer_id}" \
+              --analytics-query "${telemetry_query}" \
+              --timespan PT30M \
+              --output json)"
+            if jq -e \
+              'length == 1 and (.[0].requestCount | tonumber) == 1 and (.[0].dependencyCount | tonumber) >= 1' \
+              <<< "${telemetry_result}" > /dev/null; then
+              telemetry_observed=true
+              break
+            fi
+            if [ "${attempt}" -lt 20 ]; then
+              sleep 15
+            fi
+          done
+          if [ "${telemetry_observed}" != "true" ]; then
+            echo "::error title=Private Orders telemetry missing::Application Insights did not return one correlated Orders request and its successful MCP dependency within the bounded observation window."
+            exit 1
+          fi
+          echo "Orders workload identity telemetry observed: correlated request=1; dependency>=1"

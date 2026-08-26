@@ -3,10 +3,92 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 script="${repo_root}/scripts/gate/verify-private-mcp.sh"
+orders_script="${repo_root}/scripts/gate/verify-private-orders.sh"
 workflow="${repo_root}/.github/workflows/ephemeral-env.yml"
 program="${repo_root}/src/McpTools.AspNetCore/Program.cs"
 
 bash -n "${script}"
+bash -n "${orders_script}"
+
+orders_test_dir="$(mktemp -d)"
+trap 'rm -rf "${orders_test_dir}"' EXIT
+mkdir -p "${orders_test_dir}/bin"
+cat > "${orders_test_dir}/bin/curl" <<'CURL'
+#!/usr/bin/env bash
+set -euo pipefail
+
+authorization=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--header" ]; then
+    shift
+    case "$1" in
+      Authorization:*) authorization="${1#Authorization: }" ;;
+    esac
+  fi
+  shift
+done
+
+if [ -z "${authorization}" ]; then
+  status="${FAKE_ORDERS_ANONYMOUS_STATUS:-401}"
+  challenge='Bearer'
+else
+  status="${FAKE_ORDERS_SERVER_TOKEN_STATUS:-401}"
+  challenge='Bearer error="invalid_token"'
+fi
+
+printf 'HTTP/1.1 %s Test\r\nwww-authenticate: %s\r\n\r\n\n__ORDERS_STATUS__%s' \
+  "${status}" "${challenge}" "${status}"
+CURL
+chmod +x "${orders_test_dir}/bin/curl"
+
+orders_output="$(
+  PATH="${orders_test_dir}/bin:${PATH}" \
+  ORDERS_PRIVATE_HOST=orders.internal.example.test \
+  ORDERS_PRIVATE_IP=10.0.0.8 \
+  MCP_RESOURCE_AUDIENCE=api://mcp-server \
+  ORDERS_RESOURCE_AUDIENCE=api://orders-api \
+  MCP_SERVER_AUDIENCE_TOKEN=server-token \
+  bash "${orders_script}"
+)"
+if [ "${orders_output}" != "private Orders audience isolation checks passed" ]; then
+  echo "private Orders verifier did not accept the expected application rejections" >&2
+  exit 1
+fi
+
+same_audience_output="$(
+  PATH="${orders_test_dir}/bin:${PATH}" \
+  ORDERS_PRIVATE_HOST=orders.internal.example.test \
+  ORDERS_PRIVATE_IP=10.0.0.8 \
+  MCP_RESOURCE_AUDIENCE=api://shared \
+  ORDERS_RESOURCE_AUDIENCE=api://shared \
+  MCP_SERVER_AUDIENCE_TOKEN=server-token \
+  bash "${orders_script}" 2>&1 || true
+)"
+if [ "${same_audience_output}" != \
+  "private Orders verification failed: the MCP and Orders resource audiences must differ" ]; then
+  echo "private Orders verifier did not reject a shared audience" >&2
+  exit 1
+fi
+
+ambiguous_status_output="$(
+  PATH="${orders_test_dir}/bin:${PATH}" \
+  FAKE_ORDERS_SERVER_TOKEN_STATUS=403 \
+  ORDERS_PRIVATE_HOST=orders.internal.example.test \
+  ORDERS_PRIVATE_IP=10.0.0.8 \
+  MCP_RESOURCE_AUDIENCE=api://mcp-server \
+  ORDERS_RESOURCE_AUDIENCE=api://orders-api \
+  MCP_SERVER_AUDIENCE_TOKEN=server-token \
+  bash "${orders_script}" 2>&1 || true
+)"
+if [ "${ambiguous_status_output}" != \
+  "private Orders verification failed: the server-audience token returned 403; expected an application authentication rejection with 401" ]; then
+  echo "private Orders verifier did not reject an ambiguous response status" >&2
+  exit 1
+fi
+if [[ "${same_audience_output}${ambiguous_status_output}" == *server-token* ]]; then
+  echo "private Orders verifier leaked the bearer token in a diagnostic" >&2
+  exit 1
+fi
 
 for command in curl jq dig openssl; do
   if ! grep --fixed-strings --quiet "${command}" "${script}"; then
@@ -64,6 +146,19 @@ for required in \
   'the MCP response with content type ${content_type:-none} was neither JSON nor a JSON SSE event' \
   'TEST_CLIENT_SECRET' \
   'TEST_CLIENT_WITHOUT_ROLE_SECRET' \
+  'ORDERS_RESOURCE_AUDIENCE' \
+  '(.roles // []) | index("Orders.Read") != null' \
+  'MCP_SERVER_AUDIENCE_TOKEN="${app_token}"' \
+  'bash scripts/gate/verify-private-orders.sh' \
+  'orders_trace_id="$(openssl rand -hex 16)"' \
+  'traceparent: ${traceparent}' \
+  'orders_trace_id=%s' \
+  '.result.structuredContent.orderId == "CONTOSO-1001"' \
+  '.result.structuredContent.status == "Delivered"' \
+  '.result.structuredContent.updatedUtc == "2026-06-01T14:05:00Z"' \
+  'tool error without an application-role marker' \
+  'successful result without structuredContent' \
+  'structured fixture mismatch' \
   'unset app_token roleless_token wrong_audience_token'; do
   if ! grep --fixed-strings --quiet -- "${required}" "${script}"; then
     echo "private verifier lost required secret handling: ${required}" >&2
@@ -150,6 +245,16 @@ for required in \
   'terraform -chdir=infra/compositions/shared-observability-core init -input=false' \
   'terraform -chdir=infra/compositions/shared-observability-core output -raw application_insights_id' \
   'Private MCP deployment image reference: ${deployed_image}' \
+  '--query api.requestedAccessTokenVersion' \
+  'Orders access token version mismatch' \
+  'Orders resource app: requestedAccessTokenVersion=2' \
+  '.spec.template.spec.serviceAccountName == "mcp-server"' \
+  '.spec.template.metadata.labels["azure.workload.identity/use"] == "true"' \
+  'kubectl get serviceaccount mcp-server' \
+  '.metadata.annotations["azure.workload.identity/client-id"] // empty' \
+  '.name == "AZURE_CLIENT_ID" and .value == $client_id' \
+  'contains("clientsecret")' \
+  'MCP pod ${pod}: workload identity injected; no client secret' \
   '::add-mask::${component_id}' \
   'az rest' \
   '--method get' \
@@ -207,6 +312,10 @@ fi
 for required in \
   'outputs:' \
   'prm_verification_id: ${{ steps.private_mcp_data_plane.outputs.prm_verification_id }}' \
+  'orders_trace_id: ${{ steps.private_mcp_data_plane.outputs.orders_trace_id }}' \
+  'S1_TFVARS_JSON: ${{ secrets.S1_TFVARS_JSON }}' \
+  "orders_resource_audience=\"\$(jq -er '.downstream_entra_auth.allowed_audiences[0]' <<< \"\${S1_TFVARS_JSON}\")\"" \
+  'ORDERS_RESOURCE_AUDIENCE="${orders_resource_audience}"' \
   'id: private_mcp_data_plane'; do
   if ! grep --fixed-strings --quiet "${required}" <<< "${data_plane_job}"; then
     echo "private VNet verifier PRM correlation contract missing: ${required}" >&2
@@ -214,26 +323,53 @@ for required in \
   fi
 done
 
-request_context_job="$(workflow_job verify-private-request-context)"
-if [ -z "${request_context_job}" ]; then
-  echo "private request-context job is missing" >&2
+observability_job="$(workflow_job verify-private-observability)"
+if [ -z "${observability_job}" ]; then
+  echo "private observability job is missing" >&2
   exit 1
 fi
 for required in \
+  "if: always() && inputs.action == 'verify-private'" \
   'needs: verify-private-data-plane' \
   'runs-on: ubuntu-latest' \
+  'actions/checkout@v7' \
+  'hashicorp/setup-terraform@v4' \
+  'terraform_version: 1.15.8' \
   'prm_verification_id="${{ needs.verify-private-data-plane.outputs.prm_verification_id }}"' \
+  'orders_trace_id="${{ needs.verify-private-data-plane.outputs.orders_trace_id }}"' \
+  'data_plane_result="${{ needs.verify-private-data-plane.result }}"' \
+  "kubectl logs \"\${pod}\" -n mcp-platform -c mcp-server --since=10m" \
+  "'AADSTS[0-9]+'" \
+  'scope contract matches=${scope_contract_matches}' \
+  'audience contract matches=${audience_contract_matches}' \
+  'Raw pod logs and identifiers were not emitted.' \
   'kubectl logs "${pod}" -n mcp-platform -c mcp-server' \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https .* ${prm_verification_id}$' \
   'Private MCP request context /\\.well-known/oauth-protected-resource/mcp https ((::ffff:)?127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}|::1) ${prm_verification_id}$' \
   '::error title=Private MCP forwarded PRM context missing::' \
   '::error title=Private MCP forwarded PRM peer is not loopback::The correlated PRM request recorded immediate peer ${observed_peer:-unparsed}.' \
-  'Private MCP PRM request context observed: scheme=https; peer=loopback'; do
-  if ! grep --fixed-strings --quiet "${required}" <<< "${request_context_job}"; then
-    echo "private request-context verifier contract missing: ${required}" >&2
+  'Private MCP PRM request context observed: scheme=https; peer=loopback' \
+  'terraform -chdir=infra/compositions/shared-observability-core output -raw log_analytics_workspace_id' \
+  'az monitor log-analytics workspace show' \
+  '--ids "${workspace_resource_id}"' \
+  '--query customerId' \
+  'AppRequests' \
+  'AppDependencies' \
+  'OperationId == trace_id' \
+  'Url endswith "/api/orders/CONTOSO-1001"' \
+  'Data contains_cs "/api/orders/CONTOSO-1001"' \
+  '(.[0].requestCount | tonumber) == 1 and (.[0].dependencyCount | tonumber) >= 1' \
+  'Orders workload identity telemetry observed: correlated request=1; dependency>=1'; do
+  if ! grep --fixed-strings --quiet -- "${required}" <<< "${observability_job}"; then
+    echo "private observability verifier contract missing: ${required}" >&2
     exit 1
   fi
 done
+
+if ! jq -e 'length == 1 and (.[0].requestCount | tonumber) == 1 and (.[0].dependencyCount | tonumber) >= 1' <<< '[{"requestCount":"1","dependencyCount":"1"}]' >/dev/null; then
+  echo "private observability verifier must accept string-encoded Kusto counts" >&2
+  exit 1
+fi
 
 loopback_pattern='Private MCP request context /\.well-known/oauth-protected-resource/mcp https ((::ffff:)?127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|::1) [0-9a-f]{32}$'
 if ! grep --extended-regexp --quiet "${loopback_pattern}" \
